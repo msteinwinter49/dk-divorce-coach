@@ -1,0 +1,85 @@
+"use client";
+import { useState } from "react";
+import { C, S } from "@/lib/constants";
+import { createClient } from "@/lib/supabase/client";
+
+export default function ContactPage() {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [processStage, setProcessStage] = useState("Just starting to consider separation");
+  const [message, setMessage] = useState("");
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+      setError("Please fill in your name and email.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: insertError } = await supabase.from("contact_submissions").insert({
+      first_name: firstName,
+      last_name: lastName,
+      email,
+      phone: phone || null,
+      process_stage: processStage,
+      message: message || null,
+    });
+    setSubmitting(false);
+    if (insertError) {
+      setError("Something went wrong. Please try again.");
+    } else {
+      setSent(true);
+    }
+  };
+
+  return (
+    <div style={S.page}>
+      <h1 style={S.h1}>Let&#39;s talk</h1>
+      <p style={S.p}>The first step is often the hardest. Reach out below and Diana will personally respond within one business day to schedule a free 30-minute consultation.</p>
+      {sent ? (
+        <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, textAlign:"center", padding:"2.5rem" }}>
+          <div style={{ fontSize:16, fontWeight:500, color:C.teal, marginBottom:8 }}>Thank you for reaching out.</div>
+          <p style={{...S.p, color:C.teal, marginBottom:0}}>Diana will be in touch within one business day. You&#39;re taking a courageous step — for yourself and for your children.</p>
+        </div>
+      ) : (
+        <div style={S.card}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <div><label style={S.label}>First name</label><input style={S.input} placeholder="Jane" value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
+            <div><label style={S.label}>Last name</label><input style={S.input} placeholder="Smith" value={lastName} onChange={e => setLastName(e.target.value)} /></div>
+          </div>
+          <label style={S.label}>Email address</label>
+          <input style={S.input} placeholder="jane@example.com" type="email" value={email} onChange={e => setEmail(e.target.value)} />
+          <label style={S.label}>Phone (optional)</label>
+          <input style={S.input} placeholder="(555) 012-3456" type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+          <label style={S.label}>Where are you in the process?</label>
+          <select style={{...S.input}} value={processStage} onChange={e => setProcessStage(e.target.value)}>
+            <option>Just starting to consider separation</option>
+            <option>Separation is underway</option>
+            <option>Divorce is finalized — navigating co-parenting</option>
+            <option>Dealing with a specific custody challenge</option>
+          </select>
+          <label style={S.label}>What&#39;s on your mind?</label>
+          <textarea style={{...S.input, height:110, resize:"vertical"}} placeholder="Share as little or as much as you&#39;d like..." value={message} onChange={e => setMessage(e.target.value)} />
+          {error && <p style={{ fontSize:13, color:"#c0392b", marginBottom:12 }}>{error}</p>}
+          <button style={S.btn} onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "Sending..." : "Send message"}
+          </button>
+        </div>
+      )}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12, marginTop:"1.5rem" }}>
+        {[["Email","diana@dkdivorcecoach.com"],["Sessions","Video & phone"],["Hours","Mon\u2013Fri, 9am\u20135pm EST"]].map(([l,v]) => (
+          <div key={l} style={{ ...S.card, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontSize:12, color:C.hint }}>{l}</div>
+            <div style={{ fontSize:13, fontWeight:500, color:C.text }}>{v}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
