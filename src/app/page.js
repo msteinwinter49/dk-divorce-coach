@@ -160,7 +160,7 @@ function Nav({ page, setPage, inPortal, setInPortal }) {
             {["Home","About","Contact"].map(l => (
               <button key={l} style={{...S.navLink,...(page===l?S.navLinkActive:{})}} onClick={() => setPage(l)}>{l}</button>
             ))}
-            <button style={S.btnSm} onClick={() => { setInPortal(true); setPage("Portal Home"); }}>Client Login</button>
+            <button style={S.btnSm} onClick={() => { setInPortal(true); setPage("Portal Home"); }}>{mobile ? "Login" : "Client Login"}</button>
           </>
         ) : (
           <>
