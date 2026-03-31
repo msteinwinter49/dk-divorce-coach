@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import { C, S } from "@/lib/constants";
-import { createClient } from "@/lib/supabase/client";
 
 export default function ContactPage() {
   const [firstName, setFirstName] = useState("");
@@ -21,17 +20,20 @@ export default function ContactPage() {
     }
     setSubmitting(true);
     setError(null);
-    const supabase = createClient();
-    const { error: insertError } = await supabase.from("contact_submissions").insert({
-      first_name: firstName,
-      last_name: lastName,
-      email,
-      phone: phone || null,
-      process_stage: processStage,
-      message: message || null,
+    const res = await fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        first_name: firstName,
+        last_name: lastName,
+        email,
+        phone: phone || null,
+        process_stage: processStage,
+        message: message || null,
+      }),
     });
     setSubmitting(false);
-    if (insertError) {
+    if (!res.ok) {
       setError("Something went wrong. Please try again.");
     } else {
       setSent(true);
@@ -72,14 +74,6 @@ export default function ContactPage() {
           </button>
         </div>
       )}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12, marginTop:"1.5rem" }}>
-        {[["Email","diana@dkdivorcecoach.com"],["Sessions","Video & phone"],["Hours","Mon\u2013Fri, 9am\u20135pm EST"]].map(([l,v]) => (
-          <div key={l} style={{ ...S.card, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div style={{ fontSize:12, color:C.hint }}>{l}</div>
-            <div style={{ fontSize:13, fontWeight:500, color:C.text }}>{v}</div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

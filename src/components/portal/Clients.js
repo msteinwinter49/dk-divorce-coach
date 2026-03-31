@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { C, S } from "@/lib/constants";
 
-export default function Clients() {
+export default function Clients({ setPage }) {
   // Invite form state
   const [email, setEmail] = useState("");
   const [makeAdmin, setMakeAdmin] = useState(false);
@@ -111,6 +111,7 @@ export default function Clients() {
 
   return (
     <div style={S.page}>
+      <button style={{ ...S.navLink, marginBottom:12, fontSize:13, color:C.teal }} onClick={() => setPage("Admin")}>&larr; Back to Admin</button>
       <h1 style={{...S.h1, fontSize:26}}>Clients</h1>
 
       {/* Invite section */}

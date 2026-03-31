@@ -11,8 +11,11 @@ import PortalHome from "@/components/portal/PortalHome";
 import Documents from "@/components/portal/Documents";
 import Schedule from "@/components/portal/Schedule";
 import Messages from "@/components/portal/Messages";
-import Clients from "@/components/portal/Clients";
 import Profile from "@/components/portal/Profile";
+import Admin from "@/components/portal/Admin";
+import Clients from "@/components/portal/Clients";
+import AdminCalendar from "@/components/portal/AdminCalendar";
+import AdminSettings from "@/components/portal/AdminSettings";
 
 export default function App() {
   const { user, profile, loading, refreshProfile } = useAuth();
@@ -43,7 +46,12 @@ export default function App() {
     if (page === "Documents") return <Documents />;
     if (page === "Schedule") return <Schedule />;
     if (page === "Messages") return <Messages />;
-    if (page === "Clients" && isAdmin) return <Clients />;
+    if (isAdmin) {
+      if (page === "Admin") return <Admin setPage={setPage} />;
+      if (page === "Admin Clients") return <Clients setPage={setPage} />;
+      if (page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
+      if (page === "Admin Settings") return <AdminSettings setPage={setPage} />;
+    }
     return <PortalHome setPage={setPage} />;
   };
 

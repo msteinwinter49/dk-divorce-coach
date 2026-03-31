@@ -14,8 +14,10 @@ export default function Nav({ page, setPage, inPortal, onLogout }) {
     ["Schedule","Schedule"],
     ["Messages","Messages"],
     ["Profile","Profile"],
-    ...(isAdmin ? [["Clients","Clients"]] : []),
+    ...(isAdmin ? [["Admin","Admin"]] : []),
   ];
+
+  const isActive = (p) => page === p || (p === "Admin" && page.startsWith("Admin"));
 
   if (mobile) return (
     <nav style={{ borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 }}>
@@ -30,9 +32,9 @@ export default function Nav({ page, setPage, inPortal, onLogout }) {
           [["Home","Home"],["About","About"],["Contact","Contact"],["Login","Login"]].map(([l,p]) => (
             <button key={l} onClick={() => setPage(p)}
               style={{ flex:1, padding:"10px 4px", fontSize:12, fontFamily:"inherit", border:"none",
-                borderBottom: page===p ? `2px solid ${C.teal}` : "2px solid transparent",
-                background:"none", color: page===p ? C.teal : C.muted,
-                fontWeight: page===p ? 500 : 400, cursor:"pointer" }}>
+                borderBottom: isActive(p) ? `2px solid ${C.teal}` : "2px solid transparent",
+                background:"none", color: isActive(p) ? C.teal : C.muted,
+                fontWeight: isActive(p) ? 500 : 400, cursor:"pointer" }}>
               {l}
             </button>
           ))
@@ -40,9 +42,9 @@ export default function Nav({ page, setPage, inPortal, onLogout }) {
           portalLinks.map(([p,l]) => (
             <button key={p} onClick={() => setPage(p)}
               style={{ flex:1, padding:"10px 4px", fontSize:12, fontFamily:"inherit", border:"none",
-                borderBottom: page===p ? `2px solid ${C.teal}` : "2px solid transparent",
-                background:"none", color: page===p ? C.teal : C.muted,
-                fontWeight: page===p ? 500 : 400, cursor:"pointer" }}>
+                borderBottom: isActive(p) ? `2px solid ${C.teal}` : "2px solid transparent",
+                background:"none", color: isActive(p) ? C.teal : C.muted,
+                fontWeight: isActive(p) ? 500 : 400, cursor:"pointer" }}>
               {l}
             </button>
           ))
@@ -68,7 +70,7 @@ export default function Nav({ page, setPage, inPortal, onLogout }) {
         ) : (
           <>
             {portalLinks.map(([p,l]) => (
-              <button key={p} style={{...S.navLink,...(page===p?S.navLinkActive:{})}} onClick={() => setPage(p)}>{l}</button>
+              <button key={p} style={{...S.navLink,...(isActive(p)?S.navLinkActive:{})}} onClick={() => setPage(p)}>{l}</button>
             ))}
             <button style={S.btnSmOut} onClick={() => { onLogout(); setPage("Home"); }}>Log out</button>
           </>
