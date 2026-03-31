@@ -130,29 +130,46 @@ function IllustrationCoach() {
 
 function Nav({ page, setPage, inPortal, setInPortal }) {
   const mobile = useIsMobile();
-  if (inPortal && mobile) return (
+
+  if (mobile) return (
     <nav style={{ borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 1rem", height:48 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 1rem", height:44 }}>
         <div style={S.logo} onClick={() => { setInPortal(false); setPage("Home"); }}>
           <span style={S.logoMain}>DK Divorce Coach</span>
         </div>
-        <button style={S.btnSmOut} onClick={() => { setInPortal(false); setPage("Home"); }}>Log out</button>
+        {inPortal && <button style={S.btnSmOut} onClick={() => { setInPortal(false); setPage("Home"); }}>Log out</button>}
       </div>
-      <div style={{ display:"flex", gap:0, borderTop:`0.5px solid ${C.border}` }}>
-        {[["Portal Home","Home"],["Documents","Docs"],["Schedule","Schedule"],["Messages","Messages"]].map(([p,l]) => (
-          <button key={p} onClick={() => setPage(p)}
-            style={{ flex:1, padding:"10px 4px", fontSize:12, fontFamily:"inherit", border:"none", borderBottom: page===p ? `2px solid ${C.teal}` : "2px solid transparent", background:"none", color: page===p ? C.teal : C.muted, fontWeight: page===p ? 500 : 400, cursor:"pointer" }}>
-            {l}
-          </button>
-        ))}
+      <div style={{ display:"flex", borderTop:`0.5px solid ${C.border}` }}>
+        {!inPortal ? (
+          [["Home","Home"],["About","About"],["Contact","Contact"],["Login","Portal Home"]].map(([l,p]) => (
+            <button key={l} onClick={() => { if(p==="Portal Home"){ setInPortal(true); } setPage(p); }}
+              style={{ flex:1, padding:"10px 4px", fontSize:12, fontFamily:"inherit", border:"none",
+                borderBottom: page===p ? `2px solid ${C.teal}` : "2px solid transparent",
+                background:"none", color: page===p ? C.teal : C.muted,
+                fontWeight: page===p ? 500 : 400, cursor:"pointer" }}>
+              {l}
+            </button>
+          ))
+        ) : (
+          [["Portal Home","Home"],["Documents","Docs"],["Schedule","Schedule"],["Messages","Messages"]].map(([p,l]) => (
+            <button key={p} onClick={() => setPage(p)}
+              style={{ flex:1, padding:"10px 4px", fontSize:12, fontFamily:"inherit", border:"none",
+                borderBottom: page===p ? `2px solid ${C.teal}` : "2px solid transparent",
+                background:"none", color: page===p ? C.teal : C.muted,
+                fontWeight: page===p ? 500 : 400, cursor:"pointer" }}>
+              {l}
+            </button>
+          ))
+        )}
       </div>
     </nav>
   );
+
   return (
     <nav style={S.nav}>
       <div style={S.logo} onClick={() => { setInPortal(false); setPage("Home"); }}>
         <span style={S.logoMain}>DK Divorce Coach</span>
-        {!mobile && <span style={S.logoSub}>DIANA KIEREIN · CDC</span>}
+        <span style={S.logoSub}>DIANA KIEREIN · CDC</span>
       </div>
       <div style={S.navLinks}>
         {!inPortal ? (
@@ -160,7 +177,7 @@ function Nav({ page, setPage, inPortal, setInPortal }) {
             {["Home","About","Contact"].map(l => (
               <button key={l} style={{...S.navLink,...(page===l?S.navLinkActive:{})}} onClick={() => setPage(l)}>{l}</button>
             ))}
-            <button style={S.btnSm} onClick={() => { setInPortal(true); setPage("Portal Home"); }}>{mobile ? "Login" : "Client Login"}</button>
+            <button style={S.btnSm} onClick={() => { setInPortal(true); setPage("Portal Home"); }}>Client Login</button>
           </>
         ) : (
           <>
