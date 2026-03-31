@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const C = {
   teal: "#0F6E56", tealLight: "#E1F5EE", tealMid: "#5DCAA5",
@@ -9,20 +9,31 @@ const C = {
   border: "rgba(0,0,0,0.1)",
 };
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return mobile;
+}
+
 const S = {
-  nav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 2rem", height:64, borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 },
-  logo: { display:"flex", flexDirection:"column", cursor:"pointer" },
-  logoMain: { fontSize:17, fontWeight:500, color:C.teal, lineHeight:1.2 },
-  logoSub: { fontSize:11, color:C.muted, letterSpacing:"0.05em" },
-  navLinks: { display:"flex", gap:"1.5rem", alignItems:"center" },
-  navLink: { fontSize:14, color:C.muted, cursor:"pointer", background:"none", border:"none", fontFamily:"inherit", padding:"4px 0" },
+  nav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 1rem", height:56, borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 },
+  logo: { display:"flex", flexDirection:"column", cursor:"pointer", flexShrink:0 },
+  logoMain: { fontSize:15, fontWeight:500, color:C.teal, lineHeight:1.2, whiteSpace:"nowrap" },
+  logoSub: { fontSize:10, color:C.muted, letterSpacing:"0.05em", whiteSpace:"nowrap" },
+  navLinks: { display:"flex", gap:"0.75rem", alignItems:"center", flexWrap:"wrap" },
+  navLink: { fontSize:13, color:C.muted, cursor:"pointer", background:"none", border:"none", fontFamily:"inherit", padding:"4px 0" },
   navLinkActive: { color:C.teal, fontWeight:500 },
   btn: { background:C.teal, color:"#fff", border:"none", borderRadius:8, padding:"11px 24px", fontSize:14, cursor:"pointer", fontFamily:"inherit" },
   btnOutline: { background:"none", color:C.teal, border:`1px solid ${C.teal}`, borderRadius:8, padding:"11px 24px", fontSize:14, cursor:"pointer", fontFamily:"inherit" },
-  btnSm: { background:C.teal, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, cursor:"pointer", fontFamily:"inherit" },
-  btnSmOut: { background:"none", color:C.muted, border:`0.5px solid ${C.border}`, borderRadius:8, padding:"8px 18px", fontSize:13, cursor:"pointer", fontFamily:"inherit" },
-  page: { minHeight:"calc(100vh - 64px)", padding:"3rem 2rem", maxWidth:800, margin:"0 auto" },
-  h1: { fontSize:34, fontWeight:500, color:C.text, marginBottom:"1rem", lineHeight:1.25 },
+  btnSm: { background:C.teal, color:"#fff", border:"none", borderRadius:8, padding:"8px 14px", fontSize:12, cursor:"pointer", fontFamily:"inherit" },
+  btnSmOut: { background:"none", color:C.muted, border:`0.5px solid ${C.border}`, borderRadius:8, padding:"8px 14px", fontSize:12, cursor:"pointer", fontFamily:"inherit" },
+  page: { minHeight:"calc(100vh - 64px)", padding:"2rem 1rem", maxWidth:800, margin:"0 auto" },
+  h1: { fontSize:30, fontWeight:500, color:C.text, marginBottom:"1rem", lineHeight:1.25 },
   h2: { fontSize:22, fontWeight:500, color:C.text, marginBottom:"0.75rem" },
   h3: { fontSize:16, fontWeight:500, color:C.text, marginBottom:"0.5rem" },
   p: { fontSize:15, color:C.muted, lineHeight:1.75, marginBottom:"1rem" },
@@ -33,7 +44,7 @@ const S = {
 
 function IllustrationHero() {
   return (
-    <svg viewBox="0 0 420 280" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",maxWidth:420}}>
+    <svg viewBox="0 0 420 280" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",maxWidth:340}}>
       <ellipse cx="210" cy="255" rx="180" ry="18" fill="#E1F5EE"/>
       <circle cx="210" cy="130" r="22" fill="#FAC775"/>
       <line x1="210" y1="152" x2="210" y2="210" stroke="#AFA9EC" strokeWidth="3" strokeLinecap="round"/>
@@ -70,7 +81,7 @@ function IllustrationHero() {
 
 function IllustrationCoParent() {
   return (
-    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",maxWidth:320}}>
+    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",maxWidth:280}}>
       <ellipse cx="160" cy="165" rx="130" ry="12" fill="#E1F5EE"/>
       <circle cx="80" cy="75" r="22" fill="#9FE1CB"/>
       <line x1="80" y1="97" x2="80" y2="148" stroke="#5DCAA5" strokeWidth="3" strokeLinecap="round"/>
@@ -99,7 +110,7 @@ function IllustrationCoParent() {
 
 function IllustrationCoach() {
   return (
-    <svg viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",maxWidth:180}}>
+    <svg viewBox="0 0 200 220" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",maxWidth:150}}>
       <ellipse cx="100" cy="205" rx="70" ry="10" fill="#E1F5EE"/>
       <circle cx="100" cy="60" r="32" fill="#FAC775"/>
       <path d="M70 52 Q72 25 100 26 Q128 25 130 52 Q125 35 100 36 Q75 35 70 52Z" fill="#BA7517" opacity="0.7"/>
@@ -118,11 +129,30 @@ function IllustrationCoach() {
 }
 
 function Nav({ page, setPage, inPortal, setInPortal }) {
+  const mobile = useIsMobile();
+  if (inPortal && mobile) return (
+    <nav style={{ borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 1rem", height:48 }}>
+        <div style={S.logo} onClick={() => { setInPortal(false); setPage("Home"); }}>
+          <span style={S.logoMain}>DK Divorce Coach</span>
+        </div>
+        <button style={S.btnSmOut} onClick={() => { setInPortal(false); setPage("Home"); }}>Log out</button>
+      </div>
+      <div style={{ display:"flex", gap:0, borderTop:`0.5px solid ${C.border}` }}>
+        {[["Portal Home","Home"],["Documents","Docs"],["Schedule","Schedule"],["Messages","Messages"]].map(([p,l]) => (
+          <button key={p} onClick={() => setPage(p)}
+            style={{ flex:1, padding:"10px 4px", fontSize:12, fontFamily:"inherit", border:"none", borderBottom: page===p ? `2px solid ${C.teal}` : "2px solid transparent", background:"none", color: page===p ? C.teal : C.muted, fontWeight: page===p ? 500 : 400, cursor:"pointer" }}>
+            {l}
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
   return (
     <nav style={S.nav}>
       <div style={S.logo} onClick={() => { setInPortal(false); setPage("Home"); }}>
         <span style={S.logoMain}>DK Divorce Coach</span>
-        <span style={S.logoSub}>DIANA KIEREIN · CDC</span>
+        {!mobile && <span style={S.logoSub}>DIANA KIEREIN · CDC</span>}
       </div>
       <div style={S.navLinks}>
         {!inPortal ? (
@@ -134,7 +164,7 @@ function Nav({ page, setPage, inPortal, setInPortal }) {
           </>
         ) : (
           <>
-            {[["Portal Home","Home"],["Documents","Documents"],["Schedule","Schedule"],["Messages","Messages"]].map(([p,l]) => (
+            {[["Portal Home","Home"],["Documents","Docs"],["Schedule","Schedule"],["Messages","Messages"]].map(([p,l]) => (
               <button key={p} style={{...S.navLink,...(page===p?S.navLinkActive:{})}} onClick={() => setPage(p)}>{l}</button>
             ))}
             <button style={S.btnSmOut} onClick={() => { setInPortal(false); setPage("Home"); }}>Log out</button>
@@ -146,28 +176,31 @@ function Nav({ page, setPage, inPortal, setInPortal }) {
 }
 
 function HomePage({ setPage, setInPortal }) {
+  const mobile = useIsMobile();
   return (
     <div style={{ minHeight:"calc(100vh - 64px)" }}>
-      <div style={{ background:`linear-gradient(160deg, ${C.tealLight} 0%, #fff 55%)`, padding:"4rem 2rem 3rem" }}>
-        <div style={{ maxWidth:800, margin:"0 auto", display:"grid", gridTemplateColumns:"1fr auto", gap:"2rem", alignItems:"center" }}>
+      <div style={{ background:`linear-gradient(160deg, ${C.tealLight} 0%, #fff 55%)`, padding: mobile ? "2.5rem 1rem 2rem" : "4rem 2rem 3rem" }}>
+        <div style={{ maxWidth:800, margin:"0 auto", display:"flex", flexDirection: mobile ? "column" : "row", gap:"2rem", alignItems:"center" }}>
           <div>
             <p style={{ fontSize:13, color:C.teal, fontWeight:500, letterSpacing:"0.08em", marginBottom:"0.75rem" }}>CERTIFIED DIVORCE COACHING</p>
-            <h1 style={{...S.h1, fontSize:36}}>Your children deserve to thrive — even through this.</h1>
-            <p style={{ fontSize:16, color:C.muted, lineHeight:1.75, marginBottom:"1.75rem", maxWidth:480 }}>
+            <h1 style={{...S.h1, fontSize: mobile ? 26 : 36}}>Your children deserve to thrive — even through this.</h1>
+            <p style={{ fontSize:15, color:C.muted, lineHeight:1.75, marginBottom:"1.75rem" }}>
               Diana Kierein helps separating parents navigate one of life's hardest transitions with clarity, cooperation, and an unwavering focus on protecting their kids.
             </p>
-            <div style={{ display:"flex", gap:12 }}>
+            <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
               <button style={S.btn} onClick={() => setPage("Contact")}>Book a free call</button>
               <button style={S.btnOutline} onClick={() => setPage("About")}>Meet Diana</button>
             </div>
           </div>
-          <IllustrationHero />
+          {!mobile && <IllustrationHero />}
         </div>
+        {mobile && <div style={{ textAlign:"center", marginTop:"1.5rem" }}><IllustrationHero /></div>}
       </div>
-      <div style={{ padding:"3rem 2rem", maxWidth:800, margin:"0 auto" }}>
+
+      <div style={{ padding: mobile ? "2rem 1rem" : "3rem 2rem", maxWidth:800, margin:"0 auto" }}>
         <h2 style={{...S.h2, textAlign:"center", marginBottom:"0.5rem"}}>How I can help</h2>
         <p style={{...S.p, textAlign:"center", marginBottom:"2rem"}}>Every family's situation is unique. My coaching meets you where you are.</p>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:16 }}>
+        <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(2,1fr)", gap:16 }}>
           {[
             ["Co-Parenting Planning","Build a parenting plan that puts your children's stability first — reducing conflict and confusion for everyone."],
             ["Child-Focused Guidance","Learn how to talk to your kids about the separation, recognize signs of stress, and maintain their sense of security."],
@@ -181,9 +214,10 @@ function HomePage({ setPage, setInPortal }) {
           ))}
         </div>
       </div>
-      <div style={{ background:C.warm, padding:"3rem 2rem" }}>
-        <div style={{ maxWidth:800, margin:"0 auto", display:"grid", gridTemplateColumns:"auto 1fr", gap:"3rem", alignItems:"center" }}>
-          <IllustrationCoParent />
+
+      <div style={{ background:C.warm, padding: mobile ? "2rem 1rem" : "3rem 2rem" }}>
+        <div style={{ maxWidth:800, margin:"0 auto", display:"flex", flexDirection: mobile ? "column" : "row", gap:"2rem", alignItems:"center" }}>
+          <div style={{ textAlign:"center" }}><IllustrationCoParent /></div>
           <div>
             <h2 style={S.h2}>Children do better when parents cooperate</h2>
             <p style={S.p}>Research consistently shows that kids adjust better to family change when their parents can set aside differences and communicate respectfully. That doesn't mean you have to agree on everything — it means finding a way to put your children at the center.</p>
@@ -191,7 +225,8 @@ function HomePage({ setPage, setInPortal }) {
           </div>
         </div>
       </div>
-      <div style={{ padding:"3rem 2rem", textAlign:"center" }}>
+
+      <div style={{ padding:"3rem 1rem", textAlign:"center" }}>
         <h2 style={S.h2}>Ready to take the first step?</h2>
         <p style={{...S.p, maxWidth:440, margin:"0 auto 1.5rem"}}>A free 30-minute consultation is the best way to find out if we're a good fit. No pressure, no commitment.</p>
         <button style={S.btn} onClick={() => setPage("Contact")}>Schedule a free call</button>
@@ -201,19 +236,22 @@ function HomePage({ setPage, setInPortal }) {
 }
 
 function AboutPage() {
+  const mobile = useIsMobile();
   return (
     <div style={S.page}>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:"3rem", alignItems:"start", marginBottom:"2rem" }}>
-        <div>
+      {mobile && <div style={{ textAlign:"center", marginBottom:"1.5rem" }}><IllustrationCoach /></div>}
+      <div style={{ display:"flex", flexDirection:"row", gap:"2rem", alignItems:"start", marginBottom:"2rem" }}>
+        <div style={{ flex:1, minWidth:0 }}>
           <p style={{ fontSize:13, color:C.teal, fontWeight:500, letterSpacing:"0.08em", marginBottom:"0.5rem" }}>MEET YOUR COACH</p>
           <h1 style={S.h1}>Diana Kierein, CDC</h1>
           <p style={S.p}>I became a Certified Divorce Coach because I believe that how parents navigate separation shapes their children's futures. Too often, the legal process takes center stage — while the emotional and practical needs of children and families are left behind.</p>
           <p style={S.p}>My work focuses on helping parents slow down, think clearly, and make decisions they'll be proud of — decisions that protect their kids and lay the foundation for a healthy co-parenting relationship for years to come.</p>
           <p style={S.p}>I bring warmth, structure, and deep experience to every session. Whether you're just beginning to face the reality of separation or navigating a difficult custody situation, you don't have to do this alone.</p>
         </div>
-        <IllustrationCoach />
+        {!mobile && <div style={{ textAlign:"center", flexShrink:0 }}><IllustrationCoach /></div>}
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:"2rem" }}>
+
+      <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(3,1fr)", gap:12, marginBottom:"2rem" }}>
         {[["Certified","Divorce Coach (CDC)"],["Specialized","Child-focused separation"],["Experienced","Hundreds of families helped"]].map(([t,d]) => (
           <div key={t} style={{ ...S.card, textAlign:"center", background:C.tealLight, border:`0.5px solid ${C.tealMid}` }}>
             <div style={{ fontSize:14, fontWeight:500, color:C.teal }}>{t}</div>
@@ -221,11 +259,13 @@ function AboutPage() {
           </div>
         ))}
       </div>
+
       <div style={S.card}>
         <h3 style={S.h3}>My approach</h3>
         <p style={S.p}>Divorce coaching is not therapy, and it's not legal advice. It sits alongside both — helping you process emotions enough to think clearly, prepare for difficult conversations, and stay focused on what matters most: your children's wellbeing and your family's future.</p>
         <p style={{...S.p, marginBottom:0}}>Sessions are available by video or phone. I work with individual parents as well as co-parenting pairs who are committed to putting their kids first.</p>
       </div>
+
       <div style={{ ...S.card, background:C.purpleLight, border:`0.5px solid #CECBF6` }}>
         <p style={{ fontSize:15, fontStyle:"italic", color:"#3C3489", lineHeight:1.8, marginBottom:"0.5rem" }}>
           "Children don't need perfect parents. They need parents who love them enough to work together — even when it's hard."
@@ -269,10 +309,10 @@ function ContactPage() {
           <button style={S.btn} onClick={() => setSent(true)}>Send message</button>
         </div>
       )}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginTop:"1.5rem" }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:12, marginTop:"1.5rem" }}>
         {[["Email","diana@dkdivorcecoach.com"],["Sessions","Video & phone"],["Hours","Mon–Fri, 9am–5pm EST"]].map(([l,v]) => (
-          <div key={l} style={{ ...S.card, textAlign:"center" }}>
-            <div style={{ fontSize:12, color:C.hint, marginBottom:4 }}>{l}</div>
+          <div key={l} style={{ ...S.card, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontSize:12, color:C.hint }}>{l}</div>
             <div style={{ fontSize:13, fontWeight:500, color:C.text }}>{v}</div>
           </div>
         ))}
@@ -299,13 +339,14 @@ function LoginPage({ setPage, setInPortal }) {
 }
 
 function PortalHome({ setPage }) {
+  const mobile = useIsMobile();
   return (
     <div style={S.page}>
       <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, marginBottom:"1.5rem" }}>
         <h2 style={{...S.h2, color:C.teal}}>Welcome back, Jane</h2>
         <p style={{...S.p, color:C.teal, marginBottom:0}}>Your next session with Diana is on <strong>April 8 at 10:00 AM</strong>. A video link will be sent to your email 30 minutes before.</p>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12 }}>
+      <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(3,1fr)", gap:12 }}>
         {[["Documents","3 new files shared"],["Schedule","Next: Apr 8, 10am"],["Messages","1 unread message"]].map(([t,d]) => (
           <div key={t} style={{ ...S.card, cursor:"pointer" }} onClick={() => setPage(t)}>
             <h3 style={{ ...S.h3, color:C.teal }}>{t}</h3>
@@ -342,15 +383,15 @@ function Documents() {
       {docs.map(d => {
         const tc = tagColor(d.tag);
         return (
-          <div key={d.name} style={{ ...S.card, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:36, height:36, borderRadius:8, background:C.warm, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:500, color:C.muted }}>PDF</div>
-              <div>
-                <div style={{ fontSize:14, fontWeight:500, color:C.text }}>{d.name}</div>
+          <div key={d.name} style={{ ...S.card, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer", gap:12 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, minWidth:0 }}>
+              <div style={{ width:36, height:36, borderRadius:8, background:C.warm, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:500, color:C.muted, flexShrink:0 }}>PDF</div>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:500, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.name}</div>
                 <div style={{ fontSize:12, color:C.hint, marginTop:2 }}>{d.date}</div>
               </div>
             </div>
-            <span style={{ fontSize:11, padding:"3px 10px", borderRadius:20, background:tc.bg, color:tc.color, fontWeight:500 }}>{d.tag}</span>
+            <span style={{ fontSize:11, padding:"3px 10px", borderRadius:20, background:tc.bg, color:tc.color, fontWeight:500, flexShrink:0 }}>{d.tag}</span>
           </div>
         );
       })}
@@ -362,6 +403,7 @@ function Schedule() {
   const [selDay, setSelDay] = useState(null);
   const [selSlot, setSelSlot] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
+  const mobile = useIsMobile();
   const avail = new Set([2,3,6,7,9,10,13,14,16,17,20,21]);
   const booked = { 3:["9:00 AM"], 9:["2:00 PM"], 16:["11:00 AM"] };
   const slots = ["9:00 AM","10:00 AM","11:00 AM","1:00 PM","2:00 PM","3:30 PM","4:30 PM"];
@@ -393,7 +435,7 @@ function Schedule() {
             const isSel = selDay===d;
             return (
               <div key={d} onClick={() => { if(isAvail){ setSelDay(d); setSelSlot(null); } }}
-                style={{ aspectRatio:"1", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:8, fontSize:14, cursor:isAvail?"pointer":"default",
+                style={{ aspectRatio:"1", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:8, fontSize: mobile ? 12 : 14, cursor:isAvail?"pointer":"default",
                   background:isSel?C.teal:isAvail?C.tealLight:"transparent",
                   color:isSel?"#fff":isAvail?C.teal:C.hint,
                   border:`0.5px solid ${isSel?C.teal:isAvail?C.tealMid:"transparent"}` }}>
@@ -405,7 +447,7 @@ function Schedule() {
         {selDay && (
           <>
             <p style={{ fontSize:13, color:C.muted, marginBottom:12 }}>Available times — April {selDay}</p>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
+            <div style={{ display:"grid", gridTemplateColumns: mobile ? "repeat(3,1fr)" : "repeat(4,1fr)", gap:8 }}>
               {slots.map(s => {
                 const isBooked = (booked[selDay]||[]).includes(s);
                 const isPicked = selSlot===s;
@@ -424,7 +466,7 @@ function Schedule() {
           </>
         )}
         {selSlot && (
-          <div style={{ marginTop:"1.25rem", padding:"1rem 1.25rem", background:C.warm, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ marginTop:"1.25rem", padding:"1rem", background:C.warm, borderRadius:12, display:"flex", flexDirection: mobile ? "column" : "row", alignItems: mobile ? "flex-start" : "center", justifyContent:"space-between", gap:12 }}>
             <div>
               <div style={{ fontSize:14, fontWeight:500 }}>April {selDay}, 2026 · {selSlot}</div>
               <div style={{ fontSize:13, color:C.muted, marginTop:2 }}>60-min session with Diana Kierein</div>
@@ -454,7 +496,7 @@ function Messages() {
       <h1 style={{...S.h1, fontSize:26}}>Messages</h1>
       <div style={{ ...S.card, padding:0, overflow:"hidden" }}>
         <div style={{ padding:"1rem 1.25rem", borderBottom:`0.5px solid ${C.border}`, display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ width:36, height:36, borderRadius:"50%", background:C.tealLight, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:500, color:C.teal }}>DK</div>
+          <div style={{ width:36, height:36, borderRadius:"50%", background:C.tealLight, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:500, color:C.teal, flexShrink:0 }}>DK</div>
           <div>
             <div style={{ fontSize:14, fontWeight:500 }}>Diana Kierein, CDC</div>
             <div style={{ fontSize:12, color:C.teal }}>● Online</div>
@@ -463,7 +505,7 @@ function Messages() {
         <div style={{ padding:"1.25rem", minHeight:260, display:"flex", flexDirection:"column", gap:12 }}>
           {msgs.map((m,i) => (
             <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:m.from==="Jane"?"flex-end":"flex-start" }}>
-              <div style={{ maxWidth:"72%", padding:"10px 14px", borderRadius:12, fontSize:14, lineHeight:1.6,
+              <div style={{ maxWidth:"85%", padding:"10px 14px", borderRadius:12, fontSize:14, lineHeight:1.6,
                 background:m.from==="Jane"?C.teal:C.warm,
                 color:m.from==="Jane"?"#fff":C.text }}>
                 {m.text}
@@ -472,7 +514,7 @@ function Messages() {
             </div>
           ))}
         </div>
-        <div style={{ padding:"1rem 1.25rem", borderTop:`0.5px solid ${C.border}`, display:"flex", gap:10 }}>
+        <div style={{ padding:"1rem", borderTop:`0.5px solid ${C.border}`, display:"flex", gap:10 }}>
           <input style={{...S.input, marginBottom:0, flex:1}} placeholder="Write a message…" value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} />
           <button style={S.btn} onClick={send}>Send</button>
         </div>
