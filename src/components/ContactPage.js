@@ -12,6 +12,7 @@ export default function ContactPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [sendCopy, setSendCopy] = useState(true);
 
   const handleSubmit = async () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -30,6 +31,7 @@ export default function ContactPage() {
         phone: phone || null,
         process_stage: processStage,
         message: message || null,
+        send_copy: sendCopy,
       }),
     });
     setSubmitting(false);
@@ -46,7 +48,7 @@ export default function ContactPage() {
       <p style={S.p}>The first step is often the hardest. Reach out below and Diana will personally respond within one business day to schedule a free 30-minute consultation.</p>
       {sent ? (
         <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, textAlign:"center", padding:"2.5rem" }}>
-          <div style={{ fontSize:16, fontWeight:500, color:C.teal, marginBottom:8 }}>Thank you for reaching out.</div>
+          <div style={{ fontSize:16, fontWeight:500, color:C.teal, marginBottom:8 }}>Email sent. Thank you for reaching out.</div>
           <p style={{...S.p, color:C.teal, marginBottom:0}}>Diana will be in touch within one business day. You&#39;re taking a courageous step — for yourself and for your children.</p>
         </div>
       ) : (
@@ -68,6 +70,10 @@ export default function ContactPage() {
           </select>
           <label style={S.label}>What&#39;s on your mind?</label>
           <textarea style={{...S.input, height:110, resize:"vertical"}} placeholder="Share as little or as much as you&#39;d like..." value={message} onChange={e => setMessage(e.target.value)} />
+          <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:C.muted, cursor:"pointer", marginBottom:16 }}>
+            <input type="checkbox" checked={sendCopy} onChange={e => setSendCopy(e.target.checked)} style={{ accentColor: C.teal }} />
+            Send a copy to yourself
+          </label>
           {error && <p style={{ fontSize:13, color:"#c0392b", marginBottom:12 }}>{error}</p>}
           <button style={S.btn} onClick={handleSubmit} disabled={submitting}>
             {submitting ? "Sending..." : "Send message"}

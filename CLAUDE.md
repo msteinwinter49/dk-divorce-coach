@@ -35,13 +35,14 @@ This is a **Next.js 16 App Router** project (JavaScript, no TypeScript) for a di
 
 ## Supabase Integration
 
-**Tables:** `profiles`, `contact_submissions`, `documents`, `availability`, `bookings`, `messages`
+**Tables:** `profiles`, `contact_submissions`, `documents`, `availability`, `bookings`, `messages`, `settings`
 **Schema:** `supabase-schema.sql` — base schema. Profiles also has `first_name`, `last_name`, `phone`, `preferred_email` columns (added post-schema).
 **Auth:** Email/password via `@supabase/ssr`. `profiles.role` distinguishes `client` vs `admin`.
 **Invitations:** Admins invite new clients via `/api/invite` (uses service_role key). No public sign-up.
 **Storage:** Private `documents` bucket, path pattern `{user_id}/{filename}`
 **Realtime:** Enabled on `messages` table for live chat
-**Env vars:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`
+**Email:** Contact form notifications via Resend (`diana@dkdivorcecoach.com` sender, reply-to `dkdivorcecoach@gmail.com`). Notification recipient configured in Admin > Settings. Optional copy to submitter.
+**Env vars:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `RESEND_API_KEY` in `.env.local`
 
 **RLS note:** The admin read policy on `profiles` was dropped due to infinite recursion. Admin access to all profiles is handled via server-side API routes using the service_role key instead.
 
