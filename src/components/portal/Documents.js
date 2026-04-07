@@ -4,23 +4,24 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
-export default function Documents() {
+export default function Documents({ viewAsClient }) {
   const { user } = useAuth();
+  const targetId = viewAsClient?.id || user?.id;
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!targetId) return;
     const supabase = createClient();
     supabase.from("documents")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", targetId)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         setDocs(data || []);
         setLoading(false);
       });
-  }, [user]);
+  }, [targetId]);
 
   const handleDownload = async (doc) => {
     const supabase = createClient();

@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { C, S } from "@/lib/constants";
 
-export default function Clients({ setPage }) {
+export default function Clients({ setPage, onViewAsClient }) {
   // Invite form state
   const [email, setEmail] = useState("");
   const [makeAdmin, setMakeAdmin] = useState(false);
@@ -173,6 +173,7 @@ export default function Clients({ setPage }) {
                   <th style={thStyle} onClick={() => handleSort("phone")}>Phone{sortArrow("phone")}</th>
                   <th style={thStyle} onClick={() => handleSort("role")}>Role{sortArrow("role")}</th>
                   <th style={thStyle} onClick={() => handleSort("created_at")}>Joined{sortArrow("created_at")}</th>
+                  <th style={{ ...thStyle, cursor: "default" }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -197,6 +198,16 @@ export default function Clients({ setPage }) {
                     </td>
                     <td style={tdStyle}>
                       {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </td>
+                    <td style={tdStyle}>
+                      {c.role !== "admin" && (
+                        <button
+                          style={{ fontSize:12, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.teal}`, background:"#fff", color:C.teal, cursor:"pointer", fontFamily:"inherit", fontWeight:500 }}
+                          onClick={() => onViewAsClient(c)}
+                        >
+                          View
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

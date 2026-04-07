@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
+import MiniCalendar from "@/components/portal/MiniCalendar";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
 const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -484,7 +485,7 @@ export default function AdminCalendar({ setPage }) {
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <button style={S.btn} onClick={() => handleAcceptDecline("accept")}>Accept</button>
-            <button style={{ ...S.btnOutline, color: SRC.requested, borderColor: SRC.requested }} onClick={() => handleAcceptDecline("decline")}>Decline</button>
+            <button style={{ ...S.btnOutline, color: SRC.requested, border: `1px solid ${SRC.requested}` }} onClick={() => handleAcceptDecline("decline")}>Decline</button>
             <button style={S.btnSmOut} onClick={() => setModal(null)}>Cancel</button>
           </div>
         </div>
@@ -509,7 +510,7 @@ export default function AdminCalendar({ setPage }) {
           {["day", "week", "month"].map(v => (
             <button
               key={v}
-              style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", borderColor: C.teal } : {}) }}
+              style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
               onClick={() => setView(v)}
             >
               {v.charAt(0).toUpperCase() + v.slice(1)}
@@ -531,6 +532,11 @@ export default function AdminCalendar({ setPage }) {
         <div style={{ textAlign: "center", padding: "3rem", color: C.hint }}>Loading...</div>
       ) : (
         <>
+          {(view === "day" || view === "week") && (
+            <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}>
+              <MiniCalendar currentDate={currentDate} onSelectDate={(d) => setCurrentDate(d)} view={view} />
+            </div>
+          )}
           {view === "day" && renderDayView()}
           {view === "week" && renderWeekView()}
           {view === "month" && renderMonthView()}

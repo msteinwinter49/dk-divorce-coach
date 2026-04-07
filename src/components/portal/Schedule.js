@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
+import MiniCalendar from "@/components/portal/MiniCalendar";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
 const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -29,8 +30,9 @@ function sameDay(a, b) { return dateStr(a) === dateStr(b); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function startOfWeek(d) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; }
 
-export default function Schedule() {
+export default function Schedule({ viewAsClient }) {
   const { user } = useAuth();
+  const readOnly = !!viewAsClient;
   const mobile = useIsMobile();
   const [view, setView] = useState("month");
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -129,7 +131,7 @@ export default function Schedule() {
   };
 
   const handleCancel = async () => {
-    if (!cancelTarget) return;
+    if (!cancelTarget || readOnly) return;
     const res = await fetch("/api/bookings", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -396,6 +398,7 @@ export default function Schedule() {
 
   // --- Booking popup ---
   const openBookingPopup = (date) => {
+    if (readOnly) return;
     setBookingDate(date);
     setSelectedType(null);
     setSelectedTime(null);
@@ -537,7 +540,7 @@ export default function Schedule() {
         <div style={{ display: "flex", gap: 4 }}>
           {["day", "week", "month"].map(v => (
             <button key={v}
-              style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", borderColor: C.teal } : {}) }}
+              style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
               onClick={() => { setView(v); closePopup(); }}>
               {v.charAt(0).toUpperCase() + v.slice(1)}
             </button>
@@ -546,13 +549,20 @@ export default function Schedule() {
       </div>
 
       <p style={{ ...S.p, fontSize: 13 }}>
-        Green slots are available. Click a date or time to book a session. Click a pending request to cancel it.
+        {readOnly
+          ? "Read-only view — showing this client\u2019s bookings and available slots."
+          : "Green slots are available. Click a date or time to book a session. Click a pending request to cancel it."}
       </p>
 
       {loading ? (
         <div style={{ textAlign: "center", padding: "3rem", color: C.hint }}>Loading...</div>
       ) : (
         <>
+          {(view === "day" || view === "week") && (
+            <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}>
+              <MiniCalendar currentDate={currentDate} onSelectDate={(d) => { setCurrentDate(d); closePopup(); }} view={view} />
+            </div>
+          )}
           {view === "day" && renderDayView()}
           {view === "week" && renderWeekView()}
           {view === "month" && renderMonthView()}

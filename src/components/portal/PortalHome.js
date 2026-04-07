@@ -5,21 +5,24 @@ import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
-export default function PortalHome({ setPage }) {
+export default function PortalHome({ setPage, viewAsClient }) {
   const mobile = useIsMobile();
   const { user, profile } = useAuth();
   const [nextBooking, setNextBooking] = useState(null);
   const [docCount, setDocCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  const targetId = viewAsClient?.id || user?.id;
+  const targetProfile = viewAsClient || profile;
+
   useEffect(() => {
-    if (!user) return;
+    if (!targetId) return;
     const supabase = createClient();
     const today = new Date().toISOString().split("T")[0];
 
     supabase.from("bookings")
       .select("date, time_slot")
-      .eq("user_id", user.id)
+      .eq("user_id", targetId)
       .eq("status", "confirmed")
       .gte("date", today)
       .order("date", { ascending: true })
@@ -30,17 +33,17 @@ export default function PortalHome({ setPage }) {
 
     supabase.from("documents")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
+      .eq("user_id", targetId)
       .then(({ count }) => setDocCount(count || 0));
 
     supabase.from("messages")
       .select("id", { count: "exact", head: true })
-      .eq("conversation_id", user.id)
-      .neq("sender_id", user.id)
+      .eq("conversation_id", targetId)
+      .neq("sender_id", targetId)
       .then(({ count }) => setUnreadCount(count || 0));
-  }, [user]);
+  }, [targetId]);
 
-  const displayName = profile?.first_name || profile?.full_name?.split(" ")[0] || "there";
+  const displayName = targetProfile?.first_name || targetProfile?.full_name?.split(" ")[0] || "there";
 
   const formatBooking = () => {
     if (!nextBooking) return "No upcoming sessions";

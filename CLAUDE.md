@@ -15,14 +15,14 @@ npm run lint     # Run ESLint (Next.js core web vitals)
 
 This is a **Next.js 16 App Router** project (JavaScript, no TypeScript) for a divorce coaching business website. Deployed on **Vercel** with **Supabase** as the backend (auth, database, storage, realtime).
 
-**Navigation model:** SPA-style. A `page` state variable in `src/app/page.js` controls which view renders. Auth state from `useAuth()` context determines public vs portal views. No file-based routing beyond the single `page.js` entry point. New users without `first_name` are forced to the Profile setup page on first login.
+**Navigation model:** SPA-style. A `page` state variable in `src/app/page.js` controls which view renders. Auth state from `useAuth()` context determines public vs portal views. No file-based routing beyond the single `page.js` entry point. New users without `first_name` are forced to the Profile setup page on first login. Admins can "View as Client" from the Clients page to see read-only client portal views (`viewAsClient` state in `page.js`).
 
 **File structure:**
 - `src/app/page.js` — slim root component (imports + routing logic)
 - `src/app/api/invite/route.js` — server-side API for admin user invitations
 - `src/app/api/clients/route.js` — server-side API for admin to list all clients (bypasses RLS)
 - `src/components/` — public page components (HomePage, AboutPage, ContactPage, LoginPage)
-- `src/components/portal/` — authenticated views (PortalHome, Documents, Schedule, Messages, Profile, Clients)
+- `src/components/portal/` — authenticated views (PortalHome, Documents, Schedule, Messages, Profile, Clients, MiniCalendar)
 - `src/components/illustrations/` — inline SVG components (Hero, CoParent, Coach)
 - `src/lib/constants.js` — `C` (color palette) and `S` (reusable style objects)
 - `src/lib/hooks.js` — `useIsMobile()` (768px breakpoint)

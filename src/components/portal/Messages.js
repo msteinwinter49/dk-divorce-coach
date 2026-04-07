@@ -4,17 +4,19 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
-export default function Messages() {
+export default function Messages({ viewAsClient }) {
   const { user } = useAuth();
+  const targetId = viewAsClient?.id || user?.id;
+  const readOnly = !!viewAsClient;
   const [msgs, setMsgs] = useState([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!targetId) return;
     const supabase = createClient();
-    const conversationId = user.id;
+    const conversationId = targetId;
 
     supabase.from("messages")
       .select("*, sender:profiles(full_name, role)")
@@ -42,7 +44,7 @@ export default function Messages() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [targetId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -84,7 +86,7 @@ export default function Messages() {
             <p style={{ ...S.p, textAlign: "center", color: C.hint }}>No messages yet. Say hello!</p>
           ) : (
             msgs.map((m) => {
-              const isMe = m.sender_id === user.id;
+              const isMe = m.sender_id === targetId;
               const senderName = isMe ? "You" : (m.sender?.full_name || "Diana");
               return (
                 <div key={m.id} style={{ display:"flex", flexDirection:"column", alignItems:isMe?"flex-end":"flex-start" }}>
@@ -100,10 +102,16 @@ export default function Messages() {
           )}
           <div ref={bottomRef} />
         </div>
-        <div style={{ padding:"1rem", borderTop:`0.5px solid ${C.border}`, display:"flex", gap:10 }}>
-          <input style={{...S.input, marginBottom:0, flex:1}} placeholder="Write a message\u2026" value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} />
-          <button style={S.btn} onClick={send}>Send</button>
-        </div>
+        {readOnly ? (
+          <div style={{ padding:"10px 1.25rem", borderTop:`0.5px solid ${C.border}`, fontSize:13, color:C.hint, textAlign:"center" }}>
+            Read-only view — messages cannot be sent
+          </div>
+        ) : (
+          <div style={{ padding:"1rem", borderTop:`0.5px solid ${C.border}`, display:"flex", gap:10 }}>
+            <input style={{...S.input, marginBottom:0, flex:1}} placeholder="Write a message\u2026" value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} />
+            <button style={S.btn} onClick={send}>Send</button>
+          </div>
+        )}
       </div>
     </div>
   );

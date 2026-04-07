@@ -203,7 +203,7 @@ export default function AdminSettings({ setPage }) {
                 <span style={{ flex: 1, fontSize: 13, color: C.muted }}>{t.duration} min</span>
                 <span style={{ flex: 1, fontSize: 13, color: C.muted }}>${Number(t.fee).toFixed(2)}</span>
                 <button style={S.btnSmOut} onClick={() => setEditingType(t.id)}>Edit</button>
-                <button style={{ ...S.btnSmOut, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => removeSessionType(t.id)}>Remove</button>
+                <button style={{ ...S.btnSmOut, color: "#c0392b", border: "0.5px solid #c0392b" }} onClick={() => removeSessionType(t.id)}>Remove</button>
               </>
             )}
           </div>
@@ -239,7 +239,7 @@ export default function AdminSettings({ setPage }) {
             <span style={{ flex: 1, fontSize: 13, color: C.muted }}>
               {formatTime(r.start_time)} - {formatTime(r.end_time)}
             </span>
-            <button style={{ ...S.btnSmOut, color: "#c0392b", borderColor: "#c0392b" }} onClick={() => removeRule(r.id)}>Remove</button>
+            <button style={{ ...S.btnSmOut, color: "#c0392b", border: "0.5px solid #c0392b" }} onClick={() => removeRule(r.id)}>Remove</button>
           </div>
         ))}
 

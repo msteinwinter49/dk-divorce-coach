@@ -3,16 +3,20 @@ import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 
-export default function Nav({ page, setPage, inPortal, onLogout }) {
+export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient }) {
   const mobile = useIsMobile();
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
 
-  const portalLinks = [
+  const clientLinks = [
     ["Portal Home","Home"],
     ["Documents","Docs"],
     ["Schedule","Schedule"],
     ["Messages","Messages"],
+  ];
+
+  const portalLinks = viewAsClient ? clientLinks : [
+    ...clientLinks,
     ["Profile","Profile"],
     ...(isAdmin ? [["Admin","Admin"]] : []),
   ];
