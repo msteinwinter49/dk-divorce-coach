@@ -407,9 +407,28 @@ export default function AdminCalendar({ setPage }) {
   // --- Drag and drop (move existing bookings) ---
 
   const handleDragStart = (e, item, type) => {
-    dragRef.current = { ...item, _dragType: type };
+    // Calculate duration in minutes for ghost preview
+    let durationMin = 60;
+    if (type === "booking") {
+      durationMin = item.session_duration || 60;
+    } else if (type === "event" && item.start?.dateTime && item.end?.dateTime) {
+      durationMin = (new Date(item.end.dateTime) - new Date(item.start.dateTime)) / 60000;
+    }
+    dragRef.current = { ...item, _dragType: type, _durationMin: durationMin };
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", item.id);
+    // Set initial dragOver so chips become pointer-transparent immediately
+    const startTime = type === "booking" ? item.time_slot : null;
+    const startDateTime = type === "event" && item.start?.dateTime ? new Date(item.start.dateTime) : null;
+    const startH = startTime ? parseInt(startTime.split(":")[0]) : startDateTime ? startDateTime.getHours() : 0;
+    const startM = startTime ? parseInt(startTime.split(":")[1]) : startDateTime ? startDateTime.getMinutes() : 0;
+    const snapMin = startH * 60 + startM;
+    const itemDate = type === "booking" ? item.date : (startDateTime ? dateStr(startDateTime) : dateStr(currentDate));
+    setDragOver({
+      date: itemDate, hour: startH,
+      snapTime: `${String(startH).padStart(2,"0")}:${String(startM).padStart(2,"0")}`,
+      snapMinutes: snapMin, x: e.clientX, y: e.clientY,
+    });
     // Hide the native drag ghost so our tooltip is visible
     const ghost = document.createElement("div");
     ghost.style.position = "absolute";
@@ -419,9 +438,38 @@ export default function AdminCalendar({ setPage }) {
     setTimeout(() => document.body.removeChild(ghost), 0);
   };
 
+  // Check if dropping at a given date/time would overlap any other item (excluding the dragged one)
+  const wouldOverlap = (date, startMin, durationMin) => {
+    const endMin = startMin + durationMin;
+    const dragId = dragRef.current?.id;
+
+    const hasBookingOverlap = bookings.some(b => {
+      if (b.id === dragId) return false;
+      if (!["requested", "booked"].includes(b.status)) return false;
+      if (b.date !== date) return false;
+      const [bH, bM] = (b.time_slot || "00:00").split(":").map(Number);
+      const bStart = bH * 60 + bM;
+      const bEnd = bStart + (b.session_duration || 60);
+      return startMin < bEnd && endMin > bStart;
+    });
+    if (hasBookingOverlap) return true;
+
+    const hasEventOverlap = googleEvents.some(ev => {
+      if (ev.id === dragId) return false;
+      if (!ev.start?.dateTime) return false;
+      const eDate = ev.start.dateTime.split("T")[0];
+      if (eDate !== date) return false;
+      const eStart = new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes();
+      const eEnd = ev.end?.dateTime
+        ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
+        : eStart + 60;
+      return startMin < eEnd && endMin > eStart;
+    });
+    return hasEventOverlap;
+  };
+
   const handleDragOver = (e, date, hour) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
     // Calculate sub-hour time snapped to increment
     const rect = e.currentTarget.getBoundingClientRect();
     const rowH = view === "day" ? DAY_ROW_H : WEEK_ROW_H;
@@ -431,7 +479,10 @@ export default function AdminCalendar({ setPage }) {
     const snapH = Math.floor(totalMinutes / 60);
     const snapM = totalMinutes % 60;
     const snapTime = `${String(snapH).padStart(2, "0")}:${String(snapM).padStart(2, "0")}`;
-    setDragOver({ date, hour, snapTime, x: e.clientX, y: e.clientY });
+    const durationMin = dragRef.current?._durationMin || 60;
+    const blocked = wouldOverlap(date, totalMinutes, durationMin);
+    e.dataTransfer.dropEffect = blocked ? "none" : "move";
+    setDragOver({ date, hour, snapTime, snapMinutes: totalMinutes, blocked, x: e.clientX, y: e.clientY });
   };
 
   const handleDragLeave = () => {
@@ -440,6 +491,12 @@ export default function AdminCalendar({ setPage }) {
 
   const handleDrop = async (e, date, hour) => {
     e.preventDefault();
+    // Block drop if position overlaps another item
+    if (dragOver?.blocked) {
+      setDragOver(null);
+      dragRef.current = null;
+      return;
+    }
     // Use the snapped time from dragOver if available
     const newTime = dragOver?.snapTime || `${String(hour).padStart(2, "0")}:00`;
     setDragOver(null);
@@ -537,10 +594,14 @@ export default function AdminCalendar({ setPage }) {
 
   const bookingDraggable = (b) => ["requested", "booked"].includes(b.status);
 
+  // dragOver is set during drag, so its presence means a drag is active
+  const isDragging = !!dragOver;
+
   const renderOverlayBooking = (b, top, height, compact) => {
     const isRequested = b.status === "requested";
     const canDrag = bookingDraggable(b);
     const chipH = Math.max(height, compact ? 20 : 28);
+    const isBeingDragged = isDragging && dragRef.current?.id === b.id;
     return (
       <div
         key={b.id}
@@ -552,6 +613,8 @@ export default function AdminCalendar({ setPage }) {
         style={{
           position: "absolute", top, left: 2, right: 2, zIndex: 4,
           height: chipH,
+          pointerEvents: isDragging ? "none" : "auto",
+          opacity: isBeingDragged ? 0.3 : 1,
           padding: compact ? "2px 4px" : "4px 8px",
           borderRadius: compact ? 4 : 6,
           fontSize: compact ? 11 : 13,
@@ -594,6 +657,7 @@ export default function AdminCalendar({ setPage }) {
     const bg = SRC[src + "Bg"];
     const chipH = Math.max(height, compact ? 20 : 28);
     const isLocal = event._local;
+    const isBeingDragged = isDragging && dragRef.current?.id === event.id;
     return (
       <div key={event.id || event.summary}
       draggable={isLocal}
@@ -604,6 +668,8 @@ export default function AdminCalendar({ setPage }) {
       style={{
         position: "absolute", top, left: 2, right: 2, zIndex: 4,
         height: chipH,
+        pointerEvents: isDragging ? "none" : "auto",
+        opacity: isBeingDragged ? 0.3 : 1,
         padding: compact ? "2px 4px" : "4px 8px",
         borderRadius: compact ? 4 : 6,
         fontSize: compact ? 11 : 13,
@@ -684,14 +750,14 @@ export default function AdminCalendar({ setPage }) {
             {HOURS.map(h => {
               const avail = isSlotAvailable(date, h);
               const occupied = isHourOccupied(date, h);
-              const isDragTarget = dragOver?.date === date && dragOver?.hour === h;
+
               const selected = isCellSelected(date, h);
               return (
                 <div
                   key={h}
                   style={{
                     height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
-                    background: selected ? "#b2dfdb" : isDragTarget ? "#b2dfdb" : (avail || isHourOccupied(date, h)) ? SRC.available : "#fafafa",
+                    background: selected ? "#b2dfdb" : (avail || isHourOccupied(date, h)) ? SRC.available : "#fafafa",
                     cursor: !occupied ? "crosshair" : "default",
                     boxSizing: "border-box",
                   }}
@@ -713,6 +779,8 @@ export default function AdminCalendar({ setPage }) {
               }
               return null;
             })}
+            {/* Drag ghost preview */}
+            {dragOver?.date === date && renderDragGhost(DAY_ROW_H)}
           </div>
         </div>
       </div>
@@ -758,14 +826,14 @@ export default function AdminCalendar({ setPage }) {
                   {HOURS.map(h => {
                     const avail = isSlotAvailable(date, h);
                     const occupied = isHourOccupied(date, h);
-                    const isDragTarget = dragOver?.date === date && dragOver?.hour === h;
+      
                     const selected = isCellSelected(date, h);
                     return (
                       <div
                         key={h}
                         style={{
                           height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
-                          background: selected ? "#b2dfdb" : isDragTarget ? "#b2dfdb" : (avail || isHourOccupied(date, h)) ? SRC.available : "#fafafa",
+                          background: selected ? "#b2dfdb" : (avail || isHourOccupied(date, h)) ? SRC.available : "#fafafa",
                           cursor: !occupied ? "crosshair" : "default",
                           boxSizing: "border-box",
                         }}
@@ -783,6 +851,8 @@ export default function AdminCalendar({ setPage }) {
                     if (item.type === "event") return renderOverlayEvent(item.data, item.top, item.height, true);
                     return null;
                   })}
+                  {/* Drag ghost preview */}
+                  {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
                 </div>
               </div>
             );
@@ -1132,9 +1202,42 @@ export default function AdminCalendar({ setPage }) {
     );
   };
 
+  const renderDragGhost = (rowH) => {
+    if (!dragOver || !dragRef.current) return null;
+    const firstHour = HOURS[0];
+    const { snapMinutes, blocked } = dragOver;
+    const durationMin = dragRef.current._durationMin || 60;
+    const isBooking = dragRef.current._dragType === "booking";
+    const isRequested = isBooking && dragRef.current.status === "requested";
+
+    const top = ((snapMinutes - firstHour * 60) / 60) * rowH;
+    const height = (durationMin / 60) * rowH;
+
+    const bgColor = blocked ? "rgba(192,57,43,0.12)"
+      : isRequested ? "rgba(192,57,43,0.15)"
+      : isBooking ? "rgba(15,110,86,0.15)"
+      : "rgba(184,134,11,0.15)";
+    const borderColor = blocked ? "#c0392b"
+      : isRequested ? "#c0392b"
+      : isBooking ? C.teal
+      : "#B8860B";
+
+    return (
+      <div style={{
+        position: "absolute", top, left: 2, right: 2, zIndex: 5,
+        height,
+        borderRadius: 6,
+        background: bgColor,
+        border: `2px dashed ${borderColor}`,
+        boxSizing: "border-box",
+        pointerEvents: "none",
+      }} />
+    );
+  };
+
   const renderDragTooltip = () => {
     if (!dragOver || !dragRef.current) return null;
-    const { date, snapTime, x, y } = dragOver;
+    const { date, snapTime, blocked, x, y } = dragOver;
     const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
     const timeLabel = snapTime ? formatTimeStr(snapTime) : "";
     return (
@@ -1143,7 +1246,7 @@ export default function AdminCalendar({ setPage }) {
         left: x + 16,
         top: y - 36,
         zIndex: 1000,
-        background: C.teal,
+        background: blocked ? "#c0392b" : C.teal,
         color: "#fff",
         borderRadius: 6,
         padding: "5px 12px",
