@@ -6,6 +6,8 @@ import { useAuth } from "@/context/AuthContext";
 import MiniCalendar from "@/components/portal/MiniCalendar";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
+const DAY_ROW_H = 52;
+const WEEK_ROW_H = 44;
 const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -31,8 +33,9 @@ function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); retu
 function startOfWeek(d) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; }
 
 export default function Schedule({ viewAsClient }) {
-  const { user } = useAuth();
-  const readOnly = !!viewAsClient;
+  const { user, profile } = useAuth();
+  const isAdminViewing = !!viewAsClient && profile?.role === "admin";
+  const readOnly = !!viewAsClient && !isAdminViewing;
   const mobile = useIsMobile();
   const [view, setView] = useState("month");
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -103,14 +106,17 @@ export default function Schedule({ viewAsClient }) {
     setConfirming(true);
     setBookingError(null);
 
+    const body = {
+      session_type_id: selectedType.id,
+      date: bookingDate,
+      start_time: selectedTime,
+    };
+    if (isAdminViewing) body.user_id = viewAsClient.id;
+
     const res = await fetch("/api/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_type_id: selectedType.id,
-        date: bookingDate,
-        start_time: selectedTime,
-      }),
+      body: JSON.stringify(body),
     });
 
     setConfirming(false);
@@ -131,7 +137,7 @@ export default function Schedule({ viewAsClient }) {
   };
 
   const handleCancel = async () => {
-    if (!cancelTarget || readOnly) return;
+    if (!cancelTarget) return;
     const res = await fetch("/api/bookings", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -153,20 +159,34 @@ export default function Schedule({ viewAsClient }) {
       return b.date === date;
     });
 
-  const getBookingAtHour = (date, hour) =>
-    bookings.find(b => {
+  const isHourOccupied = (date, hour) => {
+    const hourStart = hour * 60;
+    const hourEnd = hourStart + 60;
+    return bookings.some(b => {
       const bDate = localDateStr(new Date(b.start_time));
-      const bH = new Date(b.start_time).getHours();
-      return bDate === date && bH === hour;
+      if (bDate !== date) return false;
+      const bStart = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
+      const bEnd = new Date(b.end_time).getHours() * 60 + new Date(b.end_time).getMinutes();
+      return bStart < hourEnd && bEnd > hourStart;
     });
+  };
 
-  const isHourOccupied = (date, hour) =>
-    bookings.some(b => {
-      const bDate = localDateStr(new Date(b.start_time));
-      const startH = new Date(b.start_time).getHours();
-      const endH = new Date(b.end_time).getHours();
-      return bDate === date && hour >= startH && hour < endH;
+  // Get all bookings for a date with pixel position info
+  const getBookingsForDateOverlay = (date, rowH) => {
+    const firstHour = HOURS[0];
+    return bookings.filter(b => {
+      if (b.start_time) return localDateStr(new Date(b.start_time)) === date;
+      return b.date === date;
+    }).map(b => {
+      const startMin = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
+      const endMin = new Date(b.end_time).getHours() * 60 + new Date(b.end_time).getMinutes();
+      return {
+        data: b,
+        top: ((startMin - firstHour * 60) / 60) * rowH,
+        height: ((endMin - startMin) / 60) * rowH,
+      };
     });
+  };
 
   // Get available start times for a date + duration
   const getTimesForDuration = (date, durationMin) => {
@@ -221,29 +241,75 @@ export default function Schedule({ viewAsClient }) {
 
   // --- VIEWS ---
 
+  const renderOverlayBooking = (b, top, height, compact) => {
+    const isRequested = b.status === "requested";
+    return (
+      <div
+        key={b.id}
+        style={{
+          position: "absolute", top, left: 2, right: 2, zIndex: 4,
+          height,
+          padding: compact ? "2px 4px" : "4px 8px",
+          borderRadius: compact ? 4 : 6,
+          fontSize: compact ? 11 : 13,
+          background: isRequested ? "#fdecea" : C.tealLight,
+          border: isRequested ? "2px solid #c0392b" : `1px solid ${C.teal}`,
+          cursor: (isRequested || isAdminViewing) ? "pointer" : "default",
+          overflow: "hidden",
+          boxSizing: "border-box",
+        }}
+        onClick={e => { e.stopPropagation(); if (isRequested || (isAdminViewing && b.status === "booked")) setCancelTarget(b); }}
+      >
+        {compact ? (
+          <span style={{ color: isRequested ? "#c0392b" : C.teal, fontWeight: 500, whiteSpace: "nowrap" }}>
+            {b.session_duration}m {b.status}
+          </span>
+        ) : (
+          <>
+            <div style={{ fontWeight: 500, color: isRequested ? "#c0392b" : C.teal, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {b.session_types?.label || "Session"} — {b.status}
+            </div>
+            {height > 36 && (
+              <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {formatTime(b.start_time)} - {formatTime(b.end_time)} | {b.session_duration}min | ${Number(b.fee).toFixed(2)}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   const renderDayView = () => {
     const date = dateStr(currentDate);
+    const totalH = HOURS.length * DAY_ROW_H;
+    const overlayItems = getBookingsForDateOverlay(date, DAY_ROW_H);
     return (
-      <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
-        {HOURS.map(h => {
-          const booking = getBookingAtHour(date, h);
-          const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
-          const occupied = isHourOccupied(date, h);
-          return (
-            <div key={h} style={{
-              display: "flex", minHeight: 52, borderBottom: `0.5px solid ${C.border}`,
-              background: occupied ? "transparent" : avail ? "#d4edda" : "#fafafa",
-              cursor: avail && !occupied ? "pointer" : "default",
-            }} onClick={() => avail && !occupied && openBookingPopup(date)}>
-              <div style={{ width: 70, padding: "8px", fontSize: 12, color: C.hint, borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>
+      <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, userSelect: "none" }}>
+        <div style={{ display: "flex" }}>
+          <div style={{ width: 70, flexShrink: 0 }}>
+            {HOURS.map(h => (
+              <div key={h} style={{ height: DAY_ROW_H, padding: "8px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, boxSizing: "border-box" }}>
                 {formatHour(h)}
               </div>
-              <div style={{ flex: 1, padding: "6px 8px" }}>
-                {booking && renderBooking(booking)}
-              </div>
-            </div>
-          );
-        })}
+            ))}
+          </div>
+          <div style={{ flex: 1, position: "relative", height: totalH }}>
+            {HOURS.map(h => {
+              const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
+              const occupied = isHourOccupied(date, h);
+              return (
+                <div key={h} style={{
+                  height: DAY_ROW_H, borderBottom: `0.5px solid ${C.border}`,
+                  background: (avail || occupied) ? "#d4edda" : "#fafafa",
+                  cursor: avail && !occupied ? "pointer" : "default",
+                  boxSizing: "border-box",
+                }} onClick={() => avail && !occupied && openBookingPopup(date)} />
+              );
+            })}
+            {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, false))}
+          </div>
+        </div>
       </div>
     );
   };
@@ -251,42 +317,50 @@ export default function Schedule({ viewAsClient }) {
   const renderWeekView = () => {
     const weekStart = startOfWeek(currentDate);
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+    const totalH = HOURS.length * WEEK_ROW_H;
     return (
-      <div style={{ overflowX: "auto" }}>
-        <div style={{ display: "grid", gridTemplateColumns: `70px repeat(7, 1fr)`, minWidth: mobile ? 700 : "auto" }}>
-          <div style={cellStyle(true, true, "#fafafa")} />
-          {days.map((d, i) => (
-            <div key={i} style={{
-              ...cellStyle(true, i < 6, "#fafafa"), textAlign: "center",
-              fontWeight: sameDay(d, new Date()) ? 600 : 400,
-              color: sameDay(d, new Date()) ? C.teal : C.text,
-            }}>
-              <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
-              <div style={{ fontSize: 14 }}>{d.getDate()}</div>
-            </div>
-          ))}
-          {HOURS.map(h => (
-            <React.Fragment key={h}>
-              <div style={{ ...cellStyle(true, true), fontSize: 12, color: C.hint, padding: "8px" }}>
+      <div style={{ overflowX: "auto", userSelect: "none" }}>
+        <div style={{ display: "flex", minWidth: mobile ? 770 : "auto" }}>
+          <div style={{ width: 70, flexShrink: 0 }}>
+            <div style={{ height: 36, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, background: "#fafafa" }} />
+            {HOURS.map(h => (
+              <div key={h} style={{ height: WEEK_ROW_H, padding: "8px 6px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, boxSizing: "border-box" }}>
                 {formatHour(h)}
               </div>
-              {days.map((d, i) => {
-                const date = dateStr(d);
-                const booking = getBookingAtHour(date, h);
-                const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
-                const occupied = isHourOccupied(date, h);
-                return (
-                  <div key={i} style={{
-                    ...cellStyle(true, i < 6), minHeight: 44,
-                    background: occupied ? "transparent" : avail ? "#d4edda" : "#fafafa",
-                    cursor: avail && !occupied ? "pointer" : "default",
-                  }} onClick={() => avail && !occupied && openBookingPopup(date)}>
-                    {booking && renderBookingCompact(booking)}
-                  </div>
-                );
-              })}
-            </React.Fragment>
-          ))}
+            ))}
+          </div>
+          {days.map((d, i) => {
+            const date = dateStr(d);
+            const overlayItems = getBookingsForDateOverlay(date, WEEK_ROW_H);
+            return (
+              <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.border}` : "none" }}>
+                <div style={{
+                  height: 36, textAlign: "center", padding: "4px 0",
+                  borderBottom: `0.5px solid ${C.border}`, background: "#fafafa",
+                  fontWeight: sameDay(d, new Date()) ? 600 : 400,
+                  color: sameDay(d, new Date()) ? C.teal : C.text,
+                }}>
+                  <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
+                  <div style={{ fontSize: 14 }}>{d.getDate()}</div>
+                </div>
+                <div style={{ position: "relative", height: totalH }}>
+                  {HOURS.map(h => {
+                    const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
+                    const occupied = isHourOccupied(date, h);
+                    return (
+                      <div key={h} style={{
+                        height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.border}`,
+                        background: (avail || occupied) ? "#d4edda" : "#fafafa",
+                        cursor: avail && !occupied ? "pointer" : "default",
+                        boxSizing: "border-box",
+                      }} onClick={() => avail && !occupied && openBookingPopup(date)} />
+                    );
+                  })}
+                  {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, true))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -344,7 +418,8 @@ export default function Schedule({ viewAsClient }) {
                       background: b.status === "requested" ? "#fdecea" : C.tealLight,
                       color: b.status === "requested" ? "#c0392b" : C.teal,
                       whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                    }} onClick={e => { e.stopPropagation(); if (b.status === "requested") setCancelTarget(b); }}>
+                      cursor: (b.status === "requested" || isAdminViewing) ? "pointer" : "default",
+                    }} onClick={e => { e.stopPropagation(); if (b.status === "requested" || (isAdminViewing && b.status === "booked")) setCancelTarget(b); }}>
                       {formatTime(b.start_time)} {b.session_duration}m — {b.status}
                     </div>
                   ))}
@@ -356,42 +431,6 @@ export default function Schedule({ viewAsClient }) {
             })}
           </div>
         ))}
-      </div>
-    );
-  };
-
-  const renderBooking = (b) => {
-    const isRequested = b.status === "requested";
-    return (
-      <div style={{
-        padding: "4px 8px", borderRadius: 6, fontSize: 13,
-        background: isRequested ? "#fdecea" : C.tealLight,
-        border: isRequested ? "2px solid #c0392b" : `1px solid ${C.teal}`,
-        cursor: isRequested ? "pointer" : "default",
-      }} onClick={e => { e.stopPropagation(); if (isRequested) setCancelTarget(b); }}>
-        <div style={{ fontWeight: 500, color: isRequested ? "#c0392b" : C.teal }}>
-          {b.session_types?.label || "Session"} — {b.status}
-        </div>
-        <div style={{ fontSize: 12, color: C.muted }}>
-          {formatTime(b.start_time)} - {formatTime(b.end_time)} | {b.session_duration}min | ${Number(b.fee).toFixed(2)}
-        </div>
-      </div>
-    );
-  };
-
-  const renderBookingCompact = (b) => {
-    const isRequested = b.status === "requested";
-    return (
-      <div style={{
-        padding: "2px 4px", borderRadius: 4, fontSize: 11,
-        background: isRequested ? "#fdecea" : C.tealLight,
-        border: isRequested ? "2px solid #c0392b" : `1px solid ${C.teal}`,
-        overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
-        cursor: isRequested ? "pointer" : "default",
-      }} onClick={e => { e.stopPropagation(); if (isRequested) setCancelTarget(b); }}>
-        <span style={{ color: isRequested ? "#c0392b" : C.teal, fontWeight: 500 }}>
-          {b.session_duration}m {b.status}
-        </span>
       </div>
     );
   };
@@ -421,15 +460,19 @@ export default function Schedule({ viewAsClient }) {
 
           {bookingSuccess ? (
             <div style={{ textAlign: "center", padding: "1rem" }}>
-              <div style={{ fontSize: 16, fontWeight: 500, color: C.teal, marginBottom: 8 }}>Session requested!</div>
+              <div style={{ fontSize: 16, fontWeight: 500, color: C.teal, marginBottom: 8 }}>
+                {isAdminViewing ? "Session booked!" : "Session requested!"}
+              </div>
               <p style={{ ...S.p, color: C.muted }}>
-                Your request for {dateLabel} at {selectedTime} has been submitted. Diana will review and confirm.
+                {isAdminViewing
+                  ? `Session for ${viewAsClient.first_name} on ${dateLabel} at ${selectedTime} has been confirmed.`
+                  : `Your request for ${dateLabel} at ${selectedTime} has been submitted. Diana will review and confirm.`}
               </p>
               <button style={S.btn} onClick={closePopup}>Close</button>
             </div>
           ) : (
             <>
-              <h3 style={S.h3}>Book a Session</h3>
+              <h3 style={S.h3}>{isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session"}</h3>
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
               {/* Step 1: Select session type */}
@@ -490,7 +533,7 @@ export default function Schedule({ viewAsClient }) {
               <div style={{ display: "flex", gap: 8 }}>
                 {selectedTime && (
                   <button style={S.btn} onClick={handleBook} disabled={confirming}>
-                    {confirming ? "Requesting..." : "Request Session"}
+                    {confirming ? (isAdminViewing ? "Booking..." : "Requesting...") : (isAdminViewing ? "Book Session" : "Request Session")}
                   </button>
                 )}
                 <button style={S.btnSmOut} onClick={closePopup}>Cancel</button>
@@ -511,9 +554,9 @@ export default function Schedule({ viewAsClient }) {
         background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
       }} onClick={() => setCancelTarget(null)}>
         <div style={{ ...S.card, maxWidth: 400, width: "90%", margin: 0 }} onClick={e => e.stopPropagation()}>
-          <h3 style={S.h3}>Cancel Request</h3>
+          <h3 style={S.h3}>{cancelTarget.status === "booked" ? "Cancel Session" : "Cancel Request"}</h3>
           <p style={S.p}>
-            Are you sure you want to cancel your session request for{" "}
+            Are you sure you want to cancel {isAdminViewing ? `${viewAsClient.first_name}'s` : "your"} {cancelTarget.status === "booked" ? "session" : "session request"} for{" "}
             <strong>{formatTime(cancelTarget.start_time)}</strong> on{" "}
             <strong>{cancelTarget.date}</strong>?
           </p>
@@ -551,6 +594,8 @@ export default function Schedule({ viewAsClient }) {
       <p style={{ ...S.p, fontSize: 13 }}>
         {readOnly
           ? "Read-only view — showing this client\u2019s bookings and available slots."
+          : isAdminViewing
+          ? `Managing ${viewAsClient.first_name}\u2019s schedule. Click to book or cancel sessions.`
           : "Green slots are available. Click a date or time to book a session. Click a pending request to cancel it."}
       </p>
 

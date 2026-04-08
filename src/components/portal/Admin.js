@@ -12,11 +12,6 @@ export default function Admin({ setPage }) {
       desc: "View, search, and invite clients",
     },
     {
-      page: "Admin Calendar",
-      title: "Calendar",
-      desc: "Manage your availability and view bookings",
-    },
-    {
       page: "Admin Settings",
       title: "Settings",
       desc: "Configure site and account settings",

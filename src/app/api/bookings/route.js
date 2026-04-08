@@ -79,10 +79,14 @@ export async function POST(request) {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { session_type_id, date, start_time } = await request.json();
+  const { session_type_id, date, start_time, user_id: targetUserId } = await request.json();
   if (!session_type_id || !date || !start_time) {
     return NextResponse.json({ error: "session_type_id, date, and start_time are required" }, { status: 400 });
   }
+
+  // Admin can book on behalf of a client (view-as-client)
+  const isAdmin = ctx.profile?.role === "admin";
+  const bookingUserId = (isAdmin && targetUserId) ? targetUserId : ctx.user.id;
 
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -125,13 +129,16 @@ export async function POST(request) {
   const endTimestamp = new Date(`${date}T${endTimeStr}:00`).toISOString();
 
   // Create the booking
+  // Admin booking on behalf of client goes straight to "booked"
+  const bookingStatus = (isAdmin && targetUserId) ? "booked" : "requested";
+
   const { data: booking, error } = await adminClient
     .from("bookings")
     .insert({
-      user_id: ctx.user.id,
+      user_id: bookingUserId,
       date,
       time_slot: start_time,
-      status: "requested",
+      status: bookingStatus,
       start_time: startTimestamp,
       end_time: endTimestamp,
       session_type_id,
@@ -143,36 +150,64 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Notify Diana
-  const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
-  try {
-    await notifyAdmin(
-      `New session request from ${clientName}`,
-      `<h2>New Session Request</h2>
-       <p><strong>Client:</strong> ${clientName}</p>
-       <p><strong>Date:</strong> ${date}</p>
-       <p><strong>Time:</strong> ${start_time} - ${endTimeStr}</p>
-       <p><strong>Duration:</strong> ${sessionType.duration} min</p>
-       <p><strong>Fee:</strong> $${sessionType.fee}</p>
-       <p>Log in to your admin calendar to accept or decline.</p>`,
-      `New session request from ${clientName}: ${date} at ${start_time} (${sessionType.duration}min). Log in to accept or decline.`
-    );
-  } catch (e) {
-    console.error("Notification error:", e);
+  if (isAdmin && targetUserId) {
+    // Admin booked on behalf — notify the client
+    const { data: clientProfile } = await adminClient
+      .from("profiles")
+      .select("first_name, last_name, preferred_email, phone, notification_preference")
+      .eq("id", targetUserId)
+      .single();
+
+    if (clientProfile) {
+      try {
+        await notifyClient(
+          clientProfile,
+          "Your coaching session is confirmed!",
+          `<h2>Session Confirmed</h2>
+           <p>A coaching session has been scheduled for you:</p>
+           <p><strong>Date:</strong> ${date}</p>
+           <p><strong>Time:</strong> ${start_time} - ${endTimeStr}</p>
+           <p><strong>Duration:</strong> ${sessionType.duration} min</p>
+           ${sessionType.fee > 0 ? `<p><strong>Fee:</strong> $${sessionType.fee}</p>` : ""}`,
+          `Your coaching session on ${date} at ${start_time} (${sessionType.duration}min) is confirmed.`
+        );
+      } catch (e) {
+        console.error("Notification error:", e);
+      }
+    }
+  } else {
+    // Client booked — notify Diana
+    const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
+    try {
+      await notifyAdmin(
+        `New session request from ${clientName}`,
+        `<h2>New Session Request</h2>
+         <p><strong>Client:</strong> ${clientName}</p>
+         <p><strong>Date:</strong> ${date}</p>
+         <p><strong>Time:</strong> ${start_time} - ${endTimeStr}</p>
+         <p><strong>Duration:</strong> ${sessionType.duration} min</p>
+         <p><strong>Fee:</strong> $${sessionType.fee}</p>
+         <p>Log in to your admin calendar to accept or decline.</p>`,
+        `New session request from ${clientName}: ${date} at ${start_time} (${sessionType.duration}min). Log in to accept or decline.`
+      );
+    } catch (e) {
+      console.error("Notification error:", e);
+    }
   }
 
   return NextResponse.json(booking);
 }
 
-// PATCH — admin accepts or declines a booking
+// PATCH — admin accepts, declines, or updates a booking
 export async function PATCH(request) {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
 
-  const { id, action } = await request.json();
-  if (!id || !["accept", "decline"].includes(action)) {
-    return NextResponse.json({ error: "id and action (accept/decline) required" }, { status: 400 });
+  const body = await request.json();
+  const { id, action } = body;
+  if (!id || !["accept", "decline", "update"].includes(action)) {
+    return NextResponse.json({ error: "id and action (accept/decline/update) required" }, { status: 400 });
   }
 
   const adminClient = createClient(
@@ -180,16 +215,17 @@ export async function PATCH(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Get the booking
-  const { data: booking } = await adminClient
-    .from("bookings")
-    .select("*")
-    .eq("id", id)
-    .eq("status", "requested")
-    .single();
+  // Get the booking (accept/decline require "requested", update requires "requested" or "booked")
+  let query = adminClient.from("bookings").select("*").eq("id", id);
+  if (action === "update") {
+    query = query.in("status", ["requested", "booked"]);
+  } else {
+    query = query.eq("status", "requested");
+  }
+  const { data: booking } = await query.single();
 
   if (!booking) {
-    return NextResponse.json({ error: "Booking not found or not in requested status" }, { status: 404 });
+    return NextResponse.json({ error: "Booking not found or not in valid status" }, { status: 404 });
   }
 
   // Get client profile separately (no FK between bookings and profiles)
@@ -232,7 +268,6 @@ export async function PATCH(request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Notify client
     const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     try {
       await notifyClient(
@@ -261,7 +296,6 @@ export async function PATCH(request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Notify client
     const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     try {
       await notifyClient(
@@ -271,6 +305,78 @@ export async function PATCH(request) {
          <p>Unfortunately, the coaching session you requested on <strong>${booking.date}</strong> at <strong>${startTime}</strong> is not available.</p>
          <p>Please visit your calendar to request a different time.</p>`,
         `Your session request for ${booking.date} at ${startTime} was declined. Please request a different time.`
+      );
+    } catch (e) {
+      console.error("Notification error:", e);
+    }
+
+    return NextResponse.json(data);
+  }
+
+  if (action === "update") {
+    const { date, start_time, session_type_id } = body;
+    const updates = {};
+
+    // If session type changed, look it up
+    let duration = booking.session_duration;
+    let fee = booking.fee;
+    if (session_type_id && session_type_id !== booking.session_type_id) {
+      const { data: sessionType } = await adminClient
+        .from("session_types")
+        .select("*")
+        .eq("id", session_type_id)
+        .single();
+      if (!sessionType) return NextResponse.json({ error: "Invalid session type" }, { status: 400 });
+      updates.session_type_id = session_type_id;
+      updates.session_duration = sessionType.duration;
+      updates.fee = sessionType.fee;
+      duration = sessionType.duration;
+      fee = sessionType.fee;
+    }
+
+    // If date or time changed, recalculate timestamps
+    const newDate = date || booking.date;
+    const newStartTime = start_time || booking.time_slot;
+
+    if (date || start_time) {
+      const [h, m] = newStartTime.split(":").map(Number);
+      const endMinutes = h * 60 + m + duration;
+      const endH = Math.floor(endMinutes / 60);
+      const endM = endMinutes % 60;
+      const endTimeStr = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+
+      updates.date = newDate;
+      updates.time_slot = newStartTime;
+      updates.start_time = new Date(`${newDate}T${newStartTime}:00`).toISOString();
+      updates.end_time = new Date(`${newDate}T${endTimeStr}:00`).toISOString();
+    }
+
+    // Reset reminder tracking since session moved
+    updates.client_reminder_sent_at = null;
+    updates.admin_reminder_sent_at = null;
+
+    const { data, error } = await adminClient
+      .from("bookings")
+      .update(updates)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Notify client of the change
+    const newStartFormatted = new Date(data.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    try {
+      await notifyClient(
+        booking.profiles,
+        "Your coaching session has been updated",
+        `<h2>Session Updated</h2>
+         <p>Your coaching session has been updated to:</p>
+         <p><strong>Date:</strong> ${data.date}</p>
+         <p><strong>Time:</strong> ${newStartFormatted}</p>
+         <p><strong>Duration:</strong> ${data.session_duration} min</p>
+         ${data.fee > 0 ? `<p><strong>Fee:</strong> $${data.fee}</p>` : ""}`,
+        `Your coaching session has been moved to ${data.date} at ${newStartFormatted} (${data.session_duration}min).`
       );
     } catch (e) {
       console.error("Notification error:", e);
@@ -288,19 +394,26 @@ export async function DELETE(request) {
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
+  const isAdmin = ctx.profile?.role === "admin";
+
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Verify the booking belongs to this user and is in requested status
-  const { data: booking } = await adminClient
+  // Admin can cancel any booking; client can only cancel their own requested bookings
+  let query = adminClient
     .from("bookings")
     .select("*")
-    .eq("id", id)
-    .eq("user_id", ctx.user.id)
-    .eq("status", "requested")
-    .single();
+    .eq("id", id);
+
+  if (!isAdmin) {
+    query = query.eq("user_id", ctx.user.id).eq("status", "requested");
+  } else {
+    query = query.in("status", ["requested", "booked"]);
+  }
+
+  const { data: booking } = await query.single();
 
   if (!booking) {
     return NextResponse.json({ error: "Booking not found or cannot be cancelled" }, { status: 404 });
@@ -313,21 +426,46 @@ export async function DELETE(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Notify Diana
-  const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
   const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  try {
-    await notifyAdmin(
-      `Session request cancelled by ${clientName}`,
-      `<h2>Session Request Cancelled</h2>
-       <p><strong>Client:</strong> ${clientName}</p>
-       <p><strong>Date:</strong> ${booking.date}</p>
-       <p><strong>Time:</strong> ${startTime}</p>
-       <p>The time slot has been returned to the available pool.</p>`,
-      `${clientName} cancelled their session request for ${booking.date} at ${startTime}.`
-    );
-  } catch (e) {
-    console.error("Notification error:", e);
+
+  if (isAdmin) {
+    // Admin cancelled — notify the client
+    const { data: clientProfile } = await adminClient
+      .from("profiles")
+      .select("first_name, last_name, preferred_email, phone, notification_preference")
+      .eq("id", booking.user_id)
+      .single();
+
+    if (clientProfile) {
+      try {
+        await notifyClient(
+          clientProfile,
+          "Coaching session cancelled",
+          `<h2>Session Cancelled</h2>
+           <p>Your coaching session on <strong>${booking.date}</strong> at <strong>${startTime}</strong> has been cancelled.</p>
+           <p>Please visit your calendar to request a new time if needed.</p>`,
+          `Your coaching session on ${booking.date} at ${startTime} has been cancelled. Please request a new time if needed.`
+        );
+      } catch (e) {
+        console.error("Notification error:", e);
+      }
+    }
+  } else {
+    // Client cancelled — notify Diana
+    const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
+    try {
+      await notifyAdmin(
+        `Session request cancelled by ${clientName}`,
+        `<h2>Session Request Cancelled</h2>
+         <p><strong>Client:</strong> ${clientName}</p>
+         <p><strong>Date:</strong> ${booking.date}</p>
+         <p><strong>Time:</strong> ${startTime}</p>
+         <p>The time slot has been returned to the available pool.</p>`,
+        `${clientName} cancelled their session request for ${booking.date} at ${startTime}.`
+      );
+    } catch (e) {
+      console.error("Notification error:", e);
+    }
   }
 
   return NextResponse.json({ success: true });

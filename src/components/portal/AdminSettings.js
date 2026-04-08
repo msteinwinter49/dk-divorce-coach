@@ -25,6 +25,10 @@ export default function AdminSettings({ setPage }) {
   const [rules, setRules] = useState([]);
   const [newRule, setNewRule] = useState({ day_of_week: "1", start_time: "09:00", end_time: "17:00", is_blocked: false });
 
+  // Admin reminders
+  const [reminderChannel, setReminderChannel] = useState("both");
+  const [reminderMinutes, setReminderMinutes] = useState("30");
+
   // Google Calendar
   const [googleConnected, setGoogleConnected] = useState(false);
 
@@ -43,7 +47,8 @@ export default function AdminSettings({ setPage }) {
 
     const [settingsRes, typesRes, rulesRes] = await Promise.all([
       supabase.from("settings").select("key, value").in("key", [
-        "contact_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token"
+        "contact_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token",
+        "admin_reminder_channel", "admin_reminder_minutes"
       ]),
       fetch("/api/session-types").then(r => r.json()),
       supabase.from("availability_rules").select("*").order("day_of_week").order("start_time"),
@@ -55,6 +60,8 @@ export default function AdminSettings({ setPage }) {
     setContactEmail(settings.contact_email || "");
     setIncrement(settings.scheduling_increment || "30");
     setHorizon(settings.booking_horizon_days || "30");
+    setReminderChannel(settings.admin_reminder_channel || "both");
+    setReminderMinutes(settings.admin_reminder_minutes || "30");
     setGoogleConnected(!!settings.google_refresh_token);
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
     setRules(rulesRes.data || []);
@@ -80,6 +87,8 @@ export default function AdminSettings({ setPage }) {
     await saveSetting("contact_email", contactEmail.trim());
     await saveSetting("scheduling_increment", increment);
     await saveSetting("booking_horizon_days", horizon);
+    await saveSetting("admin_reminder_channel", reminderChannel);
+    await saveSetting("admin_reminder_minutes", reminderMinutes);
   };
 
   // --- Session types ---
@@ -174,6 +183,27 @@ export default function AdminSettings({ setPage }) {
           <div style={{ flex: 1 }}>
             <label style={S.label}>Booking horizon (days)</label>
             <input style={S.input} type="number" min="1" max="365" value={horizon} onChange={e => setHorizon(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Session reminder method</label>
+            <select style={{ ...S.input, cursor: "pointer" }} value={reminderChannel} onChange={e => setReminderChannel(e.target.value)}>
+              <option value="none">None</option>
+              <option value="email">Email only</option>
+              <option value="text">Text only</option>
+              <option value="both">Email and text</option>
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Remind me before session</label>
+            <select style={{ ...S.input, cursor: "pointer" }} value={reminderMinutes} onChange={e => setReminderMinutes(e.target.value)}>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="45">45 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
           </div>
         </div>
 

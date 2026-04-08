@@ -8,13 +8,14 @@ import { Elements, CardElement, useStripe, useElements } from "@stripe/react-str
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
-export default function Profile({ onSaved }) {
+export default function Profile({ onSaved, viewAsClient }) {
   const { user, profile, refreshProfile } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [preferredEmail, setPreferredEmail] = useState("");
   const [notificationPref, setNotificationPref] = useState("email");
+  const [reminderPref, setReminderPref] = useState("both");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -30,16 +31,24 @@ export default function Profile({ onSaved }) {
   };
 
   useEffect(() => {
-    if (profile) {
+    if (viewAsClient) {
+      setFirstName(viewAsClient.first_name || "");
+      setLastName(viewAsClient.last_name || "");
+      setPhone(formatPhone(viewAsClient.phone || ""));
+      setPreferredEmail(viewAsClient.preferred_email || viewAsClient.email || "");
+      setNotificationPref(viewAsClient.notification_preference || "email");
+      setReminderPref(viewAsClient.reminder_preference || "both");
+    } else if (profile) {
       setFirstName(profile.first_name || "");
       setLastName(profile.last_name || "");
       setPhone(formatPhone(profile.phone || ""));
       setPreferredEmail(profile.preferred_email || user?.email || "");
       setNotificationPref(profile.notification_preference || "email");
+      setReminderPref(profile.reminder_preference || "both");
     } else if (user) {
       setPreferredEmail(user.email || "");
     }
-  }, [profile, user]);
+  }, [profile, user, viewAsClient]);
 
   const handleSave = async () => {
     if (!firstName.trim() || !lastName.trim()) {
@@ -50,35 +59,70 @@ export default function Profile({ onSaved }) {
     setError(null);
     setSuccess(false);
 
-    const supabase = createClient();
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        full_name: `${firstName.trim()} ${lastName.trim()}`,
-        phone: phone.trim() || null,
-        preferred_email: preferredEmail.trim() || user.email,
-        notification_preference: notificationPref,
-      })
-      .eq("id", user.id);
-
-    setSaving(false);
-    if (updateError) {
-      setError("Could not save profile. Please try again.");
+    if (viewAsClient) {
+      // Admin saving client profile via API
+      const res = await fetch("/api/clients", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: viewAsClient.id,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          phone: phone.trim() || null,
+          preferred_email: preferredEmail.trim() || viewAsClient.email,
+          notification_preference: notificationPref,
+          reminder_preference: reminderPref,
+        }),
+      });
+      setSaving(false);
+      if (!res.ok) {
+        setError("Could not save profile. Please try again.");
+      } else {
+        setSuccess(true);
+        // Update viewAsClient in memory so nav/banner reflect changes
+        Object.assign(viewAsClient, {
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          phone: phone.trim() || null,
+          preferred_email: preferredEmail.trim() || viewAsClient.email,
+          notification_preference: notificationPref,
+          reminder_preference: reminderPref,
+        });
+      }
     } else {
-      setSuccess(true);
-      if (onSaved) onSaved();
+      const supabase = createClient();
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          full_name: `${firstName.trim()} ${lastName.trim()}`,
+          phone: phone.trim() || null,
+          preferred_email: preferredEmail.trim() || user.email,
+          notification_preference: notificationPref,
+          reminder_preference: reminderPref,
+        })
+        .eq("id", user.id);
+
+      setSaving(false);
+      if (updateError) {
+        setError("Could not save profile. Please try again.");
+      } else {
+        setSuccess(true);
+        if (onSaved) onSaved();
+      }
     }
   };
 
   return (
     <div style={S.page}>
       <h1 style={{...S.h1, fontSize:26}}>
-        {isFirstLogin ? "Welcome! Set up your profile" : "Your profile"}
+        {viewAsClient ? `${viewAsClient.first_name}'s Profile` : isFirstLogin ? "Welcome! Set up your profile" : "Your profile"}
       </h1>
       <p style={S.p}>
-        {isFirstLogin
+        {viewAsClient
+          ? "Edit this client's profile information."
+          : isFirstLogin
           ? "Please fill in your details to get started."
           : "Update your information below."}
       </p>
@@ -105,6 +149,14 @@ export default function Profile({ onSaved }) {
           <option value="both">Email and text</option>
         </select>
 
+        <label style={S.label}>Session reminders</label>
+        <select style={{ ...S.input, cursor: "pointer" }} value={reminderPref} onChange={e => setReminderPref(e.target.value)}>
+          <option value="both">24 hours and 1 hour before</option>
+          <option value="24h">24 hours before</option>
+          <option value="1h">1 hour before</option>
+          <option value="none">No reminders</option>
+        </select>
+
         {error && <p style={{ fontSize:13, color:"#c0392b", marginBottom:12 }}>{error}</p>}
         {success && <p style={{ fontSize:13, color:C.teal, marginBottom:12 }}>Profile saved.</p>}
         <button style={S.btn} onClick={handleSave} disabled={saving}>
@@ -112,8 +164,8 @@ export default function Profile({ onSaved }) {
         </button>
       </div>
 
-      {/* Payment method — only show for clients after initial profile setup */}
-      {!isFirstLogin && profile?.role !== "admin" && (
+      {/* Payment method — only show for clients after initial profile setup, not in admin view */}
+      {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (
         <div style={{ ...S.card, marginTop: "1rem" }}>
           <h3 style={S.h3}>Payment Method</h3>
           <p style={{ ...S.p, fontSize: 13 }}>

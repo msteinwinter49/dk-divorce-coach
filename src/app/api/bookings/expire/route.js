@@ -1,11 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { notifyAdmin } from "@/lib/notifications";
+import { notifyAdmin, notifyClient } from "@/lib/notifications";
 
-// Cron job: expire unactioned requests and send reminders
-// Called by Vercel cron every 15 minutes
+// Cron job: expire unactioned requests, send admin reminders for pending,
+// and send session reminders for confirmed bookings.
+// Called by Vercel cron every 15 minutes.
 export async function GET(request) {
-  // Verify cron secret (Vercel sets this header)
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,8 +17,11 @@ export async function GET(request) {
   );
 
   const now = new Date();
+  const results = { expired: 0, pending_reminders: 0, client_reminders: 0, admin_reminders: 0 };
 
+  // ============================================
   // 1. Expire requests where start_time has passed
+  // ============================================
   const { data: expired } = await supabase
     .from("bookings")
     .update({ status: "expired" })
@@ -26,54 +29,202 @@ export async function GET(request) {
     .lt("start_time", now.toISOString())
     .select();
 
-  // 2. Send 24-hour reminders
+  results.expired = expired?.length || 0;
+
+  // ============================================
+  // 2. Admin reminders for pending requests (24h and 1h)
+  // ============================================
   const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const { data: upcoming24h } = await supabase
+  const in1h = new Date(now.getTime() + 60 * 60 * 1000);
+
+  const { data: pendingBookings } = await supabase
     .from("bookings")
-    .select("*, profiles(first_name, last_name)")
+    .select("*")
     .eq("status", "requested")
     .gt("start_time", now.toISOString())
     .lte("start_time", in24h.toISOString());
 
-  // 3. Send 1-hour reminders
-  const in1h = new Date(now.getTime() + 60 * 60 * 1000);
-  const { data: upcoming1h } = await supabase
-    .from("bookings")
-    .select("*, profiles(first_name, last_name)")
-    .eq("status", "requested")
-    .gt("start_time", now.toISOString())
-    .lte("start_time", in1h.toISOString());
+  if (pendingBookings?.length > 0) {
+    // Fetch profiles separately (no FK between bookings and profiles)
+    const userIds = [...new Set(pendingBookings.map(b => b.user_id))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name")
+      .in("id", userIds);
 
-  // Send reminder notifications to Diana
-  const reminders = [...(upcoming1h || []), ...(upcoming24h || [])];
-  // Deduplicate (1h bookings also appear in 24h)
-  const seen = new Set();
-  for (const booking of reminders) {
-    if (seen.has(booking.id)) continue;
-    seen.add(booking.id);
+    const profileMap = {};
+    (profiles || []).forEach(p => { profileMap[p.id] = p; });
 
-    const clientName = `${booking.profiles.first_name} ${booking.profiles.last_name}`;
-    const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-    const isUrgent = upcoming1h?.some(b => b.id === booking.id);
+    for (const booking of pendingBookings) {
+      const profile = profileMap[booking.user_id];
+      const clientName = profile ? `${profile.first_name} ${profile.last_name}` : "Unknown client";
+      const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const isUrgent = new Date(booking.start_time) <= in1h;
 
-    try {
-      await notifyAdmin(
-        `${isUrgent ? "URGENT: " : ""}Pending session request from ${clientName}`,
-        `<h2>${isUrgent ? "Urgent: " : ""}Pending Session Request</h2>
-         <p>You have an unactioned session request from <strong>${clientName}</strong>.</p>
-         <p><strong>Date:</strong> ${booking.date}</p>
-         <p><strong>Time:</strong> ${startTime}</p>
-         <p>${isUrgent ? "This session starts in less than 1 hour!" : "This session starts in less than 24 hours."}</p>
-         <p>Log in to accept or decline.</p>`,
-        `${isUrgent ? "URGENT: " : ""}Pending request from ${clientName} on ${booking.date} at ${startTime}. Log in to accept or decline.`
-      );
-    } catch (e) {
-      console.error("Reminder notification error:", e);
+      try {
+        await notifyAdmin(
+          `${isUrgent ? "URGENT: " : ""}Pending session request from ${clientName}`,
+          `<h2>${isUrgent ? "Urgent: " : ""}Pending Session Request</h2>
+           <p>You have an unactioned session request from <strong>${clientName}</strong>.</p>
+           <p><strong>Date:</strong> ${booking.date}</p>
+           <p><strong>Time:</strong> ${startTime}</p>
+           <p>${isUrgent ? "This session starts in less than 1 hour!" : "This session starts in less than 24 hours."}</p>
+           <p>Log in to accept or decline.</p>`,
+          `${isUrgent ? "URGENT: " : ""}Pending request from ${clientName} on ${booking.date} at ${startTime}. Log in to accept or decline.`
+        );
+        results.pending_reminders++;
+      } catch (e) {
+        console.error("Pending reminder notification error:", e);
+      }
     }
   }
 
-  return NextResponse.json({
-    expired: expired?.length || 0,
-    reminders_sent: seen.size,
-  });
+  // ============================================
+  // 3. Confirmed session reminders
+  // ============================================
+
+  // Load admin reminder settings
+  const { data: adminSettings } = await supabase
+    .from("settings")
+    .select("key, value")
+    .in("key", ["admin_reminder_channel", "admin_reminder_minutes"]);
+
+  const settingsMap = {};
+  (adminSettings || []).forEach(s => { settingsMap[s.key] = s.value; });
+  const adminReminderChannel = settingsMap.admin_reminder_channel || "both";
+  const adminReminderMinutes = parseInt(settingsMap.admin_reminder_minutes || "30");
+
+  // Find all confirmed bookings starting within the next 24 hours
+  const { data: confirmedBookings } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("status", "booked")
+    .gt("start_time", now.toISOString())
+    .lte("start_time", in24h.toISOString());
+
+  if (confirmedBookings?.length > 0) {
+    // Fetch client profiles
+    const userIds = [...new Set(confirmedBookings.map(b => b.user_id))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name, preferred_email, phone, notification_preference, reminder_preference")
+      .in("id", userIds);
+
+    const profileMap = {};
+    (profiles || []).forEach(p => { profileMap[p.id] = p; });
+
+    for (const booking of confirmedBookings) {
+      const profile = profileMap[booking.user_id];
+      const clientName = profile ? `${profile.first_name} ${profile.last_name}` : "Unknown client";
+      const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const minutesUntil = (new Date(booking.start_time) - now) / 60000;
+
+      // --- Client reminders ---
+      if (profile && !booking.client_reminder_sent_at) {
+        const pref = profile.reminder_preference || "both";
+        let shouldNotify = false;
+
+        if (pref === "both" && minutesUntil <= 24 * 60) {
+          shouldNotify = true;
+        } else if (pref === "24h" && minutesUntil <= 24 * 60) {
+          shouldNotify = true;
+        } else if (pref === "1h" && minutesUntil <= 60) {
+          shouldNotify = true;
+        }
+        // pref === "none" — no reminder
+
+        if (shouldNotify) {
+          try {
+            await notifyClient(
+              profile,
+              "Upcoming coaching session reminder",
+              `<h2>Session Reminder</h2>
+               <p>You have a coaching session coming up:</p>
+               <p><strong>Date:</strong> ${booking.date}</p>
+               <p><strong>Time:</strong> ${startTime}</p>
+               <p><strong>Duration:</strong> ${booking.session_duration} min</p>`,
+              `Reminder: You have a coaching session on ${booking.date} at ${startTime} (${booking.session_duration}min).`
+            );
+            await supabase
+              .from("bookings")
+              .update({ client_reminder_sent_at: now.toISOString() })
+              .eq("id", booking.id);
+            results.client_reminders++;
+          } catch (e) {
+            console.error("Client reminder error:", e);
+          }
+        }
+      }
+
+      // --- Admin reminder ---
+      if (adminReminderChannel !== "none" && !booking.admin_reminder_sent_at && minutesUntil <= adminReminderMinutes) {
+        try {
+          await notifyAdminWithChannel(
+            supabase,
+            adminReminderChannel,
+            `Upcoming session with ${clientName}`,
+            `<h2>Session Reminder</h2>
+             <p>You have a coaching session coming up:</p>
+             <p><strong>Client:</strong> ${clientName}</p>
+             <p><strong>Date:</strong> ${booking.date}</p>
+             <p><strong>Time:</strong> ${startTime}</p>
+             <p><strong>Duration:</strong> ${booking.session_duration} min</p>`,
+            `Reminder: Session with ${clientName} on ${booking.date} at ${startTime} (${booking.session_duration}min).`
+          );
+          await supabase
+            .from("bookings")
+            .update({ admin_reminder_sent_at: now.toISOString() })
+            .eq("id", booking.id);
+          results.admin_reminders++;
+        } catch (e) {
+          console.error("Admin reminder error:", e);
+        }
+      }
+    }
+  }
+
+  return NextResponse.json(results);
+}
+
+// Admin reminder with configurable channel (email/text/both)
+// Unlike notifyAdmin which always does both, this respects the setting.
+async function notifyAdminWithChannel(supabase, channel, subject, html, smsBody) {
+  const { Resend } = await import("resend");
+  const { sendSMS } = await import("@/lib/twilio");
+  const resend = new Resend(process.env.RESEND_API_KEY);
+
+  const results = { email: null, sms: null };
+
+  if (channel === "email" || channel === "both") {
+    const { data: setting } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "contact_email")
+      .single();
+
+    if (setting?.value) {
+      results.email = await resend.emails.send({
+        from: "DK Divorce Coach <diana@dkdivorcecoach.com>",
+        replyTo: "dkdivorcecoach@gmail.com",
+        to: setting.value,
+        subject,
+        html,
+      });
+    }
+  }
+
+  if (channel === "text" || channel === "both") {
+    const { data: admin } = await supabase
+      .from("profiles")
+      .select("phone")
+      .eq("role", "admin")
+      .limit(1)
+      .single();
+
+    if (admin?.phone && smsBody) {
+      results.sms = await sendSMS(admin.phone, smsBody);
+    }
+  }
+
+  return results;
 }

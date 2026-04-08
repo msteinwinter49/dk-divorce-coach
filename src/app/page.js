@@ -54,15 +54,15 @@ export default function App() {
     if (needsProfile) {
       return <Profile onSaved={() => { refreshProfile(); setPage("Portal Home"); }} />;
     }
-    if (page === "Profile") return <Profile onSaved={refreshProfile} />;
+    if (page === "Profile") return <Profile onSaved={refreshProfile} viewAsClient={viewAsClient} />;
     if (page === "Portal Home") return <PortalHome setPage={setPage} viewAsClient={viewAsClient} />;
     if (page === "Documents") return <Documents viewAsClient={viewAsClient} />;
     if (page === "Schedule") return <Schedule viewAsClient={viewAsClient} />;
     if (page === "Messages") return <Messages viewAsClient={viewAsClient} />;
+    if (isAdmin && page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
     if (isAdmin && !viewAsClient) {
       if (page === "Admin") return <Admin setPage={setPage} />;
       if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} />;
-      if (page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
       if (page === "Admin Settings") return <AdminSettings setPage={setPage} />;
     }
     return <PortalHome setPage={setPage} viewAsClient={viewAsClient} />;
