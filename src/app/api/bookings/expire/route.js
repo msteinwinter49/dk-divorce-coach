@@ -94,13 +94,17 @@ export async function GET(request) {
   const adminReminderChannel = settingsMap.admin_reminder_channel || "both";
   const adminReminderMinutes = parseInt(settingsMap.admin_reminder_minutes || "30");
 
-  // Find all confirmed bookings starting within the next 24 hours
+  // Buffer to compensate for cron interval — reminders may arrive early by
+  // up to this amount, but never late. Matches the longest cron gap (daily = 1440).
+  const CRON_BUFFER_MIN = 1440;
+
+  // Find all confirmed bookings starting within the next 24h + buffer
   const { data: confirmedBookings } = await supabase
     .from("bookings")
     .select("*")
     .eq("status", "booked")
     .gt("start_time", now.toISOString())
-    .lte("start_time", in24h.toISOString());
+    .lte("start_time", new Date(now.getTime() + (24 * 60 + CRON_BUFFER_MIN) * 60000).toISOString());
 
   if (confirmedBookings?.length > 0) {
     // Fetch client profiles
@@ -124,11 +128,11 @@ export async function GET(request) {
         const pref = profile.reminder_preference || "both";
         let shouldNotify = false;
 
-        if (pref === "both" && minutesUntil <= 24 * 60) {
+        if (pref === "both" && minutesUntil <= 24 * 60 + CRON_BUFFER_MIN) {
           shouldNotify = true;
-        } else if (pref === "24h" && minutesUntil <= 24 * 60) {
+        } else if (pref === "24h" && minutesUntil <= 24 * 60 + CRON_BUFFER_MIN) {
           shouldNotify = true;
-        } else if (pref === "1h" && minutesUntil <= 60) {
+        } else if (pref === "1h" && minutesUntil <= 60 + CRON_BUFFER_MIN) {
           shouldNotify = true;
         }
         // pref === "none" — no reminder
@@ -157,7 +161,7 @@ export async function GET(request) {
       }
 
       // --- Admin reminder ---
-      if (adminReminderChannel !== "none" && !booking.admin_reminder_sent_at && minutesUntil <= adminReminderMinutes) {
+      if (adminReminderChannel !== "none" && !booking.admin_reminder_sent_at && minutesUntil <= adminReminderMinutes + CRON_BUFFER_MIN) {
         try {
           await notifyAdminWithChannel(
             supabase,
