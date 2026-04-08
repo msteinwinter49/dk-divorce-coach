@@ -22,10 +22,10 @@ export async function getAvailableSlots(startDate, endDate, incrementMinutes = 3
       .lte("date", endDate),
     supabase
       .from("bookings")
-      .select("start_time, end_time, status")
+      .select("date, time_slot, session_duration, start_time, end_time, status")
       .in("status", ["requested", "booked"])
-      .gte("start_time", new Date(startDate).toISOString())
-      .lte("start_time", new Date(endDate + "T23:59:59").toISOString()),
+      .gte("date", startDate)
+      .lte("date", endDate),
     supabase
       .from("settings")
       .select("key, value")
@@ -94,18 +94,17 @@ export async function getAvailableSlots(startDate, endDate, incrementMinutes = 3
     }
 
     // Remove times that overlap with existing bookings
-    const dayBookings = bookings.filter(b => {
-      const bd = new Date(b.start_time);
-      const bDate = `${bd.getFullYear()}-${String(bd.getMonth() + 1).padStart(2, "0")}-${String(bd.getDate()).padStart(2, "0")}`;
-      return bDate === dateStr;
-    });
+    // Use date + time_slot + session_duration (local time, no timezone conversion)
+    const dayBookings = bookings.filter(b => b.date === dateStr);
 
     for (const booking of dayBookings) {
-      const bStart = new Date(booking.start_time);
-      const bEnd = new Date(booking.end_time);
+      const [bH, bM] = booking.time_slot.split(":").map(Number);
+      const bStartMin = bH * 60 + bM;
+      const bEndMin = bStartMin + (booking.session_duration || 60);
       available = available.filter(t => {
-        const slotTime = new Date(`${dateStr}T${t}:00`);
-        return slotTime < bStart || slotTime >= bEnd;
+        const [h, m] = t.split(":").map(Number);
+        const slotMin = h * 60 + m;
+        return slotMin < bStartMin || slotMin >= bEndMin;
       });
     }
 
