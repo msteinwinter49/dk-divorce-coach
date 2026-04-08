@@ -3,6 +3,14 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+// Convert browser's getTimezoneOffset() to an ISO offset string like "-04:00"
+function buildTzOffset(tz_offset) {
+  const off = typeof tz_offset === "number" ? tz_offset : 0;
+  const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, "0");
+  const m = String(Math.abs(off) % 60).padStart(2, "0");
+  return (off <= 0 ? "+" : "-") + h + ":" + m;
+}
+
 async function getAdminContext() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -92,13 +100,14 @@ export async function POST(request) {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { summary, date, start_time, end_time } = await request.json();
+  const { summary, date, start_time, end_time, tz_offset } = await request.json();
   if (!summary || !date || !start_time || !end_time) {
     return NextResponse.json({ error: "summary, date, start_time, and end_time are required" }, { status: 400 });
   }
 
-  const startISO = new Date(`${date}T${start_time}:00`).toISOString();
-  const endISO = new Date(`${date}T${end_time}:00`).toISOString();
+  const offStr = buildTzOffset(tz_offset);
+  const startISO = `${date}T${start_time}:00${offStr}`;
+  const endISO = `${date}T${end_time}:00${offStr}`;
 
   // Save locally
   const { data: event, error } = await ctx.adminClient
@@ -146,14 +155,15 @@ export async function PATCH(request) {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { id, summary, date, start_time, end_time } = await request.json();
+  const { id, summary, date, start_time, end_time, tz_offset } = await request.json();
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
+  const offStr = buildTzOffset(tz_offset);
   const updates = { updated_at: new Date().toISOString() };
   if (summary) updates.summary = summary;
   if (date) updates.date = date;
-  if (date && start_time) updates.start_time = new Date(`${date}T${start_time}:00`).toISOString();
-  if (date && end_time) updates.end_time = new Date(`${date}T${end_time}:00`).toISOString();
+  if (date && start_time) updates.start_time = `${date}T${start_time}:00${offStr}`;
+  if (date && end_time) updates.end_time = `${date}T${end_time}:00${offStr}`;
 
   const { data: event, error } = await ctx.adminClient
     .from("events")

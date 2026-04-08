@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
+import { createClient } from "@/lib/supabase/client";
 import MiniCalendar from "@/components/portal/MiniCalendar";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
@@ -61,6 +62,7 @@ export default function AdminCalendar({ setPage }) {
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState([]);
   const [sessionTypes, setSessionTypes] = useState([]);
+  const [increment, setIncrement] = useState(30);
 
   // Modal state: mode = "choose"|"accept"|"edit"|"book"|"event"
   const [modal, setModal] = useState(null);
@@ -121,6 +123,15 @@ export default function AdminCalendar({ setPage }) {
     setGoogleEvents(Array.isArray(eventsRes) ? eventsRes : []);
     setClients(clientsRes.clients || []);
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
+
+    // Load scheduling increment
+    const supabase = createClient();
+    const { data: incSetting } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "scheduling_increment")
+      .single();
+    if (incSetting?.value) setIncrement(parseInt(incSetting.value));
     setLoading(false);
   }, [getRange]);
 
@@ -278,6 +289,7 @@ export default function AdminCalendar({ setPage }) {
         date: bookDate,
         start_time: bookTime,
         end_time: eventEndTime,
+        tz_offset: new Date().getTimezoneOffset(),
       }),
     });
     setModalSaving(false);
@@ -306,6 +318,7 @@ export default function AdminCalendar({ setPage }) {
         date: bookDate,
         start_time: bookTime,
         end_time: eventEndTime,
+        tz_offset: new Date().getTimezoneOffset(),
       }),
     });
     setModalSaving(false);
@@ -397,12 +410,28 @@ export default function AdminCalendar({ setPage }) {
     dragRef.current = { ...item, _dragType: type };
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", item.id);
+    // Hide the native drag ghost so our tooltip is visible
+    const ghost = document.createElement("div");
+    ghost.style.position = "absolute";
+    ghost.style.top = "-9999px";
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
+    setTimeout(() => document.body.removeChild(ghost), 0);
   };
 
   const handleDragOver = (e, date, hour) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    setDragOver({ date, hour });
+    // Calculate sub-hour time snapped to increment
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rowH = view === "day" ? DAY_ROW_H : WEEK_ROW_H;
+    const fractionInRow = Math.max(0, Math.min(1, (e.clientY - rect.top) / rowH));
+    const minuteInHour = Math.floor(fractionInRow * 60 / increment) * increment;
+    const totalMinutes = hour * 60 + minuteInHour;
+    const snapH = Math.floor(totalMinutes / 60);
+    const snapM = totalMinutes % 60;
+    const snapTime = `${String(snapH).padStart(2, "0")}:${String(snapM).padStart(2, "0")}`;
+    setDragOver({ date, hour, snapTime, x: e.clientX, y: e.clientY });
   };
 
   const handleDragLeave = () => {
@@ -411,12 +440,12 @@ export default function AdminCalendar({ setPage }) {
 
   const handleDrop = async (e, date, hour) => {
     e.preventDefault();
+    // Use the snapped time from dragOver if available
+    const newTime = dragOver?.snapTime || `${String(hour).padStart(2, "0")}:00`;
     setDragOver(null);
     const item = dragRef.current;
     dragRef.current = null;
     if (!item) return;
-
-    const newTime = `${String(hour).padStart(2, "0")}:00`;
 
     if (item._dragType === "event") {
       // Moving a local event
@@ -428,14 +457,15 @@ export default function AdminCalendar({ setPage }) {
       // Calculate new end time preserving duration
       const oldEnd = new Date(item.end.dateTime);
       const durationMin = (oldEnd - oldStart) / 60000;
-      const newStartMin = hour * 60;
+      const [newH, newM] = newTime.split(":").map(Number);
+      const newStartMin = newH * 60 + newM;
       const newEndMin = newStartMin + durationMin;
       const endTimeStr = `${String(Math.floor(newEndMin / 60)).padStart(2, "0")}:${String(newEndMin % 60).padStart(2, "0")}`;
 
       const res = await fetch("/api/calendar/events", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, date, start_time: newTime, end_time: endTimeStr }),
+        body: JSON.stringify({ id: item.id, date, start_time: newTime, end_time: endTimeStr, tz_offset: new Date().getTimezoneOffset() }),
       });
       if (res.ok) { loadData(); }
       else { const err = await res.json(); alert(err.error || "Could not move event."); }
@@ -638,12 +668,12 @@ export default function AdminCalendar({ setPage }) {
     const totalH = HOURS.length * DAY_ROW_H;
     const overlayItems = getItemsForDate(date, DAY_ROW_H);
     return (
-      <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, userSelect: "none" }}>
+      <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, userSelect: "none" }}>
         <div style={{ display: "flex" }}>
           {/* Time labels */}
           <div style={{ width: 70, flexShrink: 0 }}>
             {HOURS.map(h => (
-              <div key={h} style={{ height: DAY_ROW_H, padding: "8px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, boxSizing: "border-box" }}>
+              <div key={h} style={{ height: DAY_ROW_H, padding: "8px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box" }}>
                 {formatHour(h)}
               </div>
             ))}
@@ -660,7 +690,7 @@ export default function AdminCalendar({ setPage }) {
                 <div
                   key={h}
                   style={{
-                    height: DAY_ROW_H, borderBottom: `0.5px solid ${C.border}`,
+                    height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
                     background: selected ? "#b2dfdb" : isDragTarget ? "#b2dfdb" : (avail || isHourOccupied(date, h)) ? SRC.available : "#fafafa",
                     cursor: !occupied ? "crosshair" : "default",
                     boxSizing: "border-box",
@@ -699,9 +729,9 @@ export default function AdminCalendar({ setPage }) {
           {/* Time labels column */}
           <div style={{ width: 70, flexShrink: 0 }}>
             {/* Header spacer */}
-            <div style={{ height: 36, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, background: "#fafafa" }} />
+            <div style={{ height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, background: "#fafafa" }} />
             {HOURS.map(h => (
-              <div key={h} style={{ height: WEEK_ROW_H, padding: "8px 6px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, boxSizing: "border-box" }}>
+              <div key={h} style={{ height: WEEK_ROW_H, padding: "8px 6px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box" }}>
                 {formatHour(h)}
               </div>
             ))}
@@ -711,11 +741,11 @@ export default function AdminCalendar({ setPage }) {
             const date = dateStr(d);
             const overlayItems = getItemsForDate(date, WEEK_ROW_H);
             return (
-              <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.border}` : "none" }}>
+              <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none" }}>
                 {/* Day header */}
                 <div style={{
                   height: 36, textAlign: "center", padding: "4px 0",
-                  borderBottom: `0.5px solid ${C.border}`, background: "#fafafa",
+                  borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa",
                   fontWeight: sameDay(d, new Date()) ? 600 : 400,
                   color: sameDay(d, new Date()) ? C.teal : C.text,
                 }}>
@@ -734,7 +764,7 @@ export default function AdminCalendar({ setPage }) {
                       <div
                         key={h}
                         style={{
-                          height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.border}`,
+                          height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
                           background: selected ? "#b2dfdb" : isDragTarget ? "#b2dfdb" : (avail || isHourOccupied(date, h)) ? SRC.available : "#fafafa",
                           cursor: !occupied ? "crosshair" : "default",
                           boxSizing: "border-box",
@@ -777,10 +807,10 @@ export default function AdminCalendar({ setPage }) {
     }
 
     return (
-      <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, overflow: "hidden" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "#fafafa" }}>
           {DAYS_SHORT.map(d => (
-            <div key={d} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}` }}>{d}</div>
+            <div key={d} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}` }}>{d}</div>
           ))}
         </div>
         {weeks.map((week, wi) => (
@@ -797,8 +827,8 @@ export default function AdminCalendar({ setPage }) {
                   key={di}
                   style={{
                     minHeight: 80, padding: "4px 6px",
-                    borderBottom: wi < weeks.length - 1 ? `0.5px solid ${C.border}` : "none",
-                    borderRight: di < 6 ? `0.5px solid ${C.border}` : "none",
+                    borderBottom: wi < weeks.length - 1 ? `0.5px solid ${C.gridLine}` : "none",
+                    borderRight: di < 6 ? `0.5px solid ${C.gridLine}` : "none",
                     opacity: isCurrentMonth ? 1 : 0.4,
                     cursor: "pointer",
                     background: sameDay(day, new Date()) ? C.tealLight : "transparent",
@@ -891,7 +921,7 @@ export default function AdminCalendar({ setPage }) {
             onClick={() => openEventModal()}
             style={{
               flex: 1, padding: "1.5rem 1rem", textAlign: "center", borderRadius: 12, cursor: "pointer",
-              border: `1px solid ${C.border}`, background: "#fafafa",
+              border: `1px solid ${C.gridLine}`, background: "#fafafa",
             }}
           >
             <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 4 }}>Event</div>
@@ -1087,7 +1117,7 @@ export default function AdminCalendar({ setPage }) {
         top: y + 12,
         zIndex: 50,
         background: "#fff",
-        border: `1px solid ${C.border}`,
+        border: `1px solid ${C.gridLine}`,
         borderRadius: 8,
         padding: "10px 14px",
         fontSize: 13,
@@ -1098,6 +1128,32 @@ export default function AdminCalendar({ setPage }) {
         lineHeight: 1.5,
       }}>
         {content}
+      </div>
+    );
+  };
+
+  const renderDragTooltip = () => {
+    if (!dragOver || !dragRef.current) return null;
+    const { date, snapTime, x, y } = dragOver;
+    const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const timeLabel = snapTime ? formatTimeStr(snapTime) : "";
+    return (
+      <div style={{
+        position: "fixed",
+        left: x + 16,
+        top: y - 36,
+        zIndex: 1000,
+        background: C.teal,
+        color: "#fff",
+        borderRadius: 6,
+        padding: "5px 12px",
+        fontSize: 13,
+        fontWeight: 500,
+        pointerEvents: "none",
+        whiteSpace: "nowrap",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+      }}>
+        {dateLabel} · {timeLabel}
       </div>
     );
   };
@@ -1192,6 +1248,7 @@ export default function AdminCalendar({ setPage }) {
 
       {renderModal()}
       {hover && !modal && renderHoverTooltip()}
+      {dragOver && dragRef.current && renderDragTooltip()}
     </div>
   );
 }
@@ -1199,8 +1256,8 @@ export default function AdminCalendar({ setPage }) {
 function cellStyle(borderBottom, borderRight, bg) {
   return {
     padding: "4px 6px",
-    borderBottom: borderBottom ? `0.5px solid ${C.border}` : "none",
-    borderRight: borderRight ? `0.5px solid ${C.border}` : "none",
+    borderBottom: borderBottom ? `0.5px solid ${C.gridLine}` : "none",
+    borderRight: borderRight ? `0.5px solid ${C.gridLine}` : "none",
     background: bg || "transparent",
   };
 }

@@ -4,6 +4,7 @@ export const C = {
   warm: "#F5F0EB", warmBorder: "#E8E0D5",
   text: "#2C2C2A", muted: "#5F5E5A", hint: "#888780",
   border: "rgba(0,0,0,0.1)",
+  gridLine: "rgba(0,0,0,0.3)",
 };
 
 export const S = {

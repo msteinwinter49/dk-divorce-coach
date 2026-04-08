@@ -45,6 +45,7 @@ export async function GET(request) {
     .select(isAdmin
       ? "*, session_types(label, duration, fee)"
       : "*, session_types(label, duration, fee)")
+    .in("status", ["requested", "booked"])
     .order("start_time");
 
   // Clients only see their own bookings

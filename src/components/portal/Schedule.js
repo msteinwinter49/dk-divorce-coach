@@ -285,11 +285,11 @@ export default function Schedule({ viewAsClient }) {
     const totalH = HOURS.length * DAY_ROW_H;
     const overlayItems = getBookingsForDateOverlay(date, DAY_ROW_H);
     return (
-      <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, userSelect: "none" }}>
+      <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, userSelect: "none" }}>
         <div style={{ display: "flex" }}>
           <div style={{ width: 70, flexShrink: 0 }}>
             {HOURS.map(h => (
-              <div key={h} style={{ height: DAY_ROW_H, padding: "8px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, boxSizing: "border-box" }}>
+              <div key={h} style={{ height: DAY_ROW_H, padding: "8px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box" }}>
                 {formatHour(h)}
               </div>
             ))}
@@ -300,7 +300,7 @@ export default function Schedule({ viewAsClient }) {
               const occupied = isHourOccupied(date, h);
               return (
                 <div key={h} style={{
-                  height: DAY_ROW_H, borderBottom: `0.5px solid ${C.border}`,
+                  height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
                   background: (avail || occupied) ? "#d4edda" : "#fafafa",
                   cursor: avail && !occupied ? "pointer" : "default",
                   boxSizing: "border-box",
@@ -322,9 +322,9 @@ export default function Schedule({ viewAsClient }) {
       <div style={{ overflowX: "auto", userSelect: "none" }}>
         <div style={{ display: "flex", minWidth: mobile ? 770 : "auto" }}>
           <div style={{ width: 70, flexShrink: 0 }}>
-            <div style={{ height: 36, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, background: "#fafafa" }} />
+            <div style={{ height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, background: "#fafafa" }} />
             {HOURS.map(h => (
-              <div key={h} style={{ height: WEEK_ROW_H, padding: "8px 6px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}`, borderRight: `0.5px solid ${C.border}`, boxSizing: "border-box" }}>
+              <div key={h} style={{ height: WEEK_ROW_H, padding: "8px 6px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box" }}>
                 {formatHour(h)}
               </div>
             ))}
@@ -333,10 +333,10 @@ export default function Schedule({ viewAsClient }) {
             const date = dateStr(d);
             const overlayItems = getBookingsForDateOverlay(date, WEEK_ROW_H);
             return (
-              <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.border}` : "none" }}>
+              <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none" }}>
                 <div style={{
                   height: 36, textAlign: "center", padding: "4px 0",
-                  borderBottom: `0.5px solid ${C.border}`, background: "#fafafa",
+                  borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa",
                   fontWeight: sameDay(d, new Date()) ? 600 : 400,
                   color: sameDay(d, new Date()) ? C.teal : C.text,
                 }}>
@@ -349,7 +349,7 @@ export default function Schedule({ viewAsClient }) {
                     const occupied = isHourOccupied(date, h);
                     return (
                       <div key={h} style={{
-                        height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.border}`,
+                        height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
                         background: (avail || occupied) ? "#d4edda" : "#fafafa",
                         cursor: avail && !occupied ? "pointer" : "default",
                         boxSizing: "border-box",
@@ -381,10 +381,10 @@ export default function Schedule({ viewAsClient }) {
     }
 
     return (
-      <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, overflow: "hidden" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "#fafafa" }}>
           {DAYS_SHORT.map(d => (
-            <div key={d} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.border}` }}>{d}</div>
+            <div key={d} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}` }}>{d}</div>
           ))}
         </div>
         {weeks.map((week, wi) => (
@@ -399,8 +399,8 @@ export default function Schedule({ viewAsClient }) {
               return (
                 <div key={di} style={{
                   minHeight: 80, padding: "4px 6px",
-                  borderBottom: wi < weeks.length - 1 ? `0.5px solid ${C.border}` : "none",
-                  borderRight: di < 6 ? `0.5px solid ${C.border}` : "none",
+                  borderBottom: wi < weeks.length - 1 ? `0.5px solid ${C.gridLine}` : "none",
+                  borderRight: di < 6 ? `0.5px solid ${C.gridLine}` : "none",
                   opacity: isCurrentMonth ? 1 : 0.4,
                   cursor: hasAvail && !isPast ? "pointer" : "default",
                   background: sameDay(day, new Date()) ? C.tealLight : hasAvail && !isPast ? "#f0faf5" : "transparent",
@@ -482,7 +482,7 @@ export default function Schedule({ viewAsClient }) {
                   <div key={t.id} onClick={() => { setSelectedType(t); setSelectedTime(null); }}
                     style={{
                       padding: "10px 12px", borderRadius: 8, cursor: "pointer",
-                      border: `1px solid ${selectedType?.id === t.id ? C.teal : C.border}`,
+                      border: `1px solid ${selectedType?.id === t.id ? C.teal : C.gridLine}`,
                       background: selectedType?.id === t.id ? C.tealLight : "#fff",
                     }}>
                     <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{t.label}</div>
@@ -507,7 +507,7 @@ export default function Schedule({ viewAsClient }) {
                               padding: "10px 4px", textAlign: "center", borderRadius: 8, fontSize: 13, cursor: "pointer",
                               background: isPicked ? C.teal : "#fff",
                               color: isPicked ? "#fff" : C.text,
-                              border: `1px solid ${isPicked ? C.teal : C.border}`,
+                              border: `1px solid ${isPicked ? C.teal : C.gridLine}`,
                             }}>
                             {formatTimeStr(t)}
                           </div>
@@ -623,8 +623,8 @@ export default function Schedule({ viewAsClient }) {
 function cellStyle(borderBottom, borderRight, bg) {
   return {
     padding: "4px 6px",
-    borderBottom: borderBottom ? `0.5px solid ${C.border}` : "none",
-    borderRight: borderRight ? `0.5px solid ${C.border}` : "none",
+    borderBottom: borderBottom ? `0.5px solid ${C.gridLine}` : "none",
+    borderRight: borderRight ? `0.5px solid ${C.gridLine}` : "none",
     background: bg || "transparent",
   };
 }
