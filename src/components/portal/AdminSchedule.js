@@ -10,15 +10,16 @@ const WEEK_ROW_H = 44;
 const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-// Source colors — match AdminCalendar.js palette
+// Source colors. Coaching uses a green in the same family as Available so
+// the two read as related (available slot → confirmed coaching session).
 const SRC = {
-  coaching: C.teal,
-  coachingBg: C.tealLight,
+  coaching: "#2e7d32",       // dark green (readable on light bg)
+  coachingBg: "#c8e6c9",     // mid-light green (distinct from Available's paler tint)
   sp: "#6b46c1",
   spBg: "#ede9fe",
   personal: "#B8860B",
   personalBg: "#FFF8E7",
-  available: "#d4edda",
+  available: "#d4edda",      // pale green
   requested: "#c0392b",
   requestedBg: "#fdecea",
 };
@@ -1443,7 +1444,7 @@ export default function AdminSchedule() {
     return (
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 18, marginBottom: 10, fontSize: 13, color: C.muted }}>
         <span style={{ fontWeight: 600, color: C.text }}>Key:</span>
-        {swatch("#6a8a6a", SRC.available, "Available")}
+        {swatch("#7cb342", SRC.available, "Available")}
         {swatch(SRC.coaching, SRC.coachingBg, "Coaching")}
         {swatch(SRC.requested, SRC.requestedBg, "Requested")}
         {swatch(SRC.sp, SRC.spBg, "SimplePractice")}

@@ -21,7 +21,15 @@ import AdminSettings from "@/components/portal/AdminSettings";
 
 export default function App() {
   const { user, profile, loading, refreshProfile } = useAuth();
-  const [page, setPage] = useState("Home");
+  // When Google OAuth redirects back with ?google_connected=true, land on Admin
+  // Settings so the admin sees the "Connected" state immediately.
+  const [page, setPage] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("google_connected") === "true") return "Admin Settings";
+    }
+    return "Home";
+  });
   const [viewAsClient, setViewAsClient] = useState(null);
   const inPortal = !!user;
   const isAdmin = profile?.role === "admin";
