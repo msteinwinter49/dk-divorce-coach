@@ -69,8 +69,12 @@ function clientFirstName(p) {
   return "Client";
 }
 
-// Classify a Google event as SimplePractice, personal, or coaching
+// Classify a Google event as SimplePractice, personal, or coaching.
+// The source calendar name (set server-side in listEvents) is the most reliable
+// signal; summary/organizer matching is the fallback for events from the primary.
 function classifyEvent(event) {
+  const calName = (event._sourceCalendarName || "").toLowerCase();
+  if (calName.includes("simplepractice")) return "sp";
   const summary = (event.summary || "").toLowerCase();
   if (summary.includes("coaching:") || summary.includes("clt-")) return "coaching";
   if (event.organizer?.email?.includes("simplepractice") || summary.includes("simplepractice") || summary.includes("therapy") || summary.includes("session")) return "sp";

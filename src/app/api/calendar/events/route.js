@@ -81,7 +81,7 @@ export async function GET(request) {
       const { listEvents } = await import("@/lib/google-calendar");
       googleEvents = await listEvents(token, start, end);
     } catch (e) {
-      console.error("Google Calendar fetch error:", e);
+      console.error("Google Calendar fetch error:", e?.message || e);
       // Continue without Google events
     }
   }

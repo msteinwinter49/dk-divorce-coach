@@ -35,17 +35,54 @@ export function getCalendarClient(refreshToken) {
   return google.calendar({ version: "v3", auth: oauth2Client });
 }
 
-// List events in a date range
-export async function listEvents(refreshToken, timeMin, timeMax, calendarId) {
+// List all calendars visible to the authenticated user (for debugging)
+export async function listCalendars(refreshToken) {
   const calendar = getCalendarClient(refreshToken);
-  const { data } = await calendar.events.list({
-    calendarId: calendarId || process.env.GOOGLE_CALENDAR_ID,
-    timeMin: new Date(timeMin).toISOString(),
-    timeMax: new Date(timeMax).toISOString(),
-    singleEvents: true,
-    orderBy: "startTime",
-  });
+  const { data } = await calendar.calendarList.list();
   return data.items || [];
+}
+
+// List events in a date range across every calendar the account can see,
+// except holiday calendars. Each event is tagged with its source calendar so
+// the frontend can classify/color them correctly.
+export async function listEvents(refreshToken, timeMin, timeMax) {
+  const calendar = getCalendarClient(refreshToken);
+
+  // 1. Discover all visible calendars (skip holidays)
+  const { data: calList } = await calendar.calendarList.list();
+  const calendars = (calList.items || []).filter(c => !c.id.includes("#holiday@"));
+
+  // 2. Expand the time window by one day on each side so timezone edge cases
+  //    (the frontend passes date-only strings that get interpreted as UTC
+  //    midnight) don't clip events near the boundary.
+  const wideMin = new Date(timeMin);
+  wideMin.setUTCDate(wideMin.getUTCDate() - 1);
+  const wideMax = new Date(timeMax);
+  wideMax.setUTCDate(wideMax.getUTCDate() + 1);
+
+  // 3. Fetch events from every calendar in parallel
+  const results = await Promise.all(calendars.map(async (cal) => {
+    try {
+      const { data } = await calendar.events.list({
+        calendarId: cal.id,
+        timeMin: wideMin.toISOString(),
+        timeMax: wideMax.toISOString(),
+        singleEvents: true,
+        orderBy: "startTime",
+      });
+      return (data.items || []).map(ev => ({
+        ...ev,
+        _sourceCalendarId: cal.id,
+        _sourceCalendarName: cal.summary,
+        _sourceCalendarPrimary: !!cal.primary,
+      }));
+    } catch (e) {
+      console.error(`[gcal] listEvents failed for calendar ${cal.id}:`, e?.message || e);
+      return [];
+    }
+  }));
+
+  return results.flat();
 }
 
 // Create an event (tentative for requests, confirmed for booked)
