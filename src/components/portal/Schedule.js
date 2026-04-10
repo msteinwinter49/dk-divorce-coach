@@ -52,8 +52,11 @@ export default function Schedule({ viewAsClient }) {
   const [bookingError, setBookingError] = useState(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
 
+  const [showSpinner, setShowSpinner] = useState(false);
+
   // Cancel state
   const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelSuccess, setCancelSuccess] = useState(false);
 
   const getRange = useCallback(() => {
     if (view === "day") return { start: dateStr(currentDate), end: dateStr(currentDate) };
@@ -105,6 +108,7 @@ export default function Schedule({ viewAsClient }) {
     if (!selectedType || !selectedTime || !bookingDate) return;
     setConfirming(true);
     setBookingError(null);
+    const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
 
     const body = {
       session_type_id: selectedType.id,
@@ -119,10 +123,7 @@ export default function Schedule({ viewAsClient }) {
       body: JSON.stringify(body),
     });
 
-    setConfirming(false);
     if (res.ok) {
-      setBookingSuccess(true);
-      // Re-fetch data so all views reflect the new booking
       const { start, end } = getRange();
       const [availRes, bookingsRes] = await Promise.all([
         fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
@@ -130,21 +131,30 @@ export default function Schedule({ viewAsClient }) {
       ]);
       setAvailability(availRes && !availRes.error ? availRes : {});
       setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
+      setBookingSuccess(true);
     } else {
       const err = await res.json();
       setBookingError(err.error || "Could not book. Please try again.");
     }
+    clearTimeout(spinnerTimer);
+    setShowSpinner(false);
+    setConfirming(false);
   };
 
   const handleCancel = async () => {
     if (!cancelTarget) return;
+    setConfirming(true);
+    const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
     const res = await fetch("/api/bookings", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: cancelTarget.id }),
     });
+    clearTimeout(spinnerTimer);
+    setShowSpinner(false);
+    setConfirming(false);
     if (res.ok) {
-      setCancelTarget(null);
+      setCancelSuccess(true);
       loadData();
     } else {
       alert("Could not cancel request.");
@@ -304,7 +314,7 @@ export default function Schedule({ viewAsClient }) {
                   background: (avail || occupied) ? "#d4edda" : "#fafafa",
                   cursor: avail && !occupied ? "pointer" : "default",
                   boxSizing: "border-box",
-                }} onClick={() => avail && !occupied && openBookingPopup(date)} />
+                }} onClick={() => avail && !occupied && openBookingPopup(date, h)} />
               );
             })}
             {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, false))}
@@ -322,9 +332,9 @@ export default function Schedule({ viewAsClient }) {
       <div style={{ overflowX: "auto", userSelect: "none" }}>
         <div style={{ display: "flex", minWidth: mobile ? 770 : "auto" }}>
           <div style={{ width: 70, flexShrink: 0 }}>
-            <div style={{ height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, background: "#fafafa" }} />
+            <div style={{ height: 36, padding: "4px 0", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, background: "#fafafa" }} />
             {HOURS.map(h => (
-              <div key={h} style={{ height: WEEK_ROW_H, padding: "8px 6px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box" }}>
+              <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {formatHour(h)}
               </div>
             ))}
@@ -353,7 +363,7 @@ export default function Schedule({ viewAsClient }) {
                         background: (avail || occupied) ? "#d4edda" : "#fafafa",
                         cursor: avail && !occupied ? "pointer" : "default",
                         boxSizing: "border-box",
-                      }} onClick={() => avail && !occupied && openBookingPopup(date)} />
+                      }} onClick={() => avail && !occupied && openBookingPopup(date, h)} />
                     );
                   })}
                   {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, true))}
@@ -381,14 +391,12 @@ export default function Schedule({ viewAsClient }) {
     }
 
     return (
-      <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "#fafafa" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", border: `0.5px solid ${C.gridLine}`, borderRadius: 8, overflow: "hidden" }}>
           {DAYS_SHORT.map(d => (
-            <div key={d} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}` }}>{d}</div>
+            <div key={d} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: C.hint, background: "#fafafa", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: d !== "Sat" ? `0.5px solid ${C.gridLine}` : "none" }}>{d}</div>
           ))}
-        </div>
         {weeks.map((week, wi) => (
-          <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+          <React.Fragment key={wi}>
             {week.map((day, di) => {
               const date = dateStr(day);
               const isCurrentMonth = day.getMonth() === m;
@@ -429,18 +437,18 @@ export default function Schedule({ viewAsClient }) {
                 </div>
               );
             })}
-          </div>
+          </React.Fragment>
         ))}
       </div>
     );
   };
 
   // --- Booking popup ---
-  const openBookingPopup = (date) => {
+  const openBookingPopup = (date, hour) => {
     if (readOnly) return;
     setBookingDate(date);
     setSelectedType(null);
-    setSelectedTime(null);
+    setSelectedTime(hour != null ? `${String(hour).padStart(2, "0")}:00` : null);
     setBookingError(null);
     setBookingSuccess(false);
   };
@@ -475,11 +483,27 @@ export default function Schedule({ viewAsClient }) {
               <h3 style={S.h3}>{isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session"}</h3>
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
-              {/* Step 1: Select session type */}
+              {/* Start / End time */}
+              <div style={{ display: "flex", gap: 16, alignItems: "flex-end", marginBottom: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
+                  <input type="time" value={selectedTime || ""}
+                    onChange={e => setSelectedTime(e.target.value)}
+                    style={{ ...S.input, width: "100%", fontSize: 14, marginBottom: 0 }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
+                  <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
+                    {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Session type */}
               <label style={{ ...S.label, marginBottom: 8 }}>Session type</label>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
                 {sessionTypes.map(t => (
-                  <div key={t.id} onClick={() => { setSelectedType(t); setSelectedTime(null); }}
+                  <div key={t.id} onClick={() => setSelectedType(t)}
                     style={{
                       padding: "10px 12px", borderRadius: 8, cursor: "pointer",
                       border: `1px solid ${selectedType?.id === t.id ? C.teal : C.gridLine}`,
@@ -491,35 +515,52 @@ export default function Schedule({ viewAsClient }) {
                 ))}
               </div>
 
-              {/* Step 2: Select time */}
-              {selectedType && (
-                <>
-                  <label style={{ ...S.label, marginBottom: 8 }}>Available times</label>
-                  {times.length === 0 ? (
-                    <p style={{ fontSize: 13, color: C.hint }}>No available times for this duration on this date.</p>
-                  ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: mobile ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>
-                      {times.map(t => {
-                        const isPicked = selectedTime === t;
-                        return (
-                          <div key={t} onClick={() => setSelectedTime(t)}
-                            style={{
-                              padding: "10px 4px", textAlign: "center", borderRadius: 8, fontSize: 13, cursor: "pointer",
-                              background: isPicked ? C.teal : "#fff",
-                              color: isPicked ? "#fff" : C.text,
-                              border: `1px solid ${isPicked ? C.teal : C.gridLine}`,
-                            }}>
-                            {formatTimeStr(t)}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
+              {/* Availability warning */}
+              {selectedType && selectedTime && (() => {
+                const slots = availability[bookingDate] || [];
+                const [h, m] = selectedTime.split(":").map(Number);
+                const startMin = h * 60 + m;
+                const endMin = startMin + selectedType.duration;
+
+                // Build continuous available ranges from discrete slots
+                let increment = 30;
+                if (slots.length >= 2) {
+                  const [h0, m0] = slots[0].split(":").map(Number);
+                  const [h1, m1] = slots[1].split(":").map(Number);
+                  increment = (h1 * 60 + m1) - (h0 * 60 + m0);
+                }
+                const ranges = [];
+                for (const s of slots) {
+                  const [sh, sm] = s.split(":").map(Number);
+                  const sMin = sh * 60 + sm;
+                  const sEnd = sMin + increment;
+                  if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
+                    ranges[ranges.length - 1][1] = sEnd;
+                  } else {
+                    ranges.push([sMin, sEnd]);
+                  }
+                }
+                const covered = ranges.some(([rStart, rEnd]) => startMin >= rStart && endMin <= rEnd);
+
+                const overlap = bookings.some(b => {
+                  const bDate = localDateStr(new Date(b.start_time));
+                  if (bDate !== bookingDate || !["requested", "booked"].includes(b.status)) return false;
+                  const bStart = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
+                  const bEnd = bStart + (b.session_duration || 60);
+                  return startMin < bEnd && endMin > bStart;
+                });
+
+                if (overlap) {
+                  return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>This time overlaps an existing booking.</p>;
+                }
+                if (!covered) {
+                  return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>Part of this time slot is outside available hours.</p>;
+                }
+                return null;
+              })()}
 
               {/* Step 3: Confirm */}
-              {selectedTime && (
+              {selectedType && selectedTime && (
                 <div style={{ padding: "1rem", background: C.warm, borderRadius: 12, marginBottom: 12 }}>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{selectedType.label}</div>
                   <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
@@ -531,7 +572,7 @@ export default function Schedule({ viewAsClient }) {
               {bookingError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{bookingError}</p>}
 
               <div style={{ display: "flex", gap: 8 }}>
-                {selectedTime && (
+                {selectedType && selectedTime && (
                   <button style={S.btn} onClick={handleBook} disabled={confirming}>
                     {confirming ? (isAdminViewing ? "Booking..." : "Requesting...") : (isAdminViewing ? "Book Session" : "Request Session")}
                   </button>
@@ -546,24 +587,47 @@ export default function Schedule({ viewAsClient }) {
   };
 
   // --- Cancel modal ---
+  const closeCancelModal = () => {
+    setCancelTarget(null);
+    setCancelSuccess(false);
+  };
+
   const renderCancelModal = () => {
     if (!cancelTarget) return null;
     return (
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }} onClick={() => setCancelTarget(null)}>
+      }} onClick={closeCancelModal}>
         <div style={{ ...S.card, maxWidth: 400, width: "90%", margin: 0 }} onClick={e => e.stopPropagation()}>
-          <h3 style={S.h3}>{cancelTarget.status === "booked" ? "Cancel Session" : "Cancel Request"}</h3>
-          <p style={S.p}>
-            Are you sure you want to cancel {isAdminViewing ? `${viewAsClient.first_name}'s` : "your"} {cancelTarget.status === "booked" ? "session" : "session request"} for{" "}
-            <strong>{formatTime(cancelTarget.start_time)}</strong> on{" "}
-            <strong>{cancelTarget.date}</strong>?
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button style={{ ...S.btn, background: "#c0392b" }} onClick={handleCancel}>Yes, Cancel</button>
-            <button style={S.btnSmOut} onClick={() => setCancelTarget(null)}>No, Keep It</button>
-          </div>
+          {cancelSuccess ? (
+            <div style={{ textAlign: "center", padding: "1rem" }}>
+              <div style={{ fontSize: 16, fontWeight: 500, color: C.teal, marginBottom: 8 }}>
+                {cancelTarget.status === "booked" ? "Session cancelled." : "Request cancelled."}
+              </div>
+              <p style={{ ...S.p, color: C.muted }}>
+                Your {cancelTarget.status === "booked" ? "session" : "session request"} for{" "}
+                <strong>{formatTime(cancelTarget.start_time)}</strong> on{" "}
+                <strong>{cancelTarget.date}</strong> has been cancelled.
+              </p>
+              <button style={S.btn} onClick={closeCancelModal}>Close</button>
+            </div>
+          ) : (
+            <>
+              <h3 style={S.h3}>{cancelTarget.status === "booked" ? "Cancel Session" : "Cancel Request"}</h3>
+              <p style={S.p}>
+                Are you sure you want to cancel {isAdminViewing ? `${viewAsClient.first_name}'s` : "your"} {cancelTarget.status === "booked" ? "session" : "session request"} for{" "}
+                <strong>{formatTime(cancelTarget.start_time)}</strong> on{" "}
+                <strong>{cancelTarget.date}</strong>?
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={{ ...S.btn, background: "#c0392b" }} onClick={handleCancel} disabled={confirming}>
+                  {confirming ? "Cancelling..." : "Yes, Cancel"}
+                </button>
+                <button style={S.btnSmOut} onClick={closeCancelModal}>No, Keep It</button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -616,6 +680,18 @@ export default function Schedule({ viewAsClient }) {
 
       {renderBookingPopup()}
       {renderCancelModal()}
+      {showSpinner && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
+        }}>
+          <div style={{
+            width: 40, height: 40, border: `3px solid ${C.gridLine}`, borderTopColor: C.teal,
+            borderRadius: "50%", animation: "spin 0.8s linear infinite",
+          }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,13 @@ import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient } from "@/lib/notifications";
 
+function to12h(time) {
+  const [h, m] = time.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${display}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
 async function getAuthContext() {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -185,11 +192,11 @@ export async function POST(request) {
         `<h2>New Session Request</h2>
          <p><strong>Client:</strong> ${clientName}</p>
          <p><strong>Date:</strong> ${date}</p>
-         <p><strong>Time:</strong> ${start_time} - ${endTimeStr}</p>
+         <p><strong>Time:</strong> ${to12h(start_time)} - ${to12h(endTimeStr)}</p>
          <p><strong>Duration:</strong> ${sessionType.duration} min</p>
          <p><strong>Fee:</strong> $${sessionType.fee}</p>
          <p>Log in to your admin calendar to accept or decline.</p>`,
-        `New session request from ${clientName}: ${date} at ${start_time} (${sessionType.duration}min). Log in to accept or decline.`
+        `New session request from ${clientName}: ${date} at ${to12h(start_time)} (${sessionType.duration}min). Log in to accept or decline.`
       );
     } catch (e) {
       console.error("Notification error:", e);
