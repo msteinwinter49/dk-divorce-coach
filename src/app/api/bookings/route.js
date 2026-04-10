@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { getAvailableSlots, isSlotAvailable } from "@/lib/availability";
+import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient } from "@/lib/notifications";
 
 function to12h(time) {
@@ -71,7 +71,7 @@ export async function GET(request) {
     const userIds = [...new Set(data.map(b => b.user_id))];
     const { data: profiles } = await adminClient
       .from("profiles")
-      .select("id, first_name, last_name, client_code, preferred_email, phone, notification_preference, stripe_customer_id")
+      .select("id, first_name, last_name, full_name, client_code, preferred_email, phone, notification_preference, stripe_customer_id")
       .in("id", userIds);
 
     const profileMap = {};
@@ -206,16 +206,21 @@ export async function POST(request) {
   return NextResponse.json(booking);
 }
 
-// PATCH — admin accepts, declines, or updates a booking
+// PATCH — admin accepts, declines, or updates a booking; client updates own booking
 export async function PATCH(request) {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-  if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
 
   const body = await request.json();
   const { id, action } = body;
   if (!id || !["accept", "decline", "update"].includes(action)) {
     return NextResponse.json({ error: "id and action (accept/decline/update) required" }, { status: 400 });
+  }
+
+  const isAdmin = ctx.profile?.role === "admin";
+  // Only admins can accept/decline. Update is allowed for clients on their own bookings.
+  if (!isAdmin && action !== "update") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
   const adminClient = createClient(
@@ -234,6 +239,11 @@ export async function PATCH(request) {
 
   if (!booking) {
     return NextResponse.json({ error: "Booking not found or not in valid status" }, { status: 404 });
+  }
+
+  // Clients can only update their own bookings
+  if (!isAdmin && booking.user_id !== ctx.user.id) {
+    return NextResponse.json({ error: "You can only edit your own bookings" }, { status: 403 });
   }
 
   // Get client profile separately (no FK between bookings and profiles)
@@ -345,6 +355,7 @@ export async function PATCH(request) {
     // If date or time changed, recalculate timestamps
     const newDate = date || booking.date;
     const newStartTime = start_time || booking.time_slot;
+    const dateOrTimeChanged = (date && date !== booking.date) || (start_time && start_time !== booking.time_slot);
 
     if (date || start_time) {
       const [h, m] = newStartTime.split(":").map(Number);
@@ -357,6 +368,65 @@ export async function PATCH(request) {
       updates.time_slot = newStartTime;
       updates.start_time = new Date(`${newDate}T${newStartTime}:00`).toISOString();
       updates.end_time = new Date(`${newDate}T${endTimeStr}:00`).toISOString();
+    }
+
+    // Client edits: validate slot availability and revert booked→requested
+    if (!isAdmin) {
+      // Use continuous-range coverage (not discrete slot indexing) so the chosen
+      // start time isn't required to land on an increment boundary — matches the
+      // frontend popup's range warning logic.
+      const slots = await getAvailableSlots(newDate, newDate);
+      const slotsForDate = slots[newDate] || [];
+
+      // Derive increment from slot spacing
+      let inc = 30;
+      if (slotsForDate.length >= 2) {
+        const [h0, m0] = slotsForDate[0].split(":").map(Number);
+        const [h1, m1] = slotsForDate[1].split(":").map(Number);
+        inc = (h1 * 60 + m1) - (h0 * 60 + m0);
+      }
+
+      // Build contiguous available ranges from the discrete slot list
+      const ranges = [];
+      for (const s of slotsForDate) {
+        const [sh, sm] = s.split(":").map(Number);
+        const sMin = sh * 60 + sm;
+        const sEnd = sMin + inc;
+        if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
+          ranges[ranges.length - 1][1] = sEnd;
+        } else {
+          ranges.push([sMin, sEnd]);
+        }
+      }
+
+      // Add back the booking-being-edited's own range so it doesn't block itself
+      if (booking.date === newDate) {
+        const [bh, bm] = (booking.time_slot || "00:00").split(":").map(Number);
+        const bStart = bh * 60 + bm;
+        const bEnd = bStart + (booking.session_duration || 60);
+        ranges.push([bStart, bEnd]);
+        ranges.sort((a, b) => a[0] - b[0]);
+        for (let i = ranges.length - 2; i >= 0; i--) {
+          if (ranges[i][1] >= ranges[i + 1][0]) {
+            ranges[i][1] = Math.max(ranges[i][1], ranges[i + 1][1]);
+            ranges.splice(i + 1, 1);
+          }
+        }
+      }
+
+      const [nh, nm] = newStartTime.split(":").map(Number);
+      const newStartMin = nh * 60 + nm;
+      const newEndMin = newStartMin + duration;
+      const covered = ranges.some(([rStart, rEnd]) => newStartMin >= rStart && newEndMin <= rEnd);
+
+      if (!covered) {
+        return NextResponse.json({ error: "Time slot is not available" }, { status: 409 });
+      }
+
+      // Revert approved sessions back to "requested" when client moves them
+      if (booking.status === "booked" && dateOrTimeChanged) {
+        updates.status = "requested";
+      }
     }
 
     // Reset reminder tracking since session moved
@@ -372,22 +442,47 @@ export async function PATCH(request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Notify client of the change
     const newStartFormatted = new Date(data.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-    try {
-      await notifyClient(
-        booking.profiles,
-        "Your coaching session has been updated",
-        `<h2>Session Updated</h2>
-         <p>Your coaching session has been updated to:</p>
-         <p><strong>Date:</strong> ${data.date}</p>
-         <p><strong>Time:</strong> ${newStartFormatted}</p>
-         <p><strong>Duration:</strong> ${data.session_duration} min</p>
-         ${data.fee > 0 ? `<p><strong>Fee:</strong> $${data.fee}</p>` : ""}`,
-        `Your coaching session has been moved to ${data.date} at ${newStartFormatted} (${data.session_duration}min).`
-      );
-    } catch (e) {
-      console.error("Notification error:", e);
+
+    if (isAdmin) {
+      // Admin edited — notify client
+      try {
+        await notifyClient(
+          booking.profiles,
+          "Your coaching session has been updated",
+          `<h2>Session Updated</h2>
+           <p>Your coaching session has been updated to:</p>
+           <p><strong>Date:</strong> ${data.date}</p>
+           <p><strong>Time:</strong> ${newStartFormatted}</p>
+           <p><strong>Duration:</strong> ${data.session_duration} min</p>
+           ${data.fee > 0 ? `<p><strong>Fee:</strong> $${data.fee}</p>` : ""}`,
+          `Your coaching session has been moved to ${data.date} at ${newStartFormatted} (${data.session_duration}min).`
+        );
+      } catch (e) {
+        console.error("Notification error:", e);
+      }
+    } else {
+      // Client edited — notify Diana for re-approval
+      const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
+      const wasApproved = booking.status === "booked" && dateOrTimeChanged;
+      try {
+        await notifyAdmin(
+          wasApproved
+            ? `Session change request from ${clientName} (was approved)`
+            : `Session request updated by ${clientName}`,
+          `<h2>${wasApproved ? "Session Change Requested" : "Session Request Updated"}</h2>
+           <p><strong>Client:</strong> ${clientName}</p>
+           <p><strong>New date:</strong> ${data.date}</p>
+           <p><strong>New time:</strong> ${to12h(data.time_slot)}</p>
+           <p><strong>Duration:</strong> ${data.session_duration} min</p>
+           <p><strong>Fee:</strong> $${data.fee}</p>
+           ${wasApproved ? "<p>This session was previously approved and has been reverted to a pending request.</p>" : ""}
+           <p>Log in to your admin calendar to accept or decline.</p>`,
+          `${wasApproved ? "CHANGE REQUEST" : "Updated request"} from ${clientName}: ${data.date} at ${to12h(data.time_slot)} (${data.session_duration}min). Log in to accept or decline.`
+        );
+      } catch (e) {
+        console.error("Notification error:", e);
+      }
     }
 
     return NextResponse.json(data);

@@ -39,6 +39,24 @@ function sameDay(a, b) { return dateStr(a) === dateStr(b); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function startOfWeek(d) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; }
 
+// Client display-name helper with fallbacks: first+last → full_name → client_code → "Client"
+function clientName(p) {
+  if (!p) return "Client";
+  const fn = (p.first_name || "").trim();
+  const ln = (p.last_name || "").trim();
+  if (fn || ln) return `${fn} ${ln}`.trim();
+  if (p.full_name && p.full_name.trim()) return p.full_name.trim();
+  if (p.client_code) return p.client_code;
+  return "Client";
+}
+function clientFirstName(p) {
+  if (!p) return "Client";
+  if (p.first_name && p.first_name.trim()) return p.first_name.trim();
+  if (p.full_name && p.full_name.trim()) return p.full_name.trim().split(" ")[0];
+  if (p.client_code) return p.client_code;
+  return "Client";
+}
+
 // Source colors
 const SRC = {
   coaching: C.teal,
@@ -633,12 +651,12 @@ export default function AdminCalendar({ setPage }) {
       >
         {compact ? (
           <span style={{ color: isRequested ? SRC.requested : SRC.coaching, fontWeight: 500, whiteSpace: "nowrap" }}>
-            {b.profiles?.first_name} {b.session_duration}m
+            {clientFirstName(b.profiles)} {b.session_duration}m
           </span>
         ) : (
           <>
             <div style={{ fontWeight: 500, color: isRequested ? SRC.requested : SRC.coaching, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {b.profiles?.first_name} {b.profiles?.last_name}
+              {clientName(b.profiles)}
             </div>
             {chipH > 36 && (
               <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -927,7 +945,7 @@ export default function AdminCalendar({ setPage }) {
                       if (b.status === "requested") openAcceptModal(b);
                       else openEditModal(b);
                     }}>
-                      {formatTime(b.start_time)} {b.profiles?.first_name}
+                      {formatTime(b.start_time)} {clientFirstName(b.profiles)}
                     </div>
                   ))}
                   {dayBookings.length > 2 && <div style={{ fontSize: 10, color: C.hint }}>+{dayBookings.length - 2} more</div>}
@@ -1152,7 +1170,7 @@ export default function AdminCalendar({ setPage }) {
       content = (
         <>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>
-            {b.profiles?.first_name} {b.profiles?.last_name}
+            {clientName(b.profiles)}
           </div>
           <div>{b.session_types?.label || "Session"}</div>
           <div>{formatTime(b.start_time)} – {formatTime(b.end_time)}</div>

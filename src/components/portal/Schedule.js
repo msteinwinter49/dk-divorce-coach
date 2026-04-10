@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
@@ -51,12 +51,23 @@ export default function Schedule({ viewAsClient }) {
   const [confirming, setConfirming] = useState(false);
   const [bookingError, setBookingError] = useState(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [editingBooking, setEditingBooking] = useState(null);
+  const [noChangeMessage, setNoChangeMessage] = useState(false);
 
   const [showSpinner, setShowSpinner] = useState(false);
 
   // Cancel state
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelSuccess, setCancelSuccess] = useState(false);
+
+  // Drag-and-drop state (move existing bookings)
+  const dragRef = useRef(null);
+  const [dragOver, setDragOver] = useState(null); // { date, hour, snapTime, snapMinutes, blocked, x, y }
+  const [increment, setIncrement] = useState(30);
+  const [pendingMove, setPendingMove] = useState(null); // { booking, newDate, newTime } awaiting confirmation
+
+  // Hover tooltip state
+  const [hover, setHover] = useState(null); // { data, x, y }
 
   const getRange = useCallback(() => {
     if (view === "day") return { start: dateStr(currentDate), end: dateStr(currentDate) };
@@ -79,9 +90,20 @@ export default function Schedule({ viewAsClient }) {
       fetch(`/api/bookings?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
       fetch("/api/session-types").then(r => r.json()).catch(() => []),
     ]);
-    setAvailability(availRes && !availRes.error ? availRes : {});
+    const availData = availRes && !availRes.error ? availRes : {};
+    setAvailability(availData);
     setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
+    // Derive scheduling increment from slot spacing
+    for (const dateKey of Object.keys(availData)) {
+      const slots = availData[dateKey];
+      if (slots && slots.length >= 2) {
+        const [h0, m0] = slots[0].split(":").map(Number);
+        const [h1, m1] = slots[1].split(":").map(Number);
+        setIncrement((h1 * 60 + m1) - (h0 * 60 + m0));
+        break;
+      }
+    }
     setLoading(false);
   }, [getRange]);
 
@@ -102,26 +124,72 @@ export default function Schedule({ viewAsClient }) {
     setSelectedTime(null);
     setBookingError(null);
     setBookingSuccess(false);
+    setEditingBooking(null);
+    setNoChangeMessage(false);
+  };
+
+  const openEditPopup = (b) => {
+    if (readOnly) return;
+    const dateOnly = b.date || localDateStr(new Date(b.start_time));
+    const timeOnly = b.time_slot || (() => {
+      const d = new Date(b.start_time);
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    })();
+    setEditingBooking(b);
+    setBookingDate(dateOnly);
+    setSelectedTime(timeOnly);
+    // Pre-select the session type from sessionTypes by id
+    const t = sessionTypes.find(s => s.id === b.session_type_id);
+    setSelectedType(t || (b.session_types ? { id: b.session_type_id, label: b.session_types.label, duration: b.session_duration, fee: b.fee } : null));
+    setBookingError(null);
+    setBookingSuccess(false);
   };
 
   const handleBook = async () => {
     if (!selectedType || !selectedTime || !bookingDate) return;
+
+    // No-op when nothing changed in edit mode — skip the API call so Diana isn't notified.
+    if (editingBooking
+        && bookingDate === editingBooking.date
+        && selectedTime === editingBooking.time_slot
+        && selectedType.id === editingBooking.session_type_id) {
+      setNoChangeMessage(true);
+      setBookingSuccess(true);
+      return;
+    }
+
     setConfirming(true);
     setBookingError(null);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
 
-    const body = {
-      session_type_id: selectedType.id,
-      date: bookingDate,
-      start_time: selectedTime,
-    };
-    if (isAdminViewing) body.user_id = viewAsClient.id;
+    let res;
+    if (editingBooking) {
+      // Update existing booking
+      res = await fetch("/api/bookings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingBooking.id,
+          action: "update",
+          date: bookingDate,
+          start_time: selectedTime,
+          session_type_id: selectedType.id,
+        }),
+      });
+    } else {
+      const body = {
+        session_type_id: selectedType.id,
+        date: bookingDate,
+        start_time: selectedTime,
+      };
+      if (isAdminViewing) body.user_id = viewAsClient.id;
 
-    const res = await fetch("/api/bookings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+      res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
 
     if (res.ok) {
       const { start, end } = getRange();
@@ -226,6 +294,7 @@ export default function Schedule({ viewAsClient }) {
       const startMin = h * 60 + m;
       const endMin = startMin + durationMin;
       const overlap = bookings.some(b => {
+        if (editingBooking && b.id === editingBooking.id) return false;
         const bDate = localDateStr(new Date(b.start_time));
         if (bDate !== date || !["requested", "booked"].includes(b.status)) return false;
         const bStartH = new Date(b.start_time).getHours();
@@ -249,13 +318,261 @@ export default function Schedule({ viewAsClient }) {
     return `${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
   };
 
+  // --- Drag and drop ---
+
+  const handleDragStart = (e, b) => {
+    const durationMin = b.session_duration || 60;
+    dragRef.current = { ...b, _durationMin: durationMin };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", b.id);
+    const [sH, sM] = (b.time_slot || "00:00").split(":").map(Number);
+    setDragOver({
+      date: b.date, hour: sH,
+      snapTime: `${String(sH).padStart(2, "0")}:${String(sM).padStart(2, "0")}`,
+      snapMinutes: sH * 60 + sM,
+      x: e.clientX, y: e.clientY,
+      // Mirror drag metadata into state so render functions don't need to read dragRef
+      itemId: b.id,
+      durationMin,
+      status: b.status,
+    });
+    // Hide native drag ghost so our tooltip is visible
+    const ghost = document.createElement("div");
+    ghost.style.position = "absolute";
+    ghost.style.top = "-9999px";
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 0, 0);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+  };
+
+  // Check that the proposed slot is within Diana's availability AND not overlapping
+  // another booking. Clients can only drop into available slots, unlike the admin.
+  const isDropAllowed = (date, startMin, durationMin) => {
+    const endMin = startMin + durationMin;
+    const dragId = dragRef.current?.id;
+
+    // Overlap check (excluding the dragged booking itself)
+    const overlaps = bookings.some(b => {
+      if (b.id === dragId) return false;
+      if (!["requested", "booked"].includes(b.status)) return false;
+      const bDate = b.date || localDateStr(new Date(b.start_time));
+      if (bDate !== date) return false;
+      const [bH, bM] = (b.time_slot || "00:00").split(":").map(Number);
+      const bStart = bH * 60 + bM;
+      const bEnd = bStart + (b.session_duration || 60);
+      return startMin < bEnd && endMin > bStart;
+    });
+    if (overlaps) return false;
+
+    // Availability check: build continuous available ranges from discrete slots
+    const slots = availability[date] || [];
+    if (slots.length === 0) return false;
+    const ranges = [];
+    for (const s of slots) {
+      const [sh, sm] = s.split(":").map(Number);
+      const sMin = sh * 60 + sm;
+      const sEnd = sMin + increment;
+      if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
+        ranges[ranges.length - 1][1] = sEnd;
+      } else {
+        ranges.push([sMin, sEnd]);
+      }
+    }
+    // Add back the dragged booking's own slots so it doesn't block itself
+    if (dragRef.current && (dragRef.current.date === date)) {
+      const [dh, dm] = (dragRef.current.time_slot || "00:00").split(":").map(Number);
+      const dStart = dh * 60 + dm;
+      const dEnd = dStart + durationMin;
+      ranges.push([dStart, dEnd]);
+      ranges.sort((a, b) => a[0] - b[0]);
+      // Merge overlapping ranges
+      for (let i = ranges.length - 2; i >= 0; i--) {
+        if (ranges[i][1] >= ranges[i + 1][0]) {
+          ranges[i][1] = Math.max(ranges[i][1], ranges[i + 1][1]);
+          ranges.splice(i + 1, 1);
+        }
+      }
+    }
+    return ranges.some(([rStart, rEnd]) => startMin >= rStart && endMin <= rEnd);
+  };
+
+  const handleDragOver = (e, date, hour) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rowH = view === "day" ? DAY_ROW_H : WEEK_ROW_H;
+    const fractionInRow = Math.max(0, Math.min(1, (e.clientY - rect.top) / rowH));
+    const minuteInHour = Math.floor(fractionInRow * 60 / increment) * increment;
+    const totalMinutes = hour * 60 + minuteInHour;
+    const snapH = Math.floor(totalMinutes / 60);
+    const snapM = totalMinutes % 60;
+    const snapTime = `${String(snapH).padStart(2, "0")}:${String(snapM).padStart(2, "0")}`;
+    const durationMin = dragRef.current?._durationMin || 60;
+    const blocked = !isDropAllowed(date, totalMinutes, durationMin);
+    e.dataTransfer.dropEffect = blocked ? "none" : "move";
+    // Preserve itemId/durationMin/status set in handleDragStart so the ghost keeps the right size & color
+    setDragOver(prev => ({
+      ...prev,
+      date, hour, snapTime, snapMinutes: totalMinutes, blocked,
+      x: e.clientX, y: e.clientY,
+    }));
+  };
+
+  const handleDragLeave = () => {
+    // Don't clear here — would flicker as cursor crosses cell borders. Cleared on drop/end.
+  };
+
+  const handleDragEnd = () => {
+    setDragOver(null);
+    dragRef.current = null;
+  };
+
+  const handleDrop = (e, date, hour) => {
+    e.preventDefault();
+    if (dragOver?.blocked) {
+      handleDragEnd();
+      return;
+    }
+    const newTime = dragOver?.snapTime || `${String(hour).padStart(2, "0")}:00`;
+    const item = dragRef.current;
+    handleDragEnd();
+    if (!item) return;
+    if (item.date === date && item.time_slot === newTime) return;
+
+    // Defer the actual change to a confirmation modal — undoing a mistaken
+    // drop is painful, so make the user confirm explicitly.
+    setPendingMove({ booking: item, newDate: date, newTime });
+  };
+
+  const confirmPendingMove = async () => {
+    if (!pendingMove) return;
+    const { booking, newDate, newTime } = pendingMove;
+    setConfirming(true);
+    const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
+    const res = await fetch("/api/bookings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: booking.id,
+        action: "update",
+        date: newDate,
+        start_time: newTime,
+      }),
+    });
+    clearTimeout(spinnerTimer);
+    setShowSpinner(false);
+    setConfirming(false);
+    if (res.ok) {
+      setPendingMove(null);
+      loadData();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Could not move session.");
+      setPendingMove(null);
+    }
+  };
+
+  const cancelPendingMove = () => setPendingMove(null);
+
+  const renderDragGhost = (rowH) => {
+    if (!dragOver) return null;
+    const firstHour = HOURS[0];
+    const { snapMinutes, blocked, durationMin = 60, status } = dragOver;
+    const isRequested = status === "requested";
+    const top = ((snapMinutes - firstHour * 60) / 60) * rowH;
+    const height = (durationMin / 60) * rowH;
+    const bgColor = blocked ? "rgba(192,57,43,0.12)"
+      : isRequested ? "rgba(192,57,43,0.15)"
+      : "rgba(15,110,86,0.15)";
+    const borderColor = blocked ? "#c0392b" : isRequested ? "#c0392b" : C.teal;
+    return (
+      <div style={{
+        position: "absolute", top, left: 2, right: 2, zIndex: 5,
+        height, borderRadius: 6,
+        background: bgColor,
+        border: `2px dashed ${borderColor}`,
+        boxSizing: "border-box",
+        pointerEvents: "none",
+      }} />
+    );
+  };
+
+  const renderHoverTooltip = () => {
+    if (!hover || dragOver || bookingDate || cancelTarget || pendingMove) return null;
+    const { data: b, x, y } = hover;
+    return (
+      <div style={{
+        position: "fixed",
+        left: x + 12,
+        top: y + 12,
+        zIndex: 50,
+        background: "#fff",
+        border: `1px solid ${C.gridLine}`,
+        borderRadius: 8,
+        padding: "10px 14px",
+        fontSize: 13,
+        color: C.text,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+        pointerEvents: "none",
+        maxWidth: 260,
+        lineHeight: 1.5,
+      }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>
+          {b.session_types?.label || "Session"}
+        </div>
+        <div>
+          {new Date(b.start_time).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+        </div>
+        <div>{formatTime(b.start_time)} – {formatTime(b.end_time)}</div>
+        <div>{b.session_duration} min · ${Number(b.fee).toFixed(2)}</div>
+        <div style={{ marginTop: 4, fontStyle: "italic", color: b.status === "requested" ? "#c0392b" : C.teal }}>
+          {b.status}
+        </div>
+      </div>
+    );
+  };
+
+  const renderDragTooltip = () => {
+    if (!dragOver) return null;
+    const { date, snapTime, blocked, x, y } = dragOver;
+    const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const timeLabel = snapTime ? formatTimeStr(snapTime) : "";
+    return (
+      <div style={{
+        position: "fixed", left: x + 16, top: y - 36, zIndex: 1000,
+        background: blocked ? "#c0392b" : C.teal, color: "#fff",
+        borderRadius: 6, padding: "5px 12px",
+        fontSize: 13, fontWeight: 500,
+        pointerEvents: "none", whiteSpace: "nowrap",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+      }}>
+        {dateLabel} · {timeLabel}
+      </div>
+    );
+  };
+
+  // Clear drag state if drop happens off-grid
+  useEffect(() => {
+    const onUp = () => {
+      // Use a microtask delay so handleDrop fires first if it's going to
+      setTimeout(() => { if (dragRef.current) handleDragEnd(); }, 0);
+    };
+    window.addEventListener("dragend", onUp);
+    return () => window.removeEventListener("dragend", onUp);
+  }, []);
+
   // --- VIEWS ---
 
   const renderOverlayBooking = (b, top, height, compact) => {
     const isRequested = b.status === "requested";
+    const canEdit = !readOnly && (isRequested || b.status === "booked");
     return (
       <div
         key={b.id}
+        draggable={canEdit}
+        onDragStart={canEdit ? (e) => { setHover(null); handleDragStart(e, b); } : undefined}
+        onMouseEnter={(e) => setHover({ data: b, x: e.clientX, y: e.clientY })}
+        onMouseMove={(e) => setHover(h => h && h.data.id === b.id ? { ...h, x: e.clientX, y: e.clientY } : h)}
+        onMouseLeave={() => setHover(null)}
         style={{
           position: "absolute", top, left: 2, right: 2, zIndex: 4,
           height,
@@ -264,11 +581,13 @@ export default function Schedule({ viewAsClient }) {
           fontSize: compact ? 11 : 13,
           background: isRequested ? "#fdecea" : C.tealLight,
           border: isRequested ? "2px solid #c0392b" : `1px solid ${C.teal}`,
-          cursor: (isRequested || isAdminViewing) ? "pointer" : "default",
+          cursor: canEdit ? "pointer" : "default",
+          opacity: dragOver && dragOver.itemId === b.id ? 0.3 : 1,
+          pointerEvents: dragOver ? "none" : "auto",
           overflow: "hidden",
           boxSizing: "border-box",
         }}
-        onClick={e => { e.stopPropagation(); if (isRequested || (isAdminViewing && b.status === "booked")) setCancelTarget(b); }}
+        onClick={e => { e.stopPropagation(); setHover(null); if (canEdit) openEditPopup(b); }}
       >
         {compact ? (
           <span style={{ color: isRequested ? "#c0392b" : C.teal, fontWeight: 500, whiteSpace: "nowrap" }}>
@@ -314,10 +633,16 @@ export default function Schedule({ viewAsClient }) {
                   background: (avail || occupied) ? "#d4edda" : "#fafafa",
                   cursor: avail && !occupied ? "pointer" : "default",
                   boxSizing: "border-box",
-                }} onClick={() => avail && !occupied && openBookingPopup(date, h)} />
+                }}
+                  onClick={() => avail && !occupied && openBookingPopup(date, h)}
+                  onDragOver={(e) => handleDragOver(e, date, h)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, date, h)}
+                />
               );
             })}
             {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, false))}
+            {dragOver?.date === date && renderDragGhost(DAY_ROW_H)}
           </div>
         </div>
       </div>
@@ -363,10 +688,16 @@ export default function Schedule({ viewAsClient }) {
                         background: (avail || occupied) ? "#d4edda" : "#fafafa",
                         cursor: avail && !occupied ? "pointer" : "default",
                         boxSizing: "border-box",
-                      }} onClick={() => avail && !occupied && openBookingPopup(date, h)} />
+                      }}
+                        onClick={() => avail && !occupied && openBookingPopup(date, h)}
+                        onDragOver={(e) => handleDragOver(e, date, h)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, date, h)}
+                      />
                     );
                   })}
                   {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, true))}
+                  {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
                 </div>
               </div>
             );
@@ -420,17 +751,32 @@ export default function Schedule({ viewAsClient }) {
                   }}>
                     {day.getDate()}
                   </div>
-                  {dayBookings.map(b => (
-                    <div key={b.id} style={{
-                      fontSize: 10, padding: "1px 4px", borderRadius: 3, marginBottom: 2,
-                      background: b.status === "requested" ? "#fdecea" : C.tealLight,
-                      color: b.status === "requested" ? "#c0392b" : C.teal,
-                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                      cursor: (b.status === "requested" || isAdminViewing) ? "pointer" : "default",
-                    }} onClick={e => { e.stopPropagation(); if (b.status === "requested" || (isAdminViewing && b.status === "booked")) setCancelTarget(b); }}>
-                      {formatTime(b.start_time)} {b.session_duration}m — {b.status}
-                    </div>
-                  ))}
+                  {dayBookings.map(b => {
+                    const canEdit = !readOnly && ["requested", "booked"].includes(b.status);
+                    return (
+                      <div key={b.id} style={{
+                        fontSize: 10, padding: "1px 4px", borderRadius: 3, marginBottom: 2,
+                        background: b.status === "requested" ? "#fdecea" : C.tealLight,
+                        color: b.status === "requested" ? "#c0392b" : C.teal,
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                        cursor: canEdit ? "pointer" : "default",
+                      }}
+                        onMouseEnter={(e) => setHover({ data: b, x: e.clientX, y: e.clientY })}
+                        onMouseMove={(e) => setHover(h => h && h.data.id === b.id ? { ...h, x: e.clientX, y: e.clientY } : h)}
+                        onMouseLeave={() => setHover(null)}
+                        onClick={e => {
+                        e.stopPropagation();
+                        setHover(null);
+                        if (!canEdit) return;
+                        // From month view, jump into day view rather than open the popup —
+                        // edits need the time grid for day/time changes.
+                        setCurrentDate(new Date(date + "T12:00:00"));
+                        setView("day");
+                      }}>
+                        {formatTime(b.start_time)} {b.session_duration}m — {b.status}
+                      </div>
+                    );
+                  })}
                   {hasAvail && !isPast && dayBookings.length === 0 && (
                     <div style={{ fontSize: 10, color: C.teal }}>Available</div>
                   )}
@@ -469,18 +815,32 @@ export default function Schedule({ viewAsClient }) {
           {bookingSuccess ? (
             <div style={{ textAlign: "center", padding: "1rem" }}>
               <div style={{ fontSize: 16, fontWeight: 500, color: C.teal, marginBottom: 8 }}>
-                {isAdminViewing ? "Session booked!" : "Session requested!"}
+                {noChangeMessage
+                  ? "No changes were made."
+                  : editingBooking
+                    ? (editingBooking.status === "booked" ? "Change submitted!" : "Request updated!")
+                    : (isAdminViewing ? "Session booked!" : "Session requested!")}
               </div>
-              <p style={{ ...S.p, color: C.muted }}>
-                {isAdminViewing
-                  ? `Session for ${viewAsClient.first_name} on ${dateLabel} at ${selectedTime} has been confirmed.`
-                  : `Your request for ${dateLabel} at ${selectedTime} has been submitted. Diana will review and confirm.`}
-              </p>
+              {!noChangeMessage && (
+                <p style={{ ...S.p, color: C.muted }}>
+                  {editingBooking
+                    ? (editingBooking.status === "booked"
+                        ? `Your change for ${dateLabel} at ${selectedTime} has been sent to Diana for re-approval.`
+                        : `Your updated request for ${dateLabel} at ${selectedTime} has been submitted.`)
+                    : (isAdminViewing
+                        ? `Session for ${viewAsClient.first_name} on ${dateLabel} at ${selectedTime} has been confirmed.`
+                        : `Your request for ${dateLabel} at ${selectedTime} has been submitted. Diana will review and confirm.`)}
+                </p>
+              )}
               <button style={S.btn} onClick={closePopup}>Close</button>
             </div>
           ) : (
             <>
-              <h3 style={S.h3}>{isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session"}</h3>
+              <h3 style={S.h3}>
+                {editingBooking
+                  ? (editingBooking.status === "booked" ? "Change Session" : "Edit Request")
+                  : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session")}
+              </h3>
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
               {/* Start / End time */}
@@ -540,9 +900,25 @@ export default function Schedule({ viewAsClient }) {
                     ranges.push([sMin, sEnd]);
                   }
                 }
+                // When editing, the booking's own slots were filtered out of availability —
+                // add them back so the booking doesn't appear "outside available hours" against itself.
+                if (editingBooking && (editingBooking.date === bookingDate)) {
+                  const [eh, em] = (editingBooking.time_slot || "00:00").split(":").map(Number);
+                  const eStart = eh * 60 + em;
+                  const eEnd = eStart + (editingBooking.session_duration || 60);
+                  ranges.push([eStart, eEnd]);
+                  ranges.sort((a, b) => a[0] - b[0]);
+                  for (let i = ranges.length - 2; i >= 0; i--) {
+                    if (ranges[i][1] >= ranges[i + 1][0]) {
+                      ranges[i][1] = Math.max(ranges[i][1], ranges[i + 1][1]);
+                      ranges.splice(i + 1, 1);
+                    }
+                  }
+                }
                 const covered = ranges.some(([rStart, rEnd]) => startMin >= rStart && endMin <= rEnd);
 
                 const overlap = bookings.some(b => {
+                  if (editingBooking && b.id === editingBooking.id) return false;
                   const bDate = localDateStr(new Date(b.start_time));
                   if (bDate !== bookingDate || !["requested", "booked"].includes(b.status)) return false;
                   const bStart = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
@@ -571,13 +947,26 @@ export default function Schedule({ viewAsClient }) {
 
               {bookingError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{bookingError}</p>}
 
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {selectedType && selectedTime && (
                   <button style={S.btn} onClick={handleBook} disabled={confirming}>
-                    {confirming ? (isAdminViewing ? "Booking..." : "Requesting...") : (isAdminViewing ? "Book Session" : "Request Session")}
+                    {confirming
+                      ? (editingBooking ? "Saving..." : isAdminViewing ? "Booking..." : "Requesting...")
+                      : editingBooking
+                        ? (editingBooking.status === "booked" ? "Submit Change" : "Update Request")
+                        : (isAdminViewing ? "Book Session" : "Request Session")}
                   </button>
                 )}
-                <button style={S.btnSmOut} onClick={closePopup}>Cancel</button>
+                <button style={S.btnSmOut} onClick={closePopup}>Close</button>
+                {editingBooking && (
+                  <button
+                    style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b", marginLeft: "auto" }}
+                    onClick={() => { const b = editingBooking; closePopup(); setCancelTarget(b); }}
+                    disabled={confirming}
+                  >
+                    Cancel {editingBooking.status === "booked" ? "Session" : "Request"}
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -633,26 +1022,59 @@ export default function Schedule({ viewAsClient }) {
     );
   };
 
+  // --- Move confirmation modal ---
+  const renderMoveConfirmModal = () => {
+    if (!pendingMove) return null;
+    const { booking, newDate, newTime } = pendingMove;
+    const oldDateLabel = new Date(booking.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const newDateLabel = new Date(newDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const oldTimeLabel = formatTimeStr(booking.time_slot || "00:00");
+    const newTimeLabel = formatTimeStr(newTime);
+    const wasBooked = booking.status === "booked";
+    return (
+      <div style={{
+        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+      }} onClick={cancelPendingMove}>
+        <div style={{ ...S.card, maxWidth: 440, width: "90%", margin: 0 }} onClick={e => e.stopPropagation()}>
+          <h3 style={S.h3}>{wasBooked ? "Change Session?" : "Move Request?"}</h3>
+          <p style={S.p}>
+            Move {wasBooked ? "your session" : "your request"} from{" "}
+            <strong>{oldDateLabel} at {oldTimeLabel}</strong>
+            <br />to{" "}
+            <strong>{newDateLabel} at {newTimeLabel}</strong>?
+          </p>
+          {wasBooked && (
+            <p style={{ ...S.p, fontSize: 13, color: "#c0392b" }}>
+              This session is currently approved. Changing the time will send it back to Diana for re-approval.
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={{ ...S.btn, flex: 1, fontWeight: 600 }}
+              onClick={confirmPendingMove}
+              disabled={confirming}
+            >
+              {confirming ? "Saving..." : "Yes"}
+            </button>
+            <button
+              style={{ ...S.btnSmOut, flex: 1, color: C.text, fontWeight: 600, border: `1px solid ${C.text}` }}
+              onClick={cancelPendingMove}
+              disabled={confirming}
+            >
+              No
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={S.page}>
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Schedule</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
-          <button style={S.btnSmOut} onClick={() => navigate(-1)}>&lsaquo;</button>
-          <button style={S.btnSmOut} onClick={() => navigate(1)}>&rsaquo;</button>
-          <span style={{ fontSize: 14, color: C.text, fontWeight: 500, minWidth: 180, textAlign: "center" }}>{headerLabel()}</span>
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          {["day", "week", "month"].map(v => (
-            <button key={v}
-              style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-              onClick={() => { setView(v); closePopup(); }}>
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
-          ))}
-        </div>
       </div>
 
       <p style={{ ...S.p, fontSize: 13 }}>
@@ -660,16 +1082,68 @@ export default function Schedule({ viewAsClient }) {
           ? "Read-only view — showing this client\u2019s bookings and available slots."
           : isAdminViewing
           ? `Managing ${viewAsClient.first_name}\u2019s schedule. Click to book or cancel sessions.`
-          : "Green slots are available. Click a date or time to book a session. Click a pending request to cancel it."}
+          : "Green slots are available. Click an empty slot to request a session. Click or drag your existing sessions to edit them — changing an approved session will send it back to Diana for re-approval."}
       </p>
 
       {loading ? (
         <div style={{ textAlign: "center", padding: "3rem", color: C.hint }}>Loading...</div>
       ) : (
         <>
-          {(view === "day" || view === "week") && (
-            <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}>
+          {(view === "day" || view === "week") ? (
+            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
+              </div>
               <MiniCalendar currentDate={currentDate} onSelectDate={(d) => { setCurrentDate(d); closePopup(); }} view={view} />
+              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                {["day", "week", "month"].map(v => (
+                  <button key={v}
+                    style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                    onClick={() => { setView(v); closePopup(); }}>
+                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <button
+                  onClick={() => navigate(-1)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700,
+                    padding: "0 6px", fontFamily: "inherit",
+                  }}
+                >
+                  &lsaquo;
+                </button>
+                <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>
+                  {`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}
+                </span>
+                <button
+                  onClick={() => navigate(1)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700,
+                    padding: "0 6px", fontFamily: "inherit",
+                  }}
+                >
+                  &rsaquo;
+                </button>
+              </div>
+              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                {["day", "week", "month"].map(v => (
+                  <button key={v}
+                    style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                    onClick={() => { setView(v); closePopup(); }}>
+                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {view === "day" && renderDayView()}
@@ -680,6 +1154,9 @@ export default function Schedule({ viewAsClient }) {
 
       {renderBookingPopup()}
       {renderCancelModal()}
+      {renderMoveConfirmModal()}
+      {renderHoverTooltip()}
+      {renderDragTooltip()}
       {showSpinner && (
         <div style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,

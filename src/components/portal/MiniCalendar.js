@@ -52,16 +52,6 @@ export default function MiniCalendar({ currentDate, onSelectDate, view }) {
         <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{monthLabel}</span>
         <button onClick={() => navMonth(1)} style={arrowStyle}>&rsaquo;</button>
       </div>
-      {/* Today button */}
-      <div style={{ textAlign: "center", marginBottom: 6 }}>
-        <button
-          onClick={() => onSelectDate(new Date())}
-          style={{ fontSize: 11, color: C.teal, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 500, padding: 0 }}
-        >
-          Today
-        </button>
-      </div>
-
       {/* Day headers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center" }}>
         {DAYS_SHORT.map((d, i) => (
