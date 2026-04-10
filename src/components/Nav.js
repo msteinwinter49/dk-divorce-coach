@@ -19,13 +19,13 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
     ...clientLinks,
     ["Profile","Profile"],
   ] : [
-    // Admin sees "Calendar" (AdminCalendar) instead of "Schedule"
-    ...(isAdmin ? clientLinks.map(l => l[0] === "Schedule" ? ["Admin Calendar","Calendar"] : l) : clientLinks),
+    // Admin sees "Schedule" routing to AdminSchedule (not the client Schedule)
+    ...(isAdmin ? clientLinks.map(l => l[0] === "Schedule" ? ["Admin Schedule","Schedule"] : l) : clientLinks),
     ["Profile","Profile"],
     ...(isAdmin ? [["Admin","Admin"]] : []),
   ];
 
-  const isActive = (p) => page === p || (p === "Admin" && page.startsWith("Admin") && page !== "Admin Calendar");
+  const isActive = (p) => page === p || (p === "Admin" && page.startsWith("Admin") && page !== "Admin Calendar" && page !== "Admin Schedule");
 
   if (mobile) return (
     <nav style={{ borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 }}>

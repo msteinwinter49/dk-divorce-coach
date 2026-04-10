@@ -16,6 +16,7 @@ import Profile from "@/components/portal/Profile";
 import Admin from "@/components/portal/Admin";
 import Clients from "@/components/portal/Clients";
 import AdminCalendar from "@/components/portal/AdminCalendar";
+import AdminSchedule from "@/components/portal/AdminSchedule";
 import AdminSettings from "@/components/portal/AdminSettings";
 
 export default function App() {
@@ -59,6 +60,7 @@ export default function App() {
     if (page === "Documents") return <Documents viewAsClient={viewAsClient} />;
     if (page === "Schedule") return <Schedule viewAsClient={viewAsClient} />;
     if (page === "Messages") return <Messages viewAsClient={viewAsClient} />;
+    if (isAdmin && page === "Admin Schedule") return <AdminSchedule setPage={setPage} />;
     if (isAdmin && page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
     if (isAdmin && !viewAsClient) {
       if (page === "Admin") return <Admin setPage={setPage} />;

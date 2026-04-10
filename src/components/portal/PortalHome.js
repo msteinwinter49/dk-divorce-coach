@@ -65,12 +65,13 @@ export default function PortalHome({ setPage, viewAsClient }) {
       </div>
       <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(3,1fr)", gap:12 }}>
         {[
-          ["Documents", `${docCount} file${docCount !== 1 ? "s" : ""} shared`],
-          ["Schedule", formatBooking()],
-          ["Messages", `${unreadCount} message${unreadCount !== 1 ? "s" : ""}`],
-        ].map(([t,d]) => (
-          <div key={t} style={{ ...S.card, cursor:"pointer" }} onClick={() => setPage(t)}>
-            <h3 style={{ ...S.h3, color:C.teal }}>{t}</h3>
+          ["Documents", "Documents", `${docCount} file${docCount !== 1 ? "s" : ""} shared`],
+          // Admin (not in view-as-client) gets the AdminSchedule page
+          [profile?.role === "admin" && !viewAsClient ? "Admin Schedule" : "Schedule", "Schedule", formatBooking()],
+          ["Messages", "Messages", `${unreadCount} message${unreadCount !== 1 ? "s" : ""}`],
+        ].map(([target, label, d]) => (
+          <div key={label} style={{ ...S.card, cursor:"pointer" }} onClick={() => setPage(target)}>
+            <h3 style={{ ...S.h3, color:C.teal }}>{label}</h3>
             <p style={{ ...S.p, marginBottom:0, fontSize:13 }}>{d}</p>
           </div>
         ))}
