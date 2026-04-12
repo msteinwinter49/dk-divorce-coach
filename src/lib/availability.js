@@ -1,10 +1,146 @@
 import { createClient } from "@supabase/supabase-js";
 
+const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/New_York";
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+}
+
+// Break a Date object into { date, hour, minute } as observed in a specific
+// IANA time zone. Needed because Vercel servers run in UTC — new Date(iso).getHours()
+// would give us UTC hours, not Diana's business-local hours.
+function partsInTimezone(date, tz) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const p = {};
+  for (const part of parts) p[part.type] = part.value;
+  return {
+    date: `${p.year}-${p.month}-${p.day}`,
+    hour: parseInt(p.hour, 10) % 24, // Intl may emit "24" for midnight
+    minute: parseInt(p.minute, 10),
+  };
+}
+
+// Fetch local events (Diana's personal blocks) from the events table as busy
+// ranges. Always authoritative for what's in the DB — independent of whether
+// Google is reachable, so the Client Schedule stays accurate even if the Google
+// API is down or the integration hasn't been configured. Returns {} on failure.
+async function getLocalEventsBusyByDate(supabase, startDate, endDate) {
+  try {
+    const { data: events } = await supabase
+      .from("events")
+      .select("date, start_time, end_time")
+      .gte("date", startDate)
+      .lte("date", endDate);
+
+    const busy = {};
+    const push = (dateKey, startMin, endMin) => {
+      if (endMin <= startMin) return;
+      (busy[dateKey] ||= []).push([startMin, endMin]);
+    };
+
+    for (const ev of events || []) {
+      if (!ev.start_time || !ev.end_time) continue;
+      const startParts = partsInTimezone(new Date(ev.start_time), BUSINESS_TIMEZONE);
+      const endParts = partsInTimezone(new Date(ev.end_time), BUSINESS_TIMEZONE);
+      if (startParts.date === endParts.date) {
+        push(
+          startParts.date,
+          startParts.hour * 60 + startParts.minute,
+          endParts.hour * 60 + endParts.minute
+        );
+      } else {
+        push(startParts.date, startParts.hour * 60 + startParts.minute, 24 * 60);
+        push(endParts.date, 0, endParts.hour * 60 + endParts.minute);
+      }
+    }
+
+    return busy;
+  } catch (e) {
+    console.error("[availability] local events fetch failed:", e?.message || e);
+    return {};
+  }
+}
+
+// Fetch Google Calendar busy ranges keyed by business-timezone date, skipping
+// only cancelled and transparent ("show me as available") events. Returns {}
+// on any failure — availability stays permissive rather than blocking Diana's
+// business.
+//
+// NOTE: We deliberately do NOT deduplicate against locally-synced records.
+// Filtering is idempotent — blocking the same slot twice is identical to
+// blocking it once. Some events will be present in both sources (a personal
+// event in the local events table AND in Google after sync) and that's fine.
+async function getGoogleBusyByDate(supabase, startDate, endDate) {
+  try {
+    const { data: tokenRow } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "google_refresh_token")
+      .single();
+    const token = tokenRow?.value;
+    if (!token) return {};
+
+    const { listEvents } = await import("./google-calendar.js");
+    const events = await listEvents(token, startDate, endDate);
+
+    const busy = {};
+    const push = (dateKey, startMin, endMin) => {
+      if (endMin <= startMin) return;
+      (busy[dateKey] ||= []).push([startMin, endMin]);
+    };
+
+    for (const ev of events) {
+      if (!ev || ev.status === "cancelled") continue;
+      if (ev.transparency === "transparent") continue;
+
+      // All-day event: block the whole day(s)
+      if (ev.start?.date && !ev.start?.dateTime) {
+        const start = new Date(`${ev.start.date}T12:00:00Z`);
+        const endExclusive = new Date(`${(ev.end?.date || ev.start.date)}T12:00:00Z`);
+        // Google all-day events use an exclusive end date; if same-day just block that one day
+        if (endExclusive <= start) {
+          push(ev.start.date, 0, 24 * 60);
+        } else {
+          for (let d = new Date(start); d < endExclusive; d.setUTCDate(d.getUTCDate() + 1)) {
+            push(d.toISOString().slice(0, 10), 0, 24 * 60);
+          }
+        }
+        continue;
+      }
+
+      if (!ev.start?.dateTime || !ev.end?.dateTime) continue;
+      const startParts = partsInTimezone(new Date(ev.start.dateTime), BUSINESS_TIMEZONE);
+      const endParts = partsInTimezone(new Date(ev.end.dateTime), BUSINESS_TIMEZONE);
+
+      if (startParts.date === endParts.date) {
+        push(
+          startParts.date,
+          startParts.hour * 60 + startParts.minute,
+          endParts.hour * 60 + endParts.minute
+        );
+      } else {
+        // Rare multi-day timed event — block start day tail, end day head
+        push(startParts.date, startParts.hour * 60 + startParts.minute, 24 * 60);
+        push(endParts.date, 0, endParts.hour * 60 + endParts.minute);
+      }
+    }
+
+    return busy;
+  } catch (e) {
+    console.error("[availability] Google busy fetch failed, falling back to DB-only:", e?.message || e);
+    return {};
+  }
 }
 
 // Get available slots for a date range
@@ -39,6 +175,22 @@ export async function getAvailableSlots(startDate, endDate, incrementMinutes = 3
   // Use configured increment if available
   const incrementSetting = settingsRes.data?.find(s => s.key === "scheduling_increment");
   const increment = incrementSetting ? parseInt(incrementSetting.value) : incrementMinutes;
+
+  // Busy ranges from both sources: local events table (always authoritative
+  // for Diana's personal blocks, even if Google is unreachable) and Google
+  // Calendar (SP appointments + any Google-only events). Merging these two
+  // independent sources means the grid stays accurate even if Google fails —
+  // anything Diana added through the app still blocks availability.
+  const [localBusy, googleBusy] = await Promise.all([
+    getLocalEventsBusyByDate(supabase, startDate, endDate),
+    getGoogleBusyByDate(supabase, startDate, endDate),
+  ]);
+  const busyByDate = {};
+  for (const source of [localBusy, googleBusy]) {
+    for (const [dateKey, ranges] of Object.entries(source)) {
+      (busyByDate[dateKey] ||= []).push(...ranges);
+    }
+  }
 
   const slots = {};
   const current = new Date(startDate + "T12:00:00");
@@ -105,6 +257,20 @@ export async function getAvailableSlots(startDate, endDate, incrementMinutes = 3
         const [h, m] = t.split(":").map(Number);
         const slotMin = h * 60 + m;
         return slotMin < bStartMin || slotMin >= bEndMin;
+      });
+    }
+
+    // Remove times that overlap with busy ranges from Google + local events.
+    // Uses range-overlap (not point-in-range) because external events aren't
+    // constrained to Diana's scheduling increment — a 10:15–10:45 SP session
+    // must still block the 10:00–10:30 slot.
+    const dayBusy = busyByDate[dateStr] || [];
+    if (dayBusy.length > 0) {
+      available = available.filter(t => {
+        const [h, m] = t.split(":").map(Number);
+        const slotStart = h * 60 + m;
+        const slotEnd = slotStart + increment;
+        return !dayBusy.some(([gStart, gEnd]) => slotStart < gEnd && slotEnd > gStart);
       });
     }
 

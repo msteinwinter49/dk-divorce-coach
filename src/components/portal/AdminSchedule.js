@@ -1,8 +1,13 @@
 "use client";
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import MiniCalendar from "@/components/portal/MiniCalendar";
+
+// Diana's business timezone — used for all schedule comparisons so Vercel's UTC
+// server never leaks through and the client-side conflict scan is portable to
+// admins browsing from other time zones.
+const BUSINESS_TZ = "America/New_York";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
 const DAY_ROW_H = 52;
@@ -82,6 +87,144 @@ function classifyEvent(event) {
   return "personal";
 }
 
+// Extract business-local { date, hour, minute } from a Date. Using Intl avoids
+// depending on whatever the browser's local zone happens to be.
+function partsInBusinessTz(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TZ,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(date);
+  const p = {};
+  for (const part of parts) p[part.type] = part.value;
+  return {
+    date: `${p.year}-${p.month}-${p.day}`,
+    hour: parseInt(p.hour, 10) % 24,
+    minute: parseInt(p.minute, 10),
+  };
+}
+
+// Normalize a coaching booking into a conflict-scan chip. Uses the DB's
+// date + time_slot + session_duration (already business-local, no tz games).
+function bookingToChip(b) {
+  if (!b.date || !b.time_slot) return null;
+  if (!["requested", "booked"].includes(b.status)) return null;
+  const [h, m] = b.time_slot.split(":").map(Number);
+  const startMin = h * 60 + m;
+  const endMin = startMin + (b.session_duration || 60);
+  return {
+    key: `booking:${b.id}`,
+    kind: "coaching",
+    date: b.date,
+    startMin,
+    endMin,
+    title: `Coaching: ${clientName(b.profiles)} (${b.status})`,
+    raw: b,
+  };
+}
+
+// Normalize a Google event into a conflict-scan chip. Skips all-day events and
+// multi-day events (out of scope for this first pass). Redacts SP summaries to
+// "SP appointment" so the admin panel doesn't surface SP-side PII; personal
+// events pass through their summary, coaching shows whatever the event says.
+// Requires a Google event id so the chip key is deterministic across re-renders
+// (needed for the layout lookup map downstream).
+function eventToChip(ev) {
+  if (!ev?.id) return null;
+  if (!ev?.start?.dateTime || !ev?.end?.dateTime) return null;
+  const startParts = partsInBusinessTz(new Date(ev.start.dateTime));
+  const endParts = partsInBusinessTz(new Date(ev.end.dateTime));
+  if (startParts.date !== endParts.date) return null;
+  if (ev.status === "cancelled") return null;
+  if (ev.transparency === "transparent") return null;
+
+  const kind = classifyEvent(ev);
+  let title;
+  if (kind === "sp") title = "SP appointment";
+  else if (kind === "coaching") title = ev.summary || "Coaching";
+  else title = ev.summary ? `Personal: ${ev.summary}` : "Personal";
+
+  return {
+    key: `event:${ev.id}`,
+    kind,
+    date: startParts.date,
+    startMin: startParts.hour * 60 + startParts.minute,
+    endMin: endParts.hour * 60 + endParts.minute,
+    title,
+    raw: ev,
+  };
+}
+
+// Filter out SP chips that only overlap other SP chips. Diana sometimes
+// double-books an SP slot for the same person as an annotation about the
+// appointment — those SP-on-SP collisions are intentional, not errors.
+// An SP chip stays if (a) it has no direct overlaps at all, or (b) at least
+// one of its direct overlaps is non-SP (e.g. a coaching session). Non-SP
+// chips are never removed by this filter.
+function filterIntentionalSpDupes(dayChips) {
+  return dayChips.filter(chip => {
+    if (chip.kind !== "sp") return true;
+    let overlapsAnything = false;
+    for (const other of dayChips) {
+      if (other === chip) continue;
+      const overlaps = other.startMin < chip.endMin && other.endMin > chip.startMin;
+      if (!overlaps) continue;
+      overlapsAnything = true;
+      if (other.kind !== "sp") return true; // at least one non-SP overlap → keep
+    }
+    // Has overlaps but all are SP → drop as an intentional annotation duplicate.
+    // No overlaps at all → keep (vacuous, not a conflict regardless).
+    return !overlapsAnything;
+  });
+}
+
+// Scan bookings + Google events for conflict groups. A conflict group is a
+// connected-component cluster of chips where any member strictly overlaps
+// another (touching boundaries don't count). Days with no conflicts return
+// nothing; groups of size < 2 are dropped. Sorted by date ascending.
+// Applies filterIntentionalSpDupes per-day before grouping.
+function detectConflicts(bookings, googleEvents) {
+  const chips = [];
+  for (const b of bookings || []) {
+    const c = bookingToChip(b);
+    if (c) chips.push(c);
+  }
+  for (const ev of googleEvents || []) {
+    const c = eventToChip(ev);
+    if (c) chips.push(c);
+  }
+
+  const byDate = {};
+  for (const c of chips) {
+    (byDate[c.date] ||= []).push(c);
+  }
+
+  const groups = [];
+  for (const [date, rawDayChips] of Object.entries(byDate)) {
+    const dayChips = filterIntentionalSpDupes(rawDayChips);
+    dayChips.sort((a, b) => a.startMin - b.startMin);
+    let current = null;
+    let currentMaxEnd = -1;
+    const flush = () => {
+      if (current && current.length >= 2) groups.push({ date, chips: current });
+    };
+    for (const chip of dayChips) {
+      if (current && chip.startMin < currentMaxEnd) {
+        // Strict overlap with the running group — extend it.
+        current.push(chip);
+        currentMaxEnd = Math.max(currentMaxEnd, chip.endMin);
+      } else {
+        flush();
+        current = [chip];
+        currentMaxEnd = chip.endMin;
+      }
+    }
+    flush();
+  }
+  groups.sort((a, b) => a.date.localeCompare(b.date));
+  return groups;
+}
+
 export default function AdminSchedule() {
   const mobile = useIsMobile();
   const [view, setView] = useState("week");
@@ -117,6 +260,14 @@ export default function AdminSchedule() {
   // Hover tooltip state
   const [hover, setHover] = useState(null); // { kind: "booking"|"event", data, x, y }
 
+  // Conflict banner + modal state
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
+  const [conflictModalPos, setConflictModalPos] = useState({ x: 0, y: 0 });
+  // When non-null the modal header is being dragged; the effect below attaches
+  // window-level mouse listeners and updates conflictModalPos accordingly.
+  const [conflictDragState, setConflictDragState] = useState(null);
+  const [conflictCopyFeedback, setConflictCopyFeedback] = useState(null);
+
   const getRange = useCallback(() => {
     if (view === "day") return { start: dateStr(currentDate), end: dateStr(currentDate) };
     if (view === "week") {
@@ -130,13 +281,26 @@ export default function AdminSchedule() {
     return { start: dateStr(startOfWeek(first)), end: dateStr(addDays(startOfWeek(last), 6)) };
   }, [view, currentDate]);
 
+  // Wider range for conflict detection: current displayed month + next month.
+  // Bookings and Google events use this wider window so the conflict banner
+  // reflects a rolling 2-month horizon, not just what's currently on screen.
+  // Availability stays at the visible view range since it's view-scoped.
+  const getConflictRange = useCallback(() => {
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth();
+    const first = new Date(y, m, 1);
+    const last = new Date(y, m + 2, 0); // last day of next month
+    return { start: dateStr(first), end: dateStr(last) };
+  }, [currentDate]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     const { start, end } = getRange();
+    const { start: wideStart, end: wideEnd } = getConflictRange();
     const [bookingsRes, availRes, eventsRes, clientsRes, typesRes] = await Promise.all([
-      fetch(`/api/bookings?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/bookings?start=${wideStart}&end=${wideEnd}`).then(r => r.json()).catch(() => []),
       fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
-      fetch(`/api/calendar/events?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/calendar/events?start=${wideStart}&end=${wideEnd}`).then(r => r.json()).catch(() => []),
       fetch("/api/clients").then(r => r.json()).catch(() => ({ clients: [] })),
       fetch("/api/session-types").then(r => r.json()).catch(() => []),
     ]);
@@ -157,9 +321,127 @@ export default function AdminSchedule() {
       }
     }
     setLoading(false);
-  }, [getRange]);
+  }, [getRange, getConflictRange]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Derived: scheduling conflicts across bookings + Google events (2-month
+  // horizon from getConflictRange). Only recomputes when the underlying data
+  // changes — not on every mouse-hover re-render.
+  const conflictGroups = useMemo(
+    () => detectConflicts(bookings, googleEvents),
+    [bookings, googleEvents]
+  );
+
+  // Derived: per-chip column layout for Day-view conflict splitting. Runs the
+  // classic interval-scheduling column assignment within each conflict group,
+  // then emits { leftPct, widthPct } for each chip. Chips outside any group
+  // are absent from the map — callers fall back to full-width rendering.
+  //
+  // Example: A [10:00–11:00], B [10:30–11:30], C [11:00–12:00]
+  //   A gets column 0 (end=11:00)
+  //   B gets column 1 (col 0 still busy until 11:00; end=11:30)
+  //   C gets column 0 (col 0 freed at 11:00, C starts at 11:00 → reuse)
+  //   Group uses 2 columns → A/C at 0–50%, B at 50–100%.
+  const conflictLayoutByKey = useMemo(() => {
+    const map = new Map();
+    for (const group of conflictGroups) {
+      const sorted = [...group.chips].sort((a, b) => a.startMin - b.startMin);
+      const columnEnds = []; // columnEnds[i] = end time of the chip currently in column i
+      const colIndexByKey = new Map();
+      for (const chip of sorted) {
+        let col = -1;
+        for (let i = 0; i < columnEnds.length; i++) {
+          if (chip.startMin >= columnEnds[i]) { col = i; break; }
+        }
+        if (col === -1) {
+          col = columnEnds.length;
+          columnEnds.push(chip.endMin);
+        } else {
+          columnEnds[col] = chip.endMin;
+        }
+        colIndexByKey.set(chip.key, col);
+      }
+      const colCount = columnEnds.length;
+      for (const chip of sorted) {
+        const col = colIndexByKey.get(chip.key);
+        map.set(chip.key, {
+          leftPct: (col / colCount) * 100,
+          widthPct: 100 / colCount,
+        });
+      }
+    }
+    return map;
+  }, [conflictGroups]);
+
+  // Drag-to-move the conflict modal: when conflictDragState is set, window-level
+  // mouse listeners update conflictModalPos; when drag ends, the state clears
+  // and the cleanup removes the listeners. Mobile skips this entirely.
+  useEffect(() => {
+    if (!conflictDragState) return;
+    const onMove = (e) => {
+      setConflictModalPos({
+        x: conflictDragState.posX + (e.clientX - conflictDragState.startX),
+        y: conflictDragState.posY + (e.clientY - conflictDragState.startY),
+      });
+    };
+    const onUp = () => setConflictDragState(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [conflictDragState]);
+
+  const onConflictHeaderMouseDown = (e) => {
+    if (mobile) return;
+    e.preventDefault();
+    setConflictDragState({
+      startX: e.clientX,
+      startY: e.clientY,
+      posX: conflictModalPos.x,
+      posY: conflictModalPos.y,
+    });
+  };
+
+  // Jump to Day view for a conflict's date and dismiss the modal.
+  const viewConflictDay = (dateStrVal) => {
+    setView("day");
+    setCurrentDate(new Date(dateStrVal + "T12:00:00"));
+    setConflictModalOpen(false);
+  };
+
+  // Serialize the current conflict set as plain text for copy-to-clipboard.
+  const copyConflictsInfo = async () => {
+    if (conflictGroups.length === 0) return;
+    const fmtMin = (min) => {
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      const ampm = h >= 12 ? "pm" : "am";
+      const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      return `${display}:${String(m).padStart(2, "0")} ${ampm}`;
+    };
+    const body = conflictGroups.map(g => {
+      const dateLabel = new Date(g.date + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "long", month: "long", day: "numeric", year: "numeric",
+      });
+      const lines = [dateLabel];
+      for (const chip of g.chips) {
+        lines.push(`  \u2022 ${chip.title}, ${fmtMin(chip.startMin)} \u2013 ${fmtMin(chip.endMin)}`);
+      }
+      return lines.join("\n");
+    }).join("\n\n");
+    const header = `Scheduling conflicts \u2014 ${conflictGroups.length} group${conflictGroups.length === 1 ? "" : "s"}\n\n`;
+    try {
+      await navigator.clipboard.writeText(header + body);
+      setConflictCopyFeedback("Copied!");
+    } catch (e) {
+      console.error("Copy failed:", e);
+      setConflictCopyFeedback("Copy failed");
+    }
+    setTimeout(() => setConflictCopyFeedback(null), 2000);
+  };
 
   const navigate = (dir) => {
     const d = new Date(currentDate);
@@ -648,6 +930,7 @@ export default function AdminSchedule() {
         kind: "booking", data: b,
         top: ((startMin - firstHour * 60) / 60) * rowH,
         height: ((endMin - startMin) / 60) * rowH,
+        layout: conflictLayoutByKey.get(`booking:${b.id}`),
       });
     });
     googleEvents.forEach(ev => {
@@ -661,6 +944,7 @@ export default function AdminSchedule() {
         kind: "event", data: ev,
         top: ((startMin - firstHour * 60) / 60) * rowH,
         height: Math.max(((endMin - startMin) / 60) * rowH, rowH * 0.5),
+        layout: ev.id ? conflictLayoutByKey.get(`event:${ev.id}`) : undefined,
       });
     });
     return items;
@@ -674,10 +958,16 @@ export default function AdminSchedule() {
 
   // --- Render helpers ---
 
-  const renderOverlayBooking = (b, top, height, compact) => {
+  const renderOverlayBooking = (b, top, height, compact, layout) => {
     const isRequested = b.status === "requested";
     const chipH = Math.max(height, compact ? 20 : 28);
     const canDrag = ["requested", "booked"].includes(b.status);
+    // When layout is provided (day-view conflict split), use percentage-based
+    // horizontal positioning instead of the default full-width. The 1px
+    // left-padding / 2px width-subtraction creates a thin gap between columns.
+    const horizontal = layout
+      ? { left: `calc(${layout.leftPct}% + 1px)`, width: `calc(${layout.widthPct}% - 2px)` }
+      : { left: 2, right: 2 };
     return (
       <div
         key={b.id}
@@ -693,7 +983,7 @@ export default function AdminSchedule() {
           else openEditModal(b);
         }}
         style={{
-          position: "absolute", top, left: 2, right: 2, zIndex: 4,
+          position: "absolute", top, ...horizontal, zIndex: 4,
           height: chipH,
           padding: compact ? "2px 4px" : "4px 8px",
           borderRadius: compact ? 4 : 6,
@@ -727,12 +1017,15 @@ export default function AdminSchedule() {
     );
   };
 
-  const renderOverlayEvent = (event, top, height, compact) => {
+  const renderOverlayEvent = (event, top, height, compact, layout) => {
     const src = classifyEvent(event);
     const color = SRC[src];
     const bg = SRC[src + "Bg"];
     const chipH = Math.max(height, compact ? 20 : 28);
     const isLocal = !!event._local;
+    const horizontal = layout
+      ? { left: `calc(${layout.leftPct}% + 1px)`, width: `calc(${layout.widthPct}% - 2px)` }
+      : { left: 2, right: 2 };
     return (
       <div
         key={event.id || event.summary}
@@ -743,7 +1036,7 @@ export default function AdminSchedule() {
         onMouseLeave={() => setHover(null)}
         onClick={isLocal ? (e) => { e.stopPropagation(); setHover(null); openEditEventModal(event); } : undefined}
         style={{
-          position: "absolute", top, left: 2, right: 2, zIndex: 4,
+          position: "absolute", top, ...horizontal, zIndex: 4,
           height: chipH,
           padding: compact ? "2px 4px" : "4px 8px",
           borderRadius: compact ? 4 : 6,
@@ -811,8 +1104,8 @@ export default function AdminSchedule() {
             })}
             {overlayItems.map(item =>
               item.kind === "booking"
-                ? renderOverlayBooking(item.data, item.top, item.height, false)
-                : renderOverlayEvent(item.data, item.top, item.height, false)
+                ? renderOverlayBooking(item.data, item.top, item.height, false, item.layout)
+                : renderOverlayEvent(item.data, item.top, item.height, false, item.layout)
             )}
             {renderSelectionOverlay(date, DAY_ROW_H)}
             {dragOver?.date === date && renderDragGhost(DAY_ROW_H)}
@@ -1431,6 +1724,159 @@ export default function AdminSchedule() {
   };
 
   // --- Color key legend ---
+  // --- Conflict banner + modal ---
+
+  const renderConflictBanner = () => {
+    const count = conflictGroups.length;
+    if (count === 0) return null;
+    return (
+      <div
+        onClick={() => setConflictModalOpen(true)}
+        style={{
+          background: "#c0392b",
+          color: "#fff",
+          padding: "10px 16px",
+          borderRadius: 6,
+          marginBottom: 12,
+          cursor: "pointer",
+          fontSize: 14,
+          fontWeight: 500,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+        }}
+      >
+        <span style={{ fontSize: 18 }}>&#9888;</span>
+        <span>
+          {`${count} scheduling conflict${count === 1 ? "" : "s"} detected \u2014 click to review`}
+        </span>
+      </div>
+    );
+  };
+
+  const renderConflictModal = () => {
+    if (!conflictModalOpen || conflictGroups.length === 0) return null;
+
+    const mobileStyle = {
+      position: "fixed",
+      top: 60,
+      left: 16,
+      right: 16,
+      maxHeight: "calc(100vh - 80px)",
+    };
+    const desktopStyle = {
+      position: "fixed",
+      top: "50%",
+      left: "50%",
+      transform: `translate(calc(-50% + ${conflictModalPos.x}px), calc(-50% + ${conflictModalPos.y}px))`,
+      width: 520,
+      maxHeight: "80vh",
+    };
+
+    const fmtMin = (min) => {
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      const ampm = h >= 12 ? "pm" : "am";
+      const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      return `${display}:${String(m).padStart(2, "0")} ${ampm}`;
+    };
+
+    return (
+      <div
+        style={{
+          ...(mobile ? mobileStyle : desktopStyle),
+          background: "#fff",
+          border: "2px solid #c0392b",
+          borderRadius: 10,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+          zIndex: 200,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        {/* Draggable header */}
+        <div
+          onMouseDown={onConflictHeaderMouseDown}
+          style={{
+            background: "#c0392b",
+            color: "#fff",
+            padding: "10px 16px",
+            fontWeight: 600,
+            fontSize: 15,
+            cursor: mobile ? "default" : (conflictDragState ? "grabbing" : "grab"),
+            userSelect: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span style={{ fontSize: 18 }}>&#9888;</span>
+          <span>Scheduling Conflict{conflictGroups.length === 1 ? "" : "s"}</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.9, fontWeight: 400 }}>
+            {conflictGroups.length} group{conflictGroups.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "14px 16px", overflowY: "auto", flex: 1 }}>
+          {conflictGroups.map((g, idx) => {
+            const dateLabel = new Date(g.date + "T12:00:00").toLocaleDateString("en-US", {
+              weekday: "long", month: "long", day: "numeric", year: "numeric",
+            });
+            return (
+              <div key={`${g.date}-${idx}`} style={{ marginBottom: 18 }}>
+                <div style={{ fontWeight: 600, color: C.text, marginBottom: 6 }}>{dateLabel}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8, paddingLeft: 4 }}>
+                  {g.chips.map((chip) => (
+                    <div key={chip.key} style={{ fontSize: 13, color: C.text }}>
+                      &bull;{" "}
+                      <span style={{ color: SRC[chip.kind] || C.text, fontWeight: 500 }}>
+                        {chip.title}
+                      </span>
+                      , {fmtMin(chip.startMin)} &ndash; {fmtMin(chip.endMin)}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => viewConflictDay(g.date)}
+                  style={{ ...S.btnSmOut, fontSize: 12 }}
+                >
+                  View Day
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          borderTop: `1px solid ${C.gridLine}`,
+          padding: "10px 16px",
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 8,
+          alignItems: "center",
+          background: "#fafafa",
+        }}>
+          {conflictCopyFeedback && (
+            <span style={{ fontSize: 12, color: C.muted, marginRight: "auto" }}>
+              {conflictCopyFeedback}
+            </span>
+          )}
+          <button onClick={copyConflictsInfo} style={S.btnSmOut}>Copy Info</button>
+          <button
+            onClick={() => setConflictModalOpen(false)}
+            style={{ ...S.btnSmOut, background: C.teal, color: "#fff", borderColor: C.teal }}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderColorKey = () => {
     const swatch = (color, bg, label) => (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: C.text }}>
@@ -1460,6 +1906,7 @@ export default function AdminSchedule() {
         <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Schedule</h1>
       </div>
 
+      {renderConflictBanner()}
       {renderColorKey()}
 
       <p style={{ ...S.p, fontSize: 13 }}>
@@ -1535,6 +1982,7 @@ export default function AdminSchedule() {
 
       {renderModal()}
       {renderMoveConfirmModal()}
+      {renderConflictModal()}
       {renderHoverTooltip()}
       {renderDragTooltip()}
       {renderSelectionTooltip()}

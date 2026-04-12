@@ -249,6 +249,95 @@ export default function Schedule({ viewAsClient }) {
     });
   };
 
+  // Smallest selectable session duration — used to decide whether a free stretch
+  // is even worth showing as "available." A 15-min gap next to an SP appointment
+  // can't fit any session type, so it's white, not green.
+  const minDuration = sessionTypes.length > 0
+    ? Math.min(...sessionTypes.map(t => t.duration))
+    : 30;
+
+  // Collapse the discrete availability slot list into contiguous free ranges,
+  // then drop ranges shorter than minDuration. Returns [[startMin, endMin], ...].
+  const getBookableRanges = useCallback((date) => {
+    const slots = availability[date] || [];
+    if (slots.length === 0) return [];
+    const ranges = [];
+    for (const s of slots) {
+      const [sh, sm] = s.split(":").map(Number);
+      const sMin = sh * 60 + sm;
+      const sEnd = sMin + increment;
+      if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
+        ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], sEnd);
+      } else {
+        ranges.push([sMin, sEnd]);
+      }
+    }
+    return ranges.filter(([s, e]) => (e - s) >= minDuration);
+  }, [availability, increment, minDuration]);
+
+  // Position bookable ranges onto the day/week time grid, clipped to the visible
+  // HOURS range. Returns rects ready to render as green overlay bars.
+  const getBookableOverlay = useCallback((date, rowH) => {
+    const firstMin = HOURS[0] * 60;
+    const lastMin = (HOURS[HOURS.length - 1] + 1) * 60;
+    return getBookableRanges(date)
+      .map(([s, e]) => [Math.max(s, firstMin), Math.min(e, lastMin)])
+      .filter(([s, e]) => e > s)
+      .map(([s, e]) => ({
+        startMin: s,
+        endMin: e,
+        top: ((s - firstMin) / 60) * rowH,
+        height: ((e - s) / 60) * rowH,
+      }));
+  }, [getBookableRanges]);
+
+  // Render a bookable range as a stack of hour-aligned sub-blocks with visible
+  // hour dividers. Each block is its own click target — clicking in the 10–11
+  // portion of a 9–12 range starts the booking at 10:00, not 9:00. The first or
+  // last block in a range may be a partial hour (e.g. 9:30–10:00) when the range
+  // doesn't begin/end on the hour; clicking that block still uses its true start.
+  // Transparent to pointer events while dragging so the underlying hour cell
+  // still receives drag handlers.
+  const renderBookableBar = (date, item, rowH) => {
+    const firstMin = HOURS[0] * 60;
+    const blocks = [];
+    let cursor = item.startMin;
+    while (cursor < item.endMin) {
+      const nextHourBoundary = (Math.floor(cursor / 60) + 1) * 60;
+      const blockEnd = Math.min(nextHourBoundary, item.endMin);
+      const h = Math.floor(cursor / 60);
+      const m = cursor % 60;
+      blocks.push({
+        startMin: cursor,
+        endMin: blockEnd,
+        timeStr: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+        top: ((cursor - firstMin) / 60) * rowH,
+        height: ((blockEnd - cursor) / 60) * rowH,
+        isLast: blockEnd >= item.endMin,
+      });
+      cursor = blockEnd;
+    }
+    return blocks.map(b => (
+      <div
+        key={`avail-${b.startMin}`}
+        onClick={(e) => { e.stopPropagation(); if (!readOnly) openBookingPopup(date, b.timeStr); }}
+        style={{
+          position: "absolute",
+          top: b.top,
+          left: 0,
+          right: 0,
+          height: b.height,
+          background: "#d4edda",
+          borderBottom: b.isLast ? "none" : `0.5px solid ${C.gridLine}`,
+          cursor: readOnly ? "default" : "pointer",
+          zIndex: 1,
+          boxSizing: "border-box",
+          pointerEvents: dragOver ? "none" : "auto",
+        }}
+      />
+    ));
+  };
+
   // Get all bookings for a date with pixel position info
   const getBookingsForDateOverlay = (date, rowH) => {
     const firstHour = HOURS[0];
@@ -624,23 +713,18 @@ export default function Schedule({ viewAsClient }) {
             ))}
           </div>
           <div style={{ flex: 1, position: "relative", height: totalH }}>
-            {HOURS.map(h => {
-              const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
-              const occupied = isHourOccupied(date, h);
-              return (
-                <div key={h} style={{
-                  height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
-                  background: (avail || occupied) ? "#d4edda" : "#fafafa",
-                  cursor: avail && !occupied ? "pointer" : "default",
-                  boxSizing: "border-box",
-                }}
-                  onClick={() => avail && !occupied && openBookingPopup(date, h)}
-                  onDragOver={(e) => handleDragOver(e, date, h)}
-                  onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, date, h)}
-                />
-              );
-            })}
+            {HOURS.map(h => (
+              <div key={h} style={{
+                height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
+                background: "#fff",
+                boxSizing: "border-box",
+              }}
+                onDragOver={(e) => handleDragOver(e, date, h)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, date, h)}
+              />
+            ))}
+            {getBookableOverlay(date, DAY_ROW_H).map(item => renderBookableBar(date, item, DAY_ROW_H))}
             {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, false))}
             {dragOver?.date === date && renderDragGhost(DAY_ROW_H)}
           </div>
@@ -679,23 +763,18 @@ export default function Schedule({ viewAsClient }) {
                   <div style={{ fontSize: 14 }}>{d.getDate()}</div>
                 </div>
                 <div style={{ position: "relative", height: totalH }}>
-                  {HOURS.map(h => {
-                    const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
-                    const occupied = isHourOccupied(date, h);
-                    return (
-                      <div key={h} style={{
-                        height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
-                        background: (avail || occupied) ? "#d4edda" : "#fafafa",
-                        cursor: avail && !occupied ? "pointer" : "default",
-                        boxSizing: "border-box",
-                      }}
-                        onClick={() => avail && !occupied && openBookingPopup(date, h)}
-                        onDragOver={(e) => handleDragOver(e, date, h)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => handleDrop(e, date, h)}
-                      />
-                    );
-                  })}
+                  {HOURS.map(h => (
+                    <div key={h} style={{
+                      height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
+                      background: "#fff",
+                      boxSizing: "border-box",
+                    }}
+                      onDragOver={(e) => handleDragOver(e, date, h)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, date, h)}
+                    />
+                  ))}
+                  {getBookableOverlay(date, WEEK_ROW_H).map(item => renderBookableBar(date, item, WEEK_ROW_H))}
                   {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, true))}
                   {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
                 </div>
@@ -732,7 +811,9 @@ export default function Schedule({ viewAsClient }) {
               const date = dateStr(day);
               const isCurrentMonth = day.getMonth() === m;
               const dayBookings = getBookingsForDate(date);
-              const hasAvail = (availability[date] || []).length > 0;
+              // "Available" means there's at least one contiguous free range long
+              // enough to fit the smallest session type — not just any leftover slot.
+              const hasAvail = getBookableRanges(date).length > 0;
               const isPast = day < new Date(new Date().setHours(0, 0, 0, 0));
 
               return (
@@ -790,11 +871,13 @@ export default function Schedule({ viewAsClient }) {
   };
 
   // --- Booking popup ---
-  const openBookingPopup = (date, hour) => {
+  // `time` is an optional HH:MM string pre-selecting a start time; pass nothing
+  // to open the popup in "pick a time" mode (e.g. from month view).
+  const openBookingPopup = (date, time) => {
     if (readOnly) return;
     setBookingDate(date);
     setSelectedType(null);
-    setSelectedTime(hour != null ? `${String(hour).padStart(2, "0")}:00` : null);
+    setSelectedTime(time || null);
     setBookingError(null);
     setBookingSuccess(false);
   };
