@@ -91,19 +91,13 @@ export default function Schedule({ viewAsClient }) {
       fetch("/api/session-types").then(r => r.json()).catch(() => []),
     ]);
     const availData = availRes && !availRes.error ? availRes : {};
-    setAvailability(availData);
+    // The API returns scheduling_increment alongside the date-keyed slots under
+    // the special key __increment. Strip it before storing per-date availability.
+    const { __increment, ...slotsByDate } = availData;
+    setAvailability(slotsByDate);
     setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
-    // Derive scheduling increment from slot spacing
-    for (const dateKey of Object.keys(availData)) {
-      const slots = availData[dateKey];
-      if (slots && slots.length >= 2) {
-        const [h0, m0] = slots[0].split(":").map(Number);
-        const [h1, m1] = slots[1].split(":").map(Number);
-        setIncrement((h1 * 60 + m1) - (h0 * 60 + m0));
-        break;
-      }
-    }
+    if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
     setLoading(false);
   }, [getRange]);
 
@@ -197,7 +191,10 @@ export default function Schedule({ viewAsClient }) {
         fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
         fetch(`/api/bookings?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
       ]);
-      setAvailability(availRes && !availRes.error ? availRes : {});
+      const availOk = availRes && !availRes.error ? availRes : {};
+      const { __increment, ...slotsByDate } = availOk;
+      setAvailability(slotsByDate);
+      if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
       setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
       setBookingSuccess(true);
     } else {
@@ -434,13 +431,13 @@ export default function Schedule({ viewAsClient }) {
     setTimeout(() => document.body.removeChild(ghost), 0);
   };
 
-  // Check that the proposed slot is within Diana's availability AND not overlapping
-  // another booking. Clients can only drop into available slots, unlike the admin.
+  // Block on (a) overlap with another booking, or (b) start time outside every
+  // availability range. The end is allowed to overflow past the range end so a
+  // session flush against a chunk boundary can still slide within its chunk —
+  // the server reverts booked → requested for Diana's review either way.
   const isDropAllowed = (date, startMin, durationMin) => {
     const endMin = startMin + durationMin;
     const dragId = dragRef.current?.id;
-
-    // Overlap check (excluding the dragged booking itself)
     const overlaps = bookings.some(b => {
       if (b.id === dragId) return false;
       if (!["requested", "booked"].includes(b.status)) return false;
@@ -453,35 +450,42 @@ export default function Schedule({ viewAsClient }) {
     });
     if (overlaps) return false;
 
-    // Availability check: build continuous available ranges from discrete slots
+    // Build availability ranges from discrete slots; add back the dragged
+    // booking's own span so it doesn't block itself.
     const slots = availability[date] || [];
-    if (slots.length === 0) return false;
     const ranges = [];
     for (const s of slots) {
       const [sh, sm] = s.split(":").map(Number);
       const sMin = sh * 60 + sm;
       const sEnd = sMin + increment;
       if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
-        ranges[ranges.length - 1][1] = sEnd;
+        ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], sEnd);
       } else {
         ranges.push([sMin, sEnd]);
       }
     }
-    // Add back the dragged booking's own slots so it doesn't block itself
-    if (dragRef.current && (dragRef.current.date === date)) {
-      const [dh, dm] = (dragRef.current.time_slot || "00:00").split(":").map(Number);
-      const dStart = dh * 60 + dm;
-      const dEnd = dStart + durationMin;
-      ranges.push([dStart, dEnd]);
-      ranges.sort((a, b) => a[0] - b[0]);
-      // Merge overlapping ranges
-      for (let i = ranges.length - 2; i >= 0; i--) {
-        if (ranges[i][1] >= ranges[i + 1][0]) {
-          ranges[i][1] = Math.max(ranges[i][1], ranges[i + 1][1]);
-          ranges.splice(i + 1, 1);
-        }
+    // Add the dragged booking's own span as a separate range so the original
+    // position stays "allowed" — but do NOT merge with adjacent availability.
+    // Merging would let the ghost slide into white space that happens to touch
+    // the booking's edge (e.g. a booking flush against an isolated 12:30 slot
+    // would otherwise be draggable down to 1:00 through three slots of white).
+    const dragBooking = dragRef.current;
+    const dragDate = dragBooking?.date
+      || (dragBooking?.start_time ? localDateStr(new Date(dragBooking.start_time)) : null);
+    if (dragBooking && dragDate === date) {
+      let dStart = null;
+      if (dragBooking.time_slot) {
+        const [dh, dm] = dragBooking.time_slot.split(":").map(Number);
+        dStart = dh * 60 + dm;
+      } else if (dragBooking.start_time) {
+        const d = new Date(dragBooking.start_time);
+        dStart = d.getHours() * 60 + d.getMinutes();
+      }
+      if (dStart != null) {
+        ranges.push([dStart, dStart + durationMin]);
       }
     }
+    // Strict containment: the whole ghost span must fit inside a single range.
     return ranges.some(([rStart, rEnd]) => startMin >= rStart && endMin <= rEnd);
   };
 
@@ -753,12 +757,16 @@ export default function Schedule({ viewAsClient }) {
             const overlayItems = getBookingsForDateOverlay(date, WEEK_ROW_H);
             return (
               <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none" }}>
-                <div style={{
-                  height: 36, textAlign: "center", padding: "4px 0",
-                  borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa",
-                  fontWeight: sameDay(d, new Date()) ? 600 : 400,
-                  color: sameDay(d, new Date()) ? C.teal : C.text,
-                }}>
+                <div
+                  onClick={() => { setCurrentDate(new Date(d)); setView("day"); }}
+                  style={{
+                    height: 36, textAlign: "center", padding: "4px 0",
+                    borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa",
+                    fontWeight: sameDay(d, new Date()) ? 600 : 400,
+                    color: sameDay(d, new Date()) ? C.teal : C.text,
+                    cursor: "pointer",
+                  }}
+                >
                   <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
                   <div style={{ fontSize: 14 }}>{d.getDate()}</div>
                 </div>
@@ -1040,7 +1048,7 @@ export default function Schedule({ viewAsClient }) {
                         : (isAdminViewing ? "Book Session" : "Request Session")}
                   </button>
                 )}
-                <button style={S.btnSmOut} onClick={closePopup}>Close</button>
+                <button style={S.btnSmOut} onClick={closePopup}>Cancel</button>
                 {editingBooking && (
                   <button
                     style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b", marginLeft: "auto" }}

@@ -370,60 +370,33 @@ export async function PATCH(request) {
       updates.end_time = new Date(`${newDate}T${endTimeStr}:00`).toISOString();
     }
 
-    // Client edits: validate slot availability and revert booked→requested
+    // Client edits: block only on overlap with another booking. Availability
+    // isn't enforced — booked sessions revert to "requested" so Diana reviews
+    // the proposed time anyway. Matches the client drag and avoids locking a
+    // booking in place when it sits flush against a chunk boundary.
     if (!isAdmin) {
-      // Use continuous-range coverage (not discrete slot indexing) so the chosen
-      // start time isn't required to land on an increment boundary — matches the
-      // frontend popup's range warning logic.
-      const slots = await getAvailableSlots(newDate, newDate);
-      const slotsForDate = slots[newDate] || [];
-
-      // Derive increment from slot spacing
-      let inc = 30;
-      if (slotsForDate.length >= 2) {
-        const [h0, m0] = slotsForDate[0].split(":").map(Number);
-        const [h1, m1] = slotsForDate[1].split(":").map(Number);
-        inc = (h1 * 60 + m1) - (h0 * 60 + m0);
-      }
-
-      // Build contiguous available ranges from the discrete slot list
-      const ranges = [];
-      for (const s of slotsForDate) {
-        const [sh, sm] = s.split(":").map(Number);
-        const sMin = sh * 60 + sm;
-        const sEnd = sMin + inc;
-        if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
-          ranges[ranges.length - 1][1] = sEnd;
-        } else {
-          ranges.push([sMin, sEnd]);
-        }
-      }
-
-      // Add back the booking-being-edited's own range so it doesn't block itself
-      if (booking.date === newDate) {
-        const [bh, bm] = (booking.time_slot || "00:00").split(":").map(Number);
-        const bStart = bh * 60 + bm;
-        const bEnd = bStart + (booking.session_duration || 60);
-        ranges.push([bStart, bEnd]);
-        ranges.sort((a, b) => a[0] - b[0]);
-        for (let i = ranges.length - 2; i >= 0; i--) {
-          if (ranges[i][1] >= ranges[i + 1][0]) {
-            ranges[i][1] = Math.max(ranges[i][1], ranges[i + 1][1]);
-            ranges.splice(i + 1, 1);
-          }
-        }
-      }
-
       const [nh, nm] = newStartTime.split(":").map(Number);
       const newStartMin = nh * 60 + nm;
       const newEndMin = newStartMin + duration;
-      const covered = ranges.some(([rStart, rEnd]) => newStartMin >= rStart && newEndMin <= rEnd);
 
-      if (!covered) {
-        return NextResponse.json({ error: "Time slot is not available" }, { status: 409 });
+      const { data: otherBookings } = await adminClient
+        .from("bookings")
+        .select("id, date, time_slot, session_duration, status")
+        .eq("date", newDate)
+        .in("status", ["requested", "booked"])
+        .neq("id", id);
+
+      const overlaps = (otherBookings || []).some(b => {
+        const [bH, bM] = (b.time_slot || "00:00").split(":").map(Number);
+        const bStart = bH * 60 + bM;
+        const bEnd = bStart + (b.session_duration || 60);
+        return newStartMin < bEnd && newEndMin > bStart;
+      });
+
+      if (overlaps) {
+        return NextResponse.json({ error: "Time slot overlaps another booking" }, { status: 409 });
       }
 
-      // Revert approved sessions back to "requested" when client moves them
       if (booking.status === "booked" && dateOrTimeChanged) {
         updates.status = "requested";
       }

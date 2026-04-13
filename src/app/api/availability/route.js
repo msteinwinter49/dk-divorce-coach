@@ -37,7 +37,15 @@ export async function GET(request) {
   }
 
   const slots = await getAvailableSlots(startDate, endDate);
-  return NextResponse.json(slots);
+  // Include the scheduling increment so the client doesn't have to derive it
+  // from slot spacing (which breaks on sparse days like a single [09:30, 12:30]).
+  const { data: settingsData } = await ctx.supabase
+    .from("settings")
+    .select("value")
+    .eq("key", "scheduling_increment")
+    .maybeSingle();
+  const increment = settingsData?.value ? parseInt(settingsData.value) : 30;
+  return NextResponse.json({ ...slots, __increment: increment });
 }
 
 // POST — admin creates/updates availability rules or overrides

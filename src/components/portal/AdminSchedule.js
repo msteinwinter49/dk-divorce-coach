@@ -178,12 +178,8 @@ function filterIntentionalSpDupes(dayChips) {
   });
 }
 
-// Scan bookings + Google events for conflict groups. A conflict group is a
-// connected-component cluster of chips where any member strictly overlaps
-// another (touching boundaries don't count). Days with no conflicts return
-// nothing; groups of size < 2 are dropped. Sorted by date ascending.
-// Applies filterIntentionalSpDupes per-day before grouping.
-function detectConflicts(bookings, googleEvents) {
+// Build the full chip list from bookings + Google events.
+function buildChips(bookings, googleEvents) {
   const chips = [];
   for (const b of bookings || []) {
     const c = bookingToChip(b);
@@ -193,15 +189,19 @@ function detectConflicts(bookings, googleEvents) {
     const c = eventToChip(ev);
     if (c) chips.push(c);
   }
+  return chips;
+}
 
+// Cluster chips into connected-component groups per day where members strictly
+// overlap (touching boundaries don't count). Groups of size < 2 are dropped.
+// Sorted by date ascending.
+function clusterOverlapsByDate(chips) {
   const byDate = {};
   for (const c of chips) {
     (byDate[c.date] ||= []).push(c);
   }
-
   const groups = [];
-  for (const [date, rawDayChips] of Object.entries(byDate)) {
-    const dayChips = filterIntentionalSpDupes(rawDayChips);
+  for (const [date, dayChips] of Object.entries(byDate)) {
     dayChips.sort((a, b) => a.startMin - b.startMin);
     let current = null;
     let currentMaxEnd = -1;
@@ -210,7 +210,6 @@ function detectConflicts(bookings, googleEvents) {
     };
     for (const chip of dayChips) {
       if (current && chip.startMin < currentMaxEnd) {
-        // Strict overlap with the running group — extend it.
         current.push(chip);
         currentMaxEnd = Math.max(currentMaxEnd, chip.endMin);
       } else {
@@ -223,6 +222,28 @@ function detectConflicts(bookings, googleEvents) {
   }
   groups.sort((a, b) => a.date.localeCompare(b.date));
   return groups;
+}
+
+// Scan bookings + Google events for conflict groups. Applies
+// filterIntentionalSpDupes per-day so SP-on-SP annotation duplicates are not
+// reported as conflicts.
+function detectConflicts(bookings, googleEvents) {
+  const chips = buildChips(bookings, googleEvents);
+  const byDate = {};
+  for (const c of chips) {
+    (byDate[c.date] ||= []).push(c);
+  }
+  const filtered = [];
+  for (const dayChips of Object.values(byDate)) {
+    filtered.push(...filterIntentionalSpDupes(dayChips));
+  }
+  return clusterOverlapsByDate(filtered);
+}
+
+// Unfiltered overlap groups — used for day-view side-by-side layout so even
+// SP-on-SP overlaps render adjacent instead of stacking on top of each other.
+function detectAllOverlaps(bookings, googleEvents) {
+  return clusterOverlapsByDate(buildChips(bookings, googleEvents));
 }
 
 export default function AdminSchedule() {
@@ -305,21 +326,13 @@ export default function AdminSchedule() {
       fetch("/api/session-types").then(r => r.json()).catch(() => []),
     ]);
     setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
-    setAvailability(availRes && !availRes.error ? availRes : {});
+    const availOk = availRes && !availRes.error ? availRes : {};
+    const { __increment, ...slotsByDate } = availOk;
+    setAvailability(slotsByDate);
+    if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
     setGoogleEvents(Array.isArray(eventsRes) ? eventsRes : []);
     setClients(clientsRes.clients || []);
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
-    // Derive scheduling increment from slot spacing
-    const availData = availRes && !availRes.error ? availRes : {};
-    for (const dateKey of Object.keys(availData)) {
-      const slots = availData[dateKey];
-      if (slots && slots.length >= 2) {
-        const [h0, m0] = slots[0].split(":").map(Number);
-        const [h1, m1] = slots[1].split(":").map(Number);
-        setIncrement((h1 * 60 + m1) - (h0 * 60 + m0));
-        break;
-      }
-    }
     setLoading(false);
   }, [getRange, getConflictRange]);
 
@@ -343,9 +356,14 @@ export default function AdminSchedule() {
   //   B gets column 1 (col 0 still busy until 11:00; end=11:30)
   //   C gets column 0 (col 0 freed at 11:00, C starts at 11:00 → reuse)
   //   Group uses 2 columns → A/C at 0–50%, B at 50–100%.
+  const overlapGroups = useMemo(
+    () => detectAllOverlaps(bookings, googleEvents),
+    [bookings, googleEvents]
+  );
+
   const conflictLayoutByKey = useMemo(() => {
     const map = new Map();
-    for (const group of conflictGroups) {
+    for (const group of overlapGroups) {
       const sorted = [...group.chips].sort((a, b) => a.startMin - b.startMin);
       const columnEnds = []; // columnEnds[i] = end time of the chip currently in column i
       const colIndexByKey = new Map();
@@ -372,7 +390,7 @@ export default function AdminSchedule() {
       }
     }
     return map;
-  }, [conflictGroups]);
+  }, [overlapGroups]);
 
   // Drag-to-move the conflict modal: when conflictDragState is set, window-level
   // mouse listeners update conflictModalPos; when drag ends, the state clears
@@ -678,21 +696,85 @@ export default function AdminSchedule() {
     return hour * 60 + minuteInHour;
   };
 
+  // Raw (unsnapped) minute-of-day under the cursor.
+  const rawMinFromCellEvent = (e, hour) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rowH = view === "day" ? DAY_ROW_H : WEEK_ROW_H;
+    const fractionInRow = Math.max(0, Math.min(0.999, (e.clientY - rect.top) / rowH));
+    return hour * 60 + fractionInRow * 60;
+  };
+
+  // All chip intervals [startMin, endMin) on the given date.
+  const chipIntervalsOnDate = (date) => {
+    const ivs = [];
+    for (const b of bookings) {
+      const bDate = b.date || dateStr(new Date(b.start_time));
+      if (bDate !== date) continue;
+      const s = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
+      const eMin = new Date(b.end_time).getHours() * 60 + new Date(b.end_time).getMinutes();
+      ivs.push([s, eMin]);
+    }
+    for (const ev of googleEvents) {
+      if (!ev.start?.dateTime) continue;
+      const eDate = ev.start.dateTime.split("T")[0];
+      if (eDate !== date) continue;
+      const s = new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes();
+      const eMin = ev.end?.dateTime
+        ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
+        : s + 60;
+      ivs.push([s, eMin]);
+    }
+    ivs.sort((a, b) => a[0] - b[0]);
+    return ivs;
+  };
+
+  // Free range around the given raw minute. Returns null if the minute falls
+  // inside an existing chip; otherwise the enclosing white/green span.
+  const getFreeRangeAt = (date, rawMinute) => {
+    const ivs = chipIntervalsOnDate(date);
+    for (const [s, e] of ivs) {
+      if (rawMinute >= s && rawMinute < e) return null;
+    }
+    let start = 0;
+    let end = 24 * 60;
+    for (const [s, e] of ivs) {
+      if (e <= rawMinute) start = Math.max(start, e);
+      if (s > rawMinute) { end = Math.min(end, s); break; }
+    }
+    return { start, end };
+  };
+
   const handleCellMouseDown = (e, date, hour) => {
     if (e.target !== e.currentTarget && e.target.closest("[draggable]")) return;
-    if (isHourOccupied(date, hour)) return;
-    const anchorMin = minFromCellEvent(e, hour);
-    selectRef.current = { date, anchorMin };
-    setSelection({ date, startMin: anchorMin, endMin: anchorMin + increment, x: e.clientX, y: e.clientY });
+    const rawMin = rawMinFromCellEvent(e, hour);
+    const free = getFreeRangeAt(date, rawMin);
+    if (!free) return;
+    let anchorMin, endMin;
+    const freeLen = free.end - free.start;
+    if (freeLen <= increment * 2) {
+      // Gap too small to snap inside — consume the whole free range so the user
+      // can't miss a fragment above or below the click.
+      anchorMin = free.start;
+      endMin = free.end;
+    } else {
+      const snapped = Math.floor(rawMin / increment) * increment;
+      anchorMin = Math.max(free.start, snapped);
+      endMin = Math.min(free.end, anchorMin + increment);
+    }
+    selectRef.current = { date, anchorMin, freeStart: free.start, freeEnd: free.end };
+    setSelection({ date, startMin: anchorMin, endMin, x: e.clientX, y: e.clientY });
   };
 
   const handleCellMouseMove = (e, date, hour) => {
     if (!selectRef.current || selectRef.current.date !== date) return;
+    const { anchorMin: anchor, freeStart, freeEnd } = selectRef.current;
     const curMin = minFromCellEvent(e, hour);
-    const anchor = selectRef.current.anchorMin;
-    // Build an inclusive range that always contains at least the anchor slot
     let startMin = Math.min(anchor, curMin);
     let endMin = Math.max(anchor, curMin) + increment;
+    // Clamp the selection to the free range so it can't cross into another chip.
+    startMin = Math.max(startMin, freeStart);
+    endMin = Math.min(endMin, freeEnd);
+    if (endMin <= startMin) endMin = Math.min(freeEnd, startMin + 1);
     setSelection({ date, startMin, endMin, x: e.clientX, y: e.clientY });
   };
 
@@ -917,6 +999,51 @@ export default function AdminSchedule() {
 
   const isSlotAvailable = (date, time) => (availability[date] || []).includes(time);
 
+  // Merge contiguous availability slots into minute ranges so partial-hour
+  // availability (e.g. 10:30–12:00) renders as one continuous bar instead of
+  // snapping to hour-cell boundaries.
+  const getAvailableRanges = (date) => {
+    const slots = [...(availability[date] || [])].sort();
+    if (slots.length === 0) return [];
+    const ranges = [];
+    for (const s of slots) {
+      const [sh, sm] = s.split(":").map(Number);
+      const sMin = sh * 60 + sm;
+      const sEnd = sMin + increment;
+      if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
+        ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], sEnd);
+      } else {
+        ranges.push([sMin, sEnd]);
+      }
+    }
+    return ranges;
+  };
+
+  // Emit hour-aligned sub-blocks for each available range so hour boundaries
+  // stay visible inside green spans (mirrors the client Schedule bookable bars).
+  const getAvailableOverlay = (date, rowH) => {
+    const firstMin = HOURS[0] * 60;
+    const lastMin = (HOURS[HOURS.length - 1] + 1) * 60;
+    const blocks = [];
+    for (const [rawS, rawE] of getAvailableRanges(date)) {
+      const s = Math.max(rawS, firstMin);
+      const e = Math.min(rawE, lastMin);
+      if (e <= s) continue;
+      let cursor = s;
+      while (cursor < e) {
+        const nextHour = (Math.floor(cursor / 60) + 1) * 60;
+        const blockEnd = Math.min(nextHour, e);
+        blocks.push({
+          top: ((cursor - firstMin) / 60) * rowH,
+          height: ((blockEnd - cursor) / 60) * rowH,
+          isLast: blockEnd >= e,
+        });
+        cursor = blockEnd;
+      }
+    }
+    return blocks;
+  };
+
   // Combine bookings + events into positioned overlay items for a date
   const getItemsForDate = (date, rowH) => {
     const firstHour = HOURS[0];
@@ -1083,25 +1210,29 @@ export default function AdminSchedule() {
             ))}
           </div>
           <div style={{ flex: 1, position: "relative", height: totalH }}>
-            {HOURS.map(h => {
-              const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
-              const hasBooking = isHourBooking(date, h);
-              const occupied = isHourOccupied(date, h);
-              return (
-                <div key={h} style={{
-                  height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
-                  background: (avail || hasBooking) ? SRC.available : "#fafafa",
-                  cursor: !occupied ? "crosshair" : "default",
-                  boxSizing: "border-box",
-                }}
-                  onMouseDown={(e) => handleCellMouseDown(e, date, h)}
-                  onMouseMove={(e) => handleCellMouseMove(e, date, h)}
-                  onDragOver={(e) => handleDragOver(e, date, h)}
-                  onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, date, h)}
-                />
-              );
-            })}
+            {HOURS.map(h => (
+              <div key={h} style={{
+                height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
+                background: "#fafafa",
+                cursor: "crosshair",
+                boxSizing: "border-box",
+              }}
+                onMouseDown={(e) => handleCellMouseDown(e, date, h)}
+                onMouseMove={(e) => handleCellMouseMove(e, date, h)}
+                onDragOver={(e) => handleDragOver(e, date, h)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, date, h)}
+              />
+            ))}
+            {getAvailableOverlay(date, DAY_ROW_H).map((r, idx) => (
+              <div key={`avail-${idx}`} style={{
+                position: "absolute", left: 0, right: 0,
+                top: r.top, height: r.height,
+                background: SRC.available, pointerEvents: "none", zIndex: 0,
+                borderBottom: r.isLast ? "none" : `0.5px solid ${C.gridLine}`,
+                boxSizing: "border-box",
+              }} />
+            ))}
             {overlayItems.map(item =>
               item.kind === "booking"
                 ? renderOverlayBooking(item.data, item.top, item.height, false, item.layout)
@@ -1135,35 +1266,43 @@ export default function AdminSchedule() {
             const overlayItems = getItemsForDate(date, WEEK_ROW_H);
             return (
               <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none" }}>
-                <div style={{
-                  height: 36, textAlign: "center", padding: "4px 0",
-                  borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa",
-                  fontWeight: sameDay(d, new Date()) ? 600 : 400,
-                  color: sameDay(d, new Date()) ? C.teal : C.text,
-                }}>
+                <div
+                  onClick={() => { setCurrentDate(new Date(d)); setView("day"); }}
+                  style={{
+                    height: 36, textAlign: "center", padding: "4px 0",
+                    borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa",
+                    fontWeight: sameDay(d, new Date()) ? 600 : 400,
+                    color: sameDay(d, new Date()) ? C.teal : C.text,
+                    cursor: "pointer",
+                  }}
+                >
                   <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
                   <div style={{ fontSize: 14 }}>{d.getDate()}</div>
                 </div>
                 <div style={{ position: "relative", height: totalH }}>
-                  {HOURS.map(h => {
-                    const avail = isSlotAvailable(date, `${String(h).padStart(2, "0")}:00`);
-                    const hasBooking = isHourBooking(date, h);
-                    const occupied = isHourOccupied(date, h);
-                    return (
-                      <div key={h} style={{
-                        height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
-                        background: (avail || hasBooking) ? SRC.available : "#fafafa",
-                        cursor: !occupied ? "crosshair" : "default",
-                        boxSizing: "border-box",
-                      }}
-                        onMouseDown={(e) => handleCellMouseDown(e, date, h)}
-                        onMouseMove={(e) => handleCellMouseMove(e, date, h)}
-                        onDragOver={(e) => handleDragOver(e, date, h)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => handleDrop(e, date, h)}
-                      />
-                    );
-                  })}
+                  {HOURS.map(h => (
+                    <div key={h} style={{
+                      height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
+                      background: "#fafafa",
+                      cursor: "crosshair",
+                      boxSizing: "border-box",
+                    }}
+                      onMouseDown={(e) => handleCellMouseDown(e, date, h)}
+                      onMouseMove={(e) => handleCellMouseMove(e, date, h)}
+                      onDragOver={(e) => handleDragOver(e, date, h)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, date, h)}
+                    />
+                  ))}
+                  {getAvailableOverlay(date, WEEK_ROW_H).map((r, idx) => (
+                    <div key={`avail-${idx}`} style={{
+                      position: "absolute", left: 0, right: 0,
+                      top: r.top, height: r.height,
+                      background: SRC.available, pointerEvents: "none", zIndex: 0,
+                      borderBottom: r.isLast ? "none" : `0.5px solid ${C.gridLine}`,
+                      boxSizing: "border-box",
+                    }} />
+                  ))}
                   {overlayItems.map(item =>
                     item.kind === "booking"
                       ? renderOverlayBooking(item.data, item.top, item.height, true)
@@ -1195,7 +1334,7 @@ export default function AdminSchedule() {
     }
 
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", border: `0.5px solid ${C.gridLine}`, borderRadius: 8, overflow: "hidden" }}>
+      <div key={`month-${currentDate.getFullYear()}-${currentDate.getMonth()}`} style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", width: "100%", boxSizing: "border-box", border: `0.5px solid ${C.gridLine}`, borderRadius: 8, overflow: "hidden" }}>
         {DAYS_SHORT.map(dd => (
           <div key={dd} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: C.hint, background: "#fafafa", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: dd !== "Sat" ? `0.5px solid ${C.gridLine}` : "none" }}>{dd}</div>
         ))}
