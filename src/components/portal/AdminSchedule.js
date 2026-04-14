@@ -289,6 +289,72 @@ export default function AdminSchedule() {
   const [conflictDragState, setConflictDragState] = useState(null);
   const [conflictCopyFeedback, setConflictCopyFeedback] = useState(null);
 
+  // Search modal state
+  const today0 = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [searchPreset, setSearchPreset] = useState("next60");
+  const [searchStart, setSearchStart] = useState(() => dateStr(today0()));
+  const [searchEnd, setSearchEnd] = useState(() => dateStr(addDays(today0(), 60)));
+  const [searchBookings, setSearchBookings] = useState([]);
+  const [searchEvents, setSearchEvents] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchDirty, setSearchDirty] = useState(false);
+  // Committed snapshot — only updated when the Search button is clicked.
+  const [committedText, setCommittedText] = useState("");
+  const [committedStart, setCommittedStart] = useState("");
+  const [committedEnd, setCommittedEnd] = useState("");
+  const [searchModalPos, setSearchModalPos] = useState({ x: 0, y: 0 });
+  const [searchDragState, setSearchDragState] = useState(null);
+  const [searchMinimized, setSearchMinimized] = useState(false);
+  const [selectedResultKey, setSelectedResultKey] = useState(null);
+  const [miniPos, setMiniPos] = useState({ x: 20, y: 120 }); // top-left offset in px
+  const [miniDragState, setMiniDragState] = useState(null);
+  const miniMovedRef = useRef(false);
+  const [flashChipKey, setFlashChipKey] = useState(null);
+  const flashTimerRef = useRef(null);
+
+  const flashChip = (key) => {
+    setFlashChipKey(key);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashChipKey(null), 2200);
+  };
+
+  // Compute start/end for a preset. Returns null for "custom" (keep current dates).
+  const datesForPreset = (preset) => {
+    const t = today0();
+    if (preset === "all") {
+      const s = new Date(t); s.setFullYear(s.getFullYear() - 5);
+      const e = new Date(t); e.setFullYear(e.getFullYear() + 2);
+      return { start: dateStr(s), end: dateStr(e) };
+    }
+    if (preset === "lastYear") {
+      const y = t.getFullYear() - 1;
+      return { start: `${y}-01-01`, end: `${y}-12-31` };
+    }
+    if (preset === "thisYear") {
+      const y = t.getFullYear();
+      return { start: `${y}-01-01`, end: `${y}-12-31` };
+    }
+    if (preset === "last60") return { start: dateStr(addDays(t, -60)), end: dateStr(t) };
+    if (preset === "next60") return { start: dateStr(t), end: dateStr(addDays(t, 60)) };
+    return null;
+  };
+
+  const applyPreset = (preset) => {
+    setSearchPreset(preset);
+    const r = datesForPreset(preset);
+    if (r) { setSearchStart(r.start); setSearchEnd(r.end); }
+  };
+
+  const runSearch = () => {
+    setCommittedText(searchText);
+    setCommittedStart(searchStart);
+    setCommittedEnd(searchEnd);
+    setSearchDirty(true);
+    setSelectedResultKey(null);
+  };
+
   const getRange = useCallback(() => {
     if (view === "day") return { start: dateStr(currentDate), end: dateStr(currentDate) };
     if (view === "week") {
@@ -337,6 +403,29 @@ export default function AdminSchedule() {
   }, [getRange, getConflictRange]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Search modal: fetch bookings + events for the selected search range.
+  // Debounced so live edits to dates/text don't spam the API.
+  useEffect(() => {
+    if (!searchOpen || !searchDirty) return;
+    if (!committedStart || !committedEnd) return;
+    let cancelled = false;
+    (async () => {
+      setSearchLoading(true);
+      try {
+        const [bRes, eRes] = await Promise.all([
+          fetch(`/api/bookings?start=${committedStart}&end=${committedEnd}`).then(r => r.json()).catch(() => []),
+          fetch(`/api/calendar/events?start=${committedStart}&end=${committedEnd}`).then(r => r.json()).catch(() => []),
+        ]);
+        if (cancelled) return;
+        setSearchBookings(Array.isArray(bRes) ? bRes : []);
+        setSearchEvents(Array.isArray(eRes) ? eRes : []);
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [searchOpen, searchDirty, committedStart, committedEnd, committedText]);
 
   // Derived: scheduling conflicts across bookings + Google events (2-month
   // horizon from getConflictRange). Only recomputes when the underlying data
@@ -420,6 +509,72 @@ export default function AdminSchedule() {
       startY: e.clientY,
       posX: conflictModalPos.x,
       posY: conflictModalPos.y,
+    });
+  };
+
+  // Drag-to-move the search modal. Clamp so the header bar can never leave the
+  // viewport — without this the user can drag the modal above the top edge and
+  // lose the ability to grab it again.
+  useEffect(() => {
+    if (!searchDragState) return;
+    const onMove = (e) => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      // Modal is centered with translate(-50%, -50%) + extra offset. Keep ~40px
+      // of header clear of every edge.
+      const maxUp = vh / 2 - 40;      // how far the center can rise before header clips top
+      const maxDown = vh / 2 - 40;
+      const maxLeft = vw / 2 - 40;
+      const maxRight = vw / 2 - 40;
+      const rawX = searchDragState.posX + (e.clientX - searchDragState.startX);
+      const rawY = searchDragState.posY + (e.clientY - searchDragState.startY);
+      setSearchModalPos({
+        x: Math.max(-maxLeft, Math.min(maxRight, rawX)),
+        y: Math.max(-maxUp, Math.min(maxDown, rawY)),
+      });
+    };
+    const onUp = () => setSearchDragState(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [searchDragState]);
+
+  // Drag-to-move the minimized search bubble. Also clamps to keep it on-screen.
+  useEffect(() => {
+    if (!miniDragState) return;
+    const onMove = (e) => {
+      const size = 48;
+      const rawX = miniDragState.posX + (e.clientX - miniDragState.startX);
+      const rawY = miniDragState.posY + (e.clientY - miniDragState.startY);
+      const maxX = window.innerWidth - size - 8;
+      const maxY = window.innerHeight - size - 8;
+      const nx = Math.max(8, Math.min(maxX, rawX));
+      const ny = Math.max(8, Math.min(maxY, rawY));
+      if (nx !== miniDragState.posX || ny !== miniDragState.posY) miniMovedRef.current = true;
+      setMiniPos({ x: nx, y: ny });
+    };
+    const onUp = () => setMiniDragState(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [miniDragState]);
+
+  const onSearchHeaderMouseDown = (e) => {
+    if (mobile) return;
+    // Don't start a drag when clicking the Close button inside the header.
+    if (e.target.closest("button")) return;
+    e.preventDefault();
+    setSearchDragState({
+      startX: e.clientX,
+      startY: e.clientY,
+      posX: searchModalPos.x,
+      posY: searchModalPos.y,
     });
   };
 
@@ -1089,6 +1244,7 @@ export default function AdminSchedule() {
     const isRequested = b.status === "requested";
     const chipH = Math.max(height, compact ? 20 : 28);
     const canDrag = ["requested", "booked"].includes(b.status);
+    const flashing = flashChipKey === `booking:${b.id}`;
     // When layout is provided (day-view conflict split), use percentage-based
     // horizontal positioning instead of the default full-width. The 1px
     // left-padding / 2px width-subtraction creates a thin gap between columns.
@@ -1117,6 +1273,7 @@ export default function AdminSchedule() {
           fontSize: compact ? 11 : 13,
           background: isRequested ? SRC.requestedBg : SRC.coachingBg,
           border: isRequested ? `2px solid ${SRC.requested}` : `1px solid ${C.teal}`,
+          animation: flashing ? "chipFlash 1.1s ease-out 2" : undefined,
           opacity: dragOver && dragOver.itemId === b.id ? 0.3 : 1,
           pointerEvents: dragOver ? "none" : "auto",
           cursor: "pointer",
@@ -1150,6 +1307,7 @@ export default function AdminSchedule() {
     const bg = SRC[src + "Bg"];
     const chipH = Math.max(height, compact ? 20 : 28);
     const isLocal = !!event._local;
+    const flashing = flashChipKey === `event:${event.id}`;
     const horizontal = layout
       ? { left: `calc(${layout.leftPct}% + 1px)`, width: `calc(${layout.widthPct}% - 2px)` }
       : { left: 2, right: 2 };
@@ -1169,6 +1327,7 @@ export default function AdminSchedule() {
           borderRadius: compact ? 4 : 6,
           fontSize: compact ? 11 : 13,
           background: bg, border: `1px solid ${color}`,
+          animation: flashing ? "chipFlash 1.1s ease-out 2" : undefined,
           opacity: dragOver && dragOver.itemId === event.id ? 0.3 : 1,
           pointerEvents: dragOver ? "none" : "auto",
           cursor: isLocal ? "pointer" : "default",
@@ -1509,6 +1668,310 @@ export default function AdminSchedule() {
       }}>
         {dateLabel} · {timeLabel}
       </div>
+    );
+  };
+
+  // --- Search icon button + modal ---
+  const renderSearchIconButton = () => (
+    <button
+      type="button"
+      onClick={() => {
+        if (searchOpen && searchMinimized) setSearchMinimized(false);
+        else setSearchOpen(true);
+      }}
+      title="Search"
+      aria-label="Search"
+      style={{
+        ...S.btnSmOut,
+        padding: "6px 10px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+    </button>
+  );
+
+  // Build search results from the current search range + text.
+  const buildSearchResults = () => {
+    const q = committedText.trim().toLowerCase();
+    const inRange = (date) => date >= committedStart && date <= committedEnd;
+    const rows = [];
+
+    for (const b of searchBookings) {
+      if (!b.date || !b.time_slot) continue;
+      if (!inRange(b.date)) continue;
+      if (!["requested", "booked"].includes(b.status)) continue;
+      const name = clientName(b.profiles);
+      const typeLabel = b.session_types?.label || "Session";
+      const statusLabel = b.status === "requested" ? "Request" : "Coaching";
+      const timeStr = formatTimeStr(b.time_slot);
+      const hay = [
+        name, typeLabel, b.status, b.notes || "",
+        b.date, timeStr, statusLabel,
+      ].join(" \u0001 ").toLowerCase();
+      if (q && !hay.includes(q)) continue;
+      rows.push({
+        key: `booking:${b.id}`,
+        type: statusLabel,
+        typeColor: b.status === "requested" ? SRC.requested : SRC.coaching,
+        date: b.date,
+        timeStr,
+        timeSort: b.time_slot,
+        name: `${name} · ${typeLabel}`,
+      });
+    }
+
+    for (const ev of searchEvents) {
+      if (!ev?.start?.dateTime) continue;
+      const parts = partsInBusinessTz(new Date(ev.start.dateTime));
+      if (!inRange(parts.date)) continue;
+      const kind = classifyEvent(ev);
+      const typeLabel = kind === "sp" ? "SP" : kind === "coaching" ? "Coaching" : "Personal";
+      const summary = ev.summary || "Busy";
+      const description = ev.description || "";
+      const location = ev.location || "";
+      const timeStr = formatTime(ev.start.dateTime);
+      const timeKey = `${String(parts.hour).padStart(2,"0")}:${String(parts.minute).padStart(2,"0")}`;
+      // Admin search: match against the real summary/description so Diana can find
+      // SP appointments by client or topic. Grid display stays redacted.
+      const hay = [summary, description, location, parts.date, timeStr, typeLabel].join(" ").toLowerCase();
+      if (q && !hay.includes(q)) continue;
+      rows.push({
+        key: `event:${ev.id}`,
+        type: typeLabel,
+        typeColor: SRC[kind],
+        date: parts.date,
+        timeStr,
+        timeSort: timeKey,
+        name: summary,
+      });
+    }
+
+    rows.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.timeSort.localeCompare(b.timeSort);
+    });
+    return rows;
+  };
+
+  const handleSearchResultClick = (row) => {
+    const d = new Date(row.date + "T12:00:00");
+    setCurrentDate(d);
+    setView("day");
+    flashChip(row.key);
+    setSelectedResultKey(row.key);
+    // Auto-minimize so the flashing chip is fully visible; modal state preserved.
+    if (!miniMovedRef.current) setMiniPos({ x: 20, y: 120 });
+    setSearchMinimized(true);
+  };
+
+  const renderSearchMini = () => {
+    const size = 48;
+    return (
+      <button
+        type="button"
+        title="Open search"
+        aria-label="Open search"
+        onMouseDown={(e) => {
+          if (mobile) return;
+          miniMovedRef.current = false;
+          setMiniDragState({
+            startX: e.clientX, startY: e.clientY,
+            posX: miniPos.x, posY: miniPos.y,
+          });
+        }}
+        onClick={() => {
+          // Only restore if this wasn't a drag.
+          if (!miniMovedRef.current) setSearchMinimized(false);
+          miniMovedRef.current = false;
+        }}
+        style={{
+          position: "fixed",
+          top: miniPos.y, left: miniPos.x,
+          width: size, height: size, borderRadius: "50%",
+          background: C.teal, color: "#fff",
+          border: "none",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
+          cursor: miniDragState ? "grabbing" : "grab",
+          zIndex: 151,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontFamily: "inherit",
+        }}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+      </button>
+    );
+  };
+
+  const renderSearchModal = () => {
+    if (!searchOpen) return null;
+    if (searchMinimized) return renderSearchMini();
+    const rows = buildSearchResults();
+    const presets = [
+      ["all", "All"],
+      ["lastYear", "Last year"],
+      ["thisYear", "This year"],
+      ["last60", "Last 60 days"],
+      ["next60", "Next 60 days"],
+      ["custom", "Custom"],
+    ];
+    return (
+      <>
+        <style>{`@keyframes chipFlash { 0% { box-shadow: 0 0 0 0 rgba(15,110,86,0.9); } 50% { box-shadow: 0 0 0 6px rgba(15,110,86,0.35); } 100% { box-shadow: 0 0 0 0 rgba(15,110,86,0); } }`}</style>
+        <div
+          role="dialog"
+          aria-modal="false"
+          style={{
+            position: "fixed",
+            top: mobile ? 40 : "50%",
+            left: mobile ? 12 : "50%",
+            right: mobile ? 12 : "auto",
+            transform: mobile ? "none" : `translate(calc(-50% + ${searchModalPos.x}px), calc(-50% + ${searchModalPos.y}px))`,
+            width: mobile ? "auto" : 640,
+            maxWidth: "calc(100vw - 24px)",
+            maxHeight: mobile ? "calc(100vh - 60px)" : "85vh",
+            background: "#fff",
+            border: `0.5px solid ${C.border}`,
+            borderRadius: 12,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+            zIndex: 151,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            onMouseDown={onSearchHeaderMouseDown}
+            style={{
+              padding: "14px 16px",
+              borderBottom: `0.5px solid ${C.border}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              cursor: mobile ? "default" : (searchDragState ? "grabbing" : "grab"),
+              userSelect: "none",
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Search schedule</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                style={S.btnSmOut}
+                title="Minimize"
+                aria-label="Minimize"
+                onClick={() => {
+                  if (!miniMovedRef.current) {
+                    // Default-place the mini bubble below the page header on first use.
+                    setMiniPos({ x: 20, y: 120 });
+                  }
+                  setSearchMinimized(true);
+                }}
+              >
+                &#x2013;
+              </button>
+              <button style={S.btnSmOut} onClick={() => { setSearchOpen(false); setSearchMinimized(false); setSearchDirty(false); setSearchBookings([]); setSearchEvents([]); setSearchModalPos({ x: 0, y: 0 }); setCommittedText(""); setCommittedStart(""); setCommittedEnd(""); setSelectedResultKey(null); }}>Close</button>
+            </div>
+          </div>
+
+          <div style={{ padding: "12px 16px", borderBottom: `0.5px solid ${C.border}` }}>
+            <input
+              type="text"
+              placeholder="Search (name, type, title, description, notes…)"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+              style={{ ...S.input, marginBottom: 10 }}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
+              {presets.map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => applyPreset(k)}
+                  style={{
+                    ...S.btnSmOut,
+                    ...(searchPreset === k ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}),
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ ...S.label, margin: 0 }}>From</label>
+              <input type="date" value={searchStart}
+                onChange={(e) => { setSearchStart(e.target.value); setSearchPreset("custom"); }}
+                style={{ ...S.input, width: "auto", marginBottom: 0 }} />
+              <label style={{ ...S.label, margin: 0 }}>To</label>
+              <input type="date" value={searchEnd}
+                onChange={(e) => { setSearchEnd(e.target.value); setSearchPreset("custom"); }}
+                style={{ ...S.input, width: "auto", marginBottom: 0 }} />
+              <button style={S.btnSm} onClick={runSearch}>Search</button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {!searchDirty ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: C.hint }}>
+                Enter search criteria and click Search.
+              </div>
+            ) : searchLoading ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: C.hint }}>Loading…</div>
+            ) : rows.length === 0 ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: C.hint }}>
+                {searchStart > searchEnd ? "Start date is after end date." : "No results."}
+              </div>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "#fafafa", position: "sticky", top: 0 }}>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: C.muted, borderBottom: `0.5px solid ${C.border}` }}>Type</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: C.muted, borderBottom: `0.5px solid ${C.border}` }}>Date</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: C.muted, borderBottom: `0.5px solid ${C.border}` }}>Start</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, color: C.muted, borderBottom: `0.5px solid ${C.border}` }}>Name / Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => {
+                    const isSelected = r.key === selectedResultKey;
+                    const selectedBg = C.tealLight;
+                    return (
+                    <tr key={r.key}
+                      onClick={() => handleSearchResultClick(r)}
+                      style={{
+                        cursor: "pointer",
+                        borderBottom: `0.5px solid ${C.border}`,
+                        background: isSelected ? selectedBg : "transparent",
+                        borderLeft: isSelected ? `3px solid ${C.teal}` : "3px solid transparent",
+                      }}
+                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#f5f5f5"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? selectedBg : "transparent"; }}
+                    >
+                      <td style={{ padding: "8px 12px", color: r.typeColor, fontWeight: 500, whiteSpace: "nowrap" }}>{r.type}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", color: C.text }}>{r.date}</td>
+                      <td style={{ padding: "8px 12px", whiteSpace: "nowrap", color: C.text }}>{r.timeStr}</td>
+                      <td style={{ padding: "8px 12px", color: C.text }}>{r.name}</td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div style={{ padding: "10px 16px", borderTop: `0.5px solid ${C.border}`, textAlign: "right", color: C.hint, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>{searchDirty ? `${rows.length} result${rows.length === 1 ? "" : "s"}` : ""}</span>
+            <button style={S.btnSmOut} onClick={() => { setSearchOpen(false); setSearchDirty(false); setSearchBookings([]); setSearchEvents([]); setSearchModalPos({ x: 0, y: 0 }); setCommittedText(""); setCommittedStart(""); setCommittedEnd(""); }}>Close</button>
+          </div>
+        </div>
+      </>
     );
   };
 
@@ -2059,10 +2522,11 @@ export default function AdminSchedule() {
           {(view === "day" || view === "week") ? (
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
+                {renderSearchIconButton()}
               </div>
               <MiniCalendar currentDate={currentDate} onSelectDate={(d) => setCurrentDate(d)} view={view} />
-              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
+              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
+                <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
                 {["day", "week", "month"].map(v => (
                   <button key={v}
                     style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
@@ -2075,7 +2539,7 @@ export default function AdminSchedule() {
           ) : (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
+                {renderSearchIconButton()}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
                 <button
@@ -2102,7 +2566,8 @@ export default function AdminSchedule() {
                   &rsaquo;
                 </button>
               </div>
-              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
+              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
+                <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
                 {["day", "week", "month"].map(v => (
                   <button key={v}
                     style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
@@ -2119,6 +2584,7 @@ export default function AdminSchedule() {
         </>
       )}
 
+      {renderSearchModal()}
       {renderModal()}
       {renderMoveConfirmModal()}
       {renderConflictModal()}

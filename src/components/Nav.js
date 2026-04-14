@@ -29,10 +29,15 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
 
   if (mobile) return (
     <nav style={{ borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 1rem", height:44 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 1rem", height:44, position:"relative" }}>
         <div style={S.logo} onClick={() => { onLogout(); setPage("Home"); }}>
           <span style={S.logoMain}>DK Divorce Coach</span>
         </div>
+        {inPortal && (
+          <span style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%, -50%)", fontSize:26, fontWeight:600, color:C.teal, pointerEvents:"none", whiteSpace:"nowrap" }}>
+            Client Portal
+          </span>
+        )}
         {inPortal && <button style={S.btnSmOut} onClick={() => { onLogout(); setPage("Home"); }}>Log out</button>}
       </div>
       <div style={{ display:"flex", borderTop:`0.5px solid ${C.border}` }}>
@@ -62,11 +67,16 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
   );
 
   return (
-    <nav style={S.nav}>
+    <nav style={{ ...S.nav, position: "sticky" }}>
       <div style={S.logo} onClick={() => { onLogout(); setPage("Home"); }}>
         <span style={S.logoMain}>DK Divorce Coach</span>
         <span style={S.logoSub}>DIANA KIEREIN · CDC</span>
       </div>
+      {inPortal && (
+        <span style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%, -50%)", fontSize:32, fontWeight:600, color:C.teal, pointerEvents:"none", whiteSpace:"nowrap" }}>
+          Client Portal
+        </span>
+      )}
       <div style={S.navLinks}>
         {!inPortal ? (
           <>

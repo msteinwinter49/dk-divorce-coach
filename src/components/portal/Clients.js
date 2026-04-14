@@ -2,6 +2,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { C, S } from "@/lib/constants";
 
+function formatPhoneInput(value) {
+  const digits = (value || "").replace(/\D/g, "").slice(0, 10);
+  if (digits.length === 0) return "";
+  if (digits.length <= 3) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 export default function Clients({ setPage, onViewAsClient }) {
   // Invite form state
   const [email, setEmail] = useState("");
@@ -16,6 +24,86 @@ export default function Clients({ setPage, onViewAsClient }) {
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState("created_at");
   const [sortAsc, setSortAsc] = useState(false);
+
+  // Detail modal state
+  const [detail, setDetail] = useState(null); // the selected client row
+  const [editFirst, setEditFirst] = useState("");
+  const [editLast, setEditLast] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editContactEmail, setEditContactEmail] = useState("");
+  const [detailSaving, setDetailSaving] = useState(false);
+  const [detailError, setDetailError] = useState(null);
+  const [detailSuccess, setDetailSuccess] = useState(null);
+  const [magicLoading, setMagicLoading] = useState(false);
+  const [magicResult, setMagicResult] = useState(null); // { ok, text }
+
+  const openDetail = (c) => {
+    setDetail(c);
+    setEditFirst(c.first_name || "");
+    setEditLast(c.last_name || "");
+    setEditPhone(formatPhoneInput(c.phone || ""));
+    setEditContactEmail(c.preferred_email || c.email || "");
+    setDetailError(null);
+    setDetailSuccess(null);
+    setMagicResult(null);
+  };
+
+  const closeDetail = () => {
+    setDetail(null);
+    setDetailError(null);
+    setDetailSuccess(null);
+    setMagicResult(null);
+  };
+
+  const saveDetail = async () => {
+    if (!detail) return;
+    setDetailSaving(true);
+    setDetailError(null);
+    setDetailSuccess(null);
+    const phoneDigits = editPhone.replace(/\D/g, "");
+    const body = {
+      id: detail.id,
+      first_name: editFirst,
+      last_name: editLast,
+      phone: phoneDigits,
+      preferred_email: editContactEmail,
+    };
+    const res = await fetch("/api/clients", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    setDetailSaving(false);
+    if (!res.ok) {
+      setDetailError(data.error || "Could not save.");
+      return;
+    }
+    setDetailSuccess("Saved.");
+    // Update local list + the modal's own snapshot.
+    setClients(prev => prev.map(c => c.id === detail.id
+      ? { ...c, first_name: data.first_name, last_name: data.last_name, full_name: data.full_name, phone: data.phone, preferred_email: data.preferred_email }
+      : c));
+    setDetail(d => d ? { ...d, ...data } : d);
+  };
+
+  const sendMagicLink = async () => {
+    if (!detail) return;
+    setMagicLoading(true);
+    setMagicResult(null);
+    const res = await fetch("/api/clients/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: detail.id }),
+    });
+    const data = await res.json();
+    setMagicLoading(false);
+    if (!res.ok) {
+      setMagicResult({ ok: false, text: data.error || "Could not send link." });
+      return;
+    }
+    setMagicResult({ ok: true, text: `Sign-in link sent to ${data.deliveredTo}.` });
+  };
 
   const fetchClients = async () => {
     setListLoading(true);
@@ -173,12 +261,16 @@ export default function Clients({ setPage, onViewAsClient }) {
                   <th style={thStyle} onClick={() => handleSort("phone")}>Phone{sortArrow("phone")}</th>
                   <th style={thStyle} onClick={() => handleSort("role")}>Role{sortArrow("role")}</th>
                   <th style={thStyle} onClick={() => handleSort("created_at")}>Joined{sortArrow("created_at")}</th>
-                  <th style={{ ...thStyle, cursor: "default" }}></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(c => (
-                  <tr key={c.id}>
+                  <tr key={c.id}
+                      onClick={() => openDetail(c)}
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#fafafa"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
                     <td style={tdStyle}>
                       {c.first_name || c.last_name
                         ? `${c.first_name || ""} ${c.last_name || ""}`.trim()
@@ -199,16 +291,6 @@ export default function Clients({ setPage, onViewAsClient }) {
                     <td style={tdStyle}>
                       {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
-                    <td style={tdStyle}>
-                      {c.role !== "admin" && (
-                        <button
-                          style={{ fontSize:12, padding:"4px 10px", borderRadius:6, border:`1px solid ${C.teal}`, background:"#fff", color:C.teal, cursor:"pointer", fontFamily:"inherit", fontWeight:500 }}
-                          onClick={() => onViewAsClient(c)}
-                        >
-                          View
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -216,6 +298,92 @@ export default function Clients({ setPage, onViewAsClient }) {
           </div>
         )}
       </div>
+
+      {detail && (
+        <>
+          <div onClick={closeDetail} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100 }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "min(560px, calc(100vw - 24px))",
+            maxHeight: "85vh", overflowY: "auto",
+            background: "#fff", border: `0.5px solid ${C.border}`,
+            borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+            zIndex: 101, display: "flex", flexDirection: "column",
+          }}>
+            <div style={{ padding: "14px 18px", borderBottom: `0.5px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+                  {`${detail.first_name || ""} ${detail.last_name || ""}`.trim() || "Client"}
+                </div>
+                <div style={{ fontSize: 12, color: C.hint, marginTop: 2 }}>
+                  {detail.role} · joined {new Date(detail.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </div>
+              </div>
+              <button style={S.btnSmOut} onClick={closeDetail}>Close</button>
+            </div>
+
+            <div style={{ padding: "16px 18px", borderBottom: `0.5px solid ${C.border}` }}>
+              <h3 style={{ ...S.h3, fontSize: 14, marginBottom: 10 }}>Profile</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label style={S.label}>First name</label>
+                  <input style={{ ...S.input, marginBottom: 0 }} value={editFirst} onChange={e => setEditFirst(e.target.value)} />
+                </div>
+                <div>
+                  <label style={S.label}>Last name</label>
+                  <input style={{ ...S.input, marginBottom: 0 }} value={editLast} onChange={e => setEditLast(e.target.value)} />
+                </div>
+                <div>
+                  <label style={S.label}>Phone</label>
+                  <input style={{ ...S.input, marginBottom: 0 }} value={editPhone} onChange={e => setEditPhone(formatPhoneInput(e.target.value))} placeholder="(555) 555-5555" />
+                </div>
+                <div>
+                  <label style={S.label}>Contact email</label>
+                  <input style={{ ...S.input, marginBottom: 0 }} type="email" value={editContactEmail} onChange={e => setEditContactEmail(e.target.value)} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={S.label}>Login email (not editable)</label>
+                  <input style={{ ...S.input, marginBottom: 0, background: "#fafafa", color: C.muted }} value={detail.email || ""} readOnly />
+                </div>
+              </div>
+              {detailError && <p style={{ fontSize: 13, color: "#c0392b", marginTop: 10, marginBottom: 0 }}>{detailError}</p>}
+              {detailSuccess && <p style={{ fontSize: 13, color: C.teal, marginTop: 10, marginBottom: 0 }}>{detailSuccess}</p>}
+              <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button style={S.btnSmOut} onClick={closeDetail}>Cancel</button>
+                <button style={S.btn} onClick={saveDetail} disabled={detailSaving}>
+                  {detailSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: "16px 18px", borderBottom: `0.5px solid ${C.border}` }}>
+              <h3 style={{ ...S.h3, fontSize: 14, marginBottom: 10 }}>Portal actions</h3>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button style={S.btn} onClick={sendMagicLink} disabled={magicLoading}>
+                  {magicLoading ? "Sending..." : "Send sign-in link"}
+                </button>
+                {detail.role !== "admin" && (
+                  <button
+                    style={{ ...S.btnSmOut, border: `1px solid ${C.teal}`, color: C.teal }}
+                    onClick={() => { const c = detail; closeDetail(); onViewAsClient(c); }}
+                  >
+                    View as client
+                  </button>
+                )}
+              </div>
+              <p style={{ fontSize: 12, color: C.hint, marginTop: 8, marginBottom: 0 }}>
+                Sends a one-click sign-in email to {editContactEmail || detail.email}. Save profile changes first if you want the new contact email used.
+              </p>
+              {magicResult && (
+                <p style={{ fontSize: 13, color: magicResult.ok ? C.teal : "#c0392b", marginTop: 8, marginBottom: 0 }}>
+                  {magicResult.text}
+                </p>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
