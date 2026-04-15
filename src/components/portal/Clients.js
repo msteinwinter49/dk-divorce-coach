@@ -31,11 +31,22 @@ export default function Clients({ setPage, onViewAsClient }) {
   const [editLast, setEditLast] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editContactEmail, setEditContactEmail] = useState("");
+  const [editTimezone, setEditTimezone] = useState("America/New_York");
   const [detailSaving, setDetailSaving] = useState(false);
   const [detailError, setDetailError] = useState(null);
   const [detailSuccess, setDetailSuccess] = useState(null);
   const [magicLoading, setMagicLoading] = useState(false);
   const [magicResult, setMagicResult] = useState(null); // { ok, text }
+
+  const TIMEZONES = [
+    { value: "America/New_York", label: "Eastern Time (New York)" },
+    { value: "America/Chicago", label: "Central Time (Chicago)" },
+    { value: "America/Denver", label: "Mountain Time (Denver)" },
+    { value: "America/Phoenix", label: "Arizona (no DST)" },
+    { value: "America/Los_Angeles", label: "Pacific Time (Los Angeles)" },
+    { value: "America/Anchorage", label: "Alaska Time" },
+    { value: "Pacific/Honolulu", label: "Hawaii Time" },
+  ];
 
   const openDetail = (c) => {
     setDetail(c);
@@ -43,6 +54,7 @@ export default function Clients({ setPage, onViewAsClient }) {
     setEditLast(c.last_name || "");
     setEditPhone(formatPhoneInput(c.phone || ""));
     setEditContactEmail(c.preferred_email || c.email || "");
+    setEditTimezone(c.timezone || "America/New_York");
     setDetailError(null);
     setDetailSuccess(null);
     setMagicResult(null);
@@ -67,6 +79,7 @@ export default function Clients({ setPage, onViewAsClient }) {
       last_name: editLast,
       phone: phoneDigits,
       preferred_email: editContactEmail,
+      timezone: editTimezone,
     };
     const res = await fetch("/api/clients", {
       method: "PATCH",
@@ -82,7 +95,7 @@ export default function Clients({ setPage, onViewAsClient }) {
     setDetailSuccess("Saved.");
     // Update local list + the modal's own snapshot.
     setClients(prev => prev.map(c => c.id === detail.id
-      ? { ...c, first_name: data.first_name, last_name: data.last_name, full_name: data.full_name, phone: data.phone, preferred_email: data.preferred_email }
+      ? { ...c, first_name: data.first_name, last_name: data.last_name, full_name: data.full_name, phone: data.phone, preferred_email: data.preferred_email, timezone: data.timezone }
       : c));
     setDetail(d => d ? { ...d, ...data } : d);
   };
@@ -341,6 +354,17 @@ export default function Clients({ setPage, onViewAsClient }) {
                 <div>
                   <label style={S.label}>Contact email</label>
                   <input style={{ ...S.input, marginBottom: 0 }} type="email" value={editContactEmail} onChange={e => setEditContactEmail(e.target.value)} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={S.label}>Timezone</label>
+                  <select style={{ ...S.input, marginBottom: 0, cursor: "pointer" }} value={editTimezone} onChange={e => setEditTimezone(e.target.value)}>
+                    {TIMEZONES.find(t => t.value === editTimezone) ? null : (
+                      <option value={editTimezone}>{editTimezone}</option>
+                    )}
+                    {TIMEZONES.map(tz => (
+                      <option key={tz.value} value={tz.value}>{tz.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div style={{ gridColumn: "1 / -1" }}>
                   <label style={S.label}>Login email (not editable)</label>

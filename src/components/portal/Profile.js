@@ -16,11 +16,30 @@ export default function Profile({ onSaved, viewAsClient }) {
   const [preferredEmail, setPreferredEmail] = useState("");
   const [notificationPref, setNotificationPref] = useState("email");
   const [reminderPref, setReminderPref] = useState("both");
+  const [timezone, setTimezone] = useState("America/New_York");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
   const isFirstLogin = !profile?.first_name;
+
+  const TIMEZONES = [
+    { value: "America/New_York", label: "Eastern Time (New York)" },
+    { value: "America/Chicago", label: "Central Time (Chicago)" },
+    { value: "America/Denver", label: "Mountain Time (Denver)" },
+    { value: "America/Phoenix", label: "Arizona (no DST)" },
+    { value: "America/Los_Angeles", label: "Pacific Time (Los Angeles)" },
+    { value: "America/Anchorage", label: "Alaska Time" },
+    { value: "Pacific/Honolulu", label: "Hawaii Time" },
+  ];
+
+  const detectTz = () => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+    } catch {
+      return "America/New_York";
+    }
+  };
 
   const formatPhone = (value) => {
     const digits = value.replace(/\D/g, "").slice(0, 10);
@@ -38,6 +57,7 @@ export default function Profile({ onSaved, viewAsClient }) {
       setPreferredEmail(viewAsClient.preferred_email || viewAsClient.email || "");
       setNotificationPref(viewAsClient.notification_preference || "email");
       setReminderPref(viewAsClient.reminder_preference || "both");
+      setTimezone(viewAsClient.timezone || "America/New_York");
     } else if (profile) {
       setFirstName(profile.first_name || "");
       setLastName(profile.last_name || "");
@@ -45,6 +65,7 @@ export default function Profile({ onSaved, viewAsClient }) {
       setPreferredEmail(profile.preferred_email || user?.email || "");
       setNotificationPref(profile.notification_preference || "email");
       setReminderPref(profile.reminder_preference || "both");
+      setTimezone(profile.timezone || detectTz());
     } else if (user) {
       setPreferredEmail(user.email || "");
     }
@@ -72,6 +93,7 @@ export default function Profile({ onSaved, viewAsClient }) {
           preferred_email: preferredEmail.trim() || viewAsClient.email,
           notification_preference: notificationPref,
           reminder_preference: reminderPref,
+          timezone,
         }),
       });
       setSaving(false);
@@ -87,6 +109,7 @@ export default function Profile({ onSaved, viewAsClient }) {
           preferred_email: preferredEmail.trim() || viewAsClient.email,
           notification_preference: notificationPref,
           reminder_preference: reminderPref,
+          timezone,
         });
       }
     } else {
@@ -101,6 +124,7 @@ export default function Profile({ onSaved, viewAsClient }) {
           preferred_email: preferredEmail.trim() || user.email,
           notification_preference: notificationPref,
           reminder_preference: reminderPref,
+          timezone,
         })
         .eq("id", user.id);
 
@@ -155,6 +179,16 @@ export default function Profile({ onSaved, viewAsClient }) {
           <option value="24h">24 hours before</option>
           <option value="1h">1 hour before</option>
           <option value="none">No reminders</option>
+        </select>
+
+        <label style={S.label}>Timezone</label>
+        <select style={{ ...S.input, cursor: "pointer" }} value={timezone} onChange={e => setTimezone(e.target.value)}>
+          {TIMEZONES.find(t => t.value === timezone) ? null : (
+            <option value={timezone}>{timezone}</option>
+          )}
+          {TIMEZONES.map(tz => (
+            <option key={tz.value} value={tz.value}>{tz.label}</option>
+          ))}
         </select>
 
         {error && <p style={{ fontSize:13, color:"#c0392b", marginBottom:12 }}>{error}</p>}
