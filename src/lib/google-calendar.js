@@ -2,6 +2,18 @@ import { google } from "googleapis";
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
+// Hard cap on any single Google Calendar API round-trip so a slow response
+// can't stall an API route. Googleapis sets no default timeout; without this
+// a hung request blocks the entire handler for up to the Vercel function limit.
+const GCAL_TIMEOUT_MS = 8000;
+function withTimeout(p, label = "gcal") {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timeout after ${GCAL_TIMEOUT_MS}ms`)), GCAL_TIMEOUT_MS);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
 // Build OAuth2 client
 export function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -38,7 +50,7 @@ export function getCalendarClient(refreshToken) {
 // List all calendars visible to the authenticated user (for debugging)
 export async function listCalendars(refreshToken) {
   const calendar = getCalendarClient(refreshToken);
-  const { data } = await calendar.calendarList.list();
+  const { data } = await withTimeout(calendar.calendarList.list(), "calendarList.list");
   return data.items || [];
 }
 
@@ -49,7 +61,7 @@ export async function listEvents(refreshToken, timeMin, timeMax) {
   const calendar = getCalendarClient(refreshToken);
 
   // 1. Discover all visible calendars (skip holidays)
-  const { data: calList } = await calendar.calendarList.list();
+  const { data: calList } = await withTimeout(calendar.calendarList.list(), "listEvents/calendarList");
   const calendars = (calList.items || []).filter(c => !c.id.includes("#holiday@"));
 
   // 2. Expand the time window by one day on each side so timezone edge cases
@@ -63,13 +75,16 @@ export async function listEvents(refreshToken, timeMin, timeMax) {
   // 3. Fetch events from every calendar in parallel
   const results = await Promise.all(calendars.map(async (cal) => {
     try {
-      const { data } = await calendar.events.list({
-        calendarId: cal.id,
-        timeMin: wideMin.toISOString(),
-        timeMax: wideMax.toISOString(),
-        singleEvents: true,
-        orderBy: "startTime",
-      });
+      const { data } = await withTimeout(
+        calendar.events.list({
+          calendarId: cal.id,
+          timeMin: wideMin.toISOString(),
+          timeMax: wideMax.toISOString(),
+          singleEvents: true,
+          orderBy: "startTime",
+        }),
+        `listEvents/${cal.id}`
+      );
       return (data.items || []).map(ev => ({
         ...ev,
         _sourceCalendarId: cal.id,
@@ -88,34 +103,107 @@ export async function listEvents(refreshToken, timeMin, timeMax) {
 // Create an event (tentative for requests, confirmed for booked)
 export async function createEvent(refreshToken, { summary, start, end, status }) {
   const calendar = getCalendarClient(refreshToken);
-  const { data } = await calendar.events.insert({
-    calendarId: process.env.GOOGLE_CALENDAR_ID,
-    requestBody: {
-      summary,
-      start: { dateTime: new Date(start).toISOString() },
-      end: { dateTime: new Date(end).toISOString() },
-      status: status || "tentative",
-    },
-  });
+  const { data } = await withTimeout(
+    calendar.events.insert({
+      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      requestBody: {
+        summary,
+        start: { dateTime: new Date(start).toISOString() },
+        end: { dateTime: new Date(end).toISOString() },
+        status: status || "tentative",
+      },
+    }),
+    "createEvent"
+  );
   return data;
 }
 
 // Update an event (e.g. tentative → confirmed, or change details)
 export async function updateEvent(refreshToken, eventId, updates) {
   const calendar = getCalendarClient(refreshToken);
-  const { data } = await calendar.events.patch({
-    calendarId: process.env.GOOGLE_CALENDAR_ID,
-    eventId,
-    requestBody: updates,
-  });
+  const { data } = await withTimeout(
+    calendar.events.patch({
+      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      eventId,
+      requestBody: updates,
+    }),
+    "updateEvent"
+  );
   return data;
 }
 
 // Delete an event (on cancel/decline/expire)
 export async function deleteEvent(refreshToken, eventId) {
   const calendar = getCalendarClient(refreshToken);
-  await calendar.events.delete({
-    calendarId: process.env.GOOGLE_CALENDAR_ID,
-    eventId,
-  });
+  await withTimeout(
+    calendar.events.delete({
+      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      eventId,
+    }),
+    "deleteEvent"
+  );
+}
+
+// Format a booking's Google Calendar description (multiline plain text)
+function buildBookingDescription(booking, sessionType, status) {
+  const lines = [];
+  if (sessionType?.label) lines.push(`Session: ${sessionType.label}`);
+  const duration = booking.session_duration ?? sessionType?.duration;
+  if (duration) lines.push(`Duration: ${duration} min`);
+  const fee = booking.fee ?? sessionType?.fee;
+  if (fee != null) lines.push(`Fee: $${fee}`);
+  lines.push(`Status: ${status}`);
+  lines.push("");
+  lines.push("https://dkdivorcecoach.com/");
+  return lines.join("\n");
+}
+
+// Build the Coaching:{First Last} title, with fallbacks if names are blank
+function buildBookingSummary(clientProfile) {
+  const first = clientProfile?.first_name?.trim() || "";
+  const last = clientProfile?.last_name?.trim() || "";
+  const name = [first, last].filter(Boolean).join(" ") || clientProfile?.full_name?.trim() || "Client";
+  return `Coaching:${name}`;
+}
+
+// Create or update the Google Calendar event for a booking.
+// Returns the Google event object. Caller is responsible for persisting
+// google_calendar_event_id back onto the booking row.
+//
+// status: "tentative" (requested) or "confirmed" (booked)
+// sessionType may be passed separately (e.g. joined via session_types(...)),
+// or as booking.session_types from the join.
+export async function syncBookingToGoogle(refreshToken, booking, clientProfile, status, sessionType) {
+  if (!refreshToken) throw new Error("No Google refresh token");
+  const calendar = getCalendarClient(refreshToken);
+  const st = sessionType || booking.session_types || null;
+
+  const requestBody = {
+    summary: buildBookingSummary(clientProfile),
+    description: buildBookingDescription(booking, st, status),
+    start: { dateTime: new Date(booking.start_time).toISOString() },
+    end: { dateTime: new Date(booking.end_time).toISOString() },
+    status,
+  };
+
+  if (booking.google_calendar_event_id) {
+    const { data } = await withTimeout(
+      calendar.events.patch({
+        calendarId: process.env.GOOGLE_CALENDAR_ID,
+        eventId: booking.google_calendar_event_id,
+        requestBody,
+      }),
+      "syncBookingToGoogle/patch"
+    );
+    return data;
+  }
+
+  const { data } = await withTimeout(
+    calendar.events.insert({
+      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      requestBody,
+    }),
+    "syncBookingToGoogle/insert"
+  );
+  return data;
 }

@@ -1049,13 +1049,13 @@ export default function Schedule({ viewAsClient }) {
                   </button>
                 )}
                 <button style={S.btnSmOut} onClick={closePopup}>Cancel</button>
-                {editingBooking && (
+                {editingBooking && editingBooking.status === "requested" && (
                   <button
                     style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b", marginLeft: "auto" }}
                     onClick={() => { const b = editingBooking; closePopup(); setCancelTarget(b); }}
                     disabled={confirming}
                   >
-                    Cancel {editingBooking.status === "booked" ? "Session" : "Request"}
+                    Cancel Request
                   </button>
                 )}
               </div>

@@ -86,10 +86,25 @@ export async function GET(request) {
     }
   }
 
-  // Deduplicate: if a local event has been synced, remove the matching Google event
-  const syncedGoogleIds = new Set(
-    (localEvents || []).filter(e => e.google_calendar_event_id).map(e => e.google_calendar_event_id)
-  );
+  // Deduplicate: remove Google events that have a local counterpart so AdminSchedule
+  // doesn't render each coaching booking twice (once as a booking chip, once as a
+  // Google event chip classified as "coaching" by summary prefix).
+  // Pull synced ids from both events (Diana's personal blocks) and bookings (9c).
+  const { data: syncedBookings } = await ctx.adminClient
+    .from("bookings")
+    .select("google_calendar_event_id")
+    .not("google_calendar_event_id", "is", null)
+    .in("status", ["requested", "booked"])
+    .gte("start_time", startISO)
+    .lte("start_time", endISO);
+
+  const syncedGoogleIds = new Set();
+  for (const e of localEvents || []) {
+    if (e.google_calendar_event_id) syncedGoogleIds.add(e.google_calendar_event_id);
+  }
+  for (const b of syncedBookings || []) {
+    if (b.google_calendar_event_id) syncedGoogleIds.add(b.google_calendar_event_id);
+  }
   const filteredGoogle = googleEvents.filter(e => !syncedGoogleIds.has(e.id));
 
   return NextResponse.json([...normalized, ...filteredGoogle]);

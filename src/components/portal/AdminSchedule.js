@@ -9,6 +9,26 @@ import MiniCalendar from "@/components/portal/MiniCalendar";
 // admins browsing from other time zones.
 const BUSINESS_TZ = "America/New_York";
 
+// Inline spinner for button-side loading feedback. Ships its own keyframes
+// so it works wherever it's rendered (modals, standalone, etc.).
+function Spinner({ size = 12, color = "#fff" }) {
+  return (
+    <>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <span style={{
+        display: "inline-block",
+        width: size, height: size,
+        border: `2px solid rgba(255,255,255,0.35)`,
+        borderTopColor: color,
+        borderRadius: "50%",
+        animation: "spin 0.7s linear infinite",
+        verticalAlign: "-2px",
+        marginRight: 6,
+      }} />
+    </>
+  );
+}
+
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
 const DAY_ROW_H = 52;
 const WEEK_ROW_H = 44;
@@ -691,11 +711,12 @@ export default function AdminSchedule() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: modal.booking.id, action }),
     });
-    setModalSaving(false);
     if (res.ok) {
+      await loadData();
+      setModalSaving(false);
       closeModal();
-      loadData();
     } else {
+      setModalSaving(false);
       const err = await res.json().catch(() => ({}));
       setModalError(err.error || "Failed");
     }
@@ -718,11 +739,12 @@ export default function AdminSchedule() {
         start_time: bookTime,
       }),
     });
-    setModalSaving(false);
     if (res.ok) {
+      await loadData();
+      setModalSaving(false);
       closeModal();
-      loadData();
     } else {
+      setModalSaving(false);
       const err = await res.json().catch(() => ({}));
       setModalError(err.error || "Could not create booking.");
     }
@@ -743,11 +765,12 @@ export default function AdminSchedule() {
         session_type_id: bookType || undefined,
       }),
     });
-    setModalSaving(false);
     if (res.ok) {
+      await loadData();
+      setModalSaving(false);
       closeModal();
-      loadData();
     } else {
+      setModalSaving(false);
       const err = await res.json().catch(() => ({}));
       setModalError(err.error || "Could not update booking.");
     }
@@ -771,11 +794,12 @@ export default function AdminSchedule() {
         tz_offset: new Date().getTimezoneOffset(),
       }),
     });
-    setModalSaving(false);
     if (res.ok) {
+      await loadData();
+      setModalSaving(false);
       closeModal();
-      loadData();
     } else {
+      setModalSaving(false);
       const err = await res.json().catch(() => ({}));
       setModalError(err.error || "Could not create event.");
     }
@@ -800,9 +824,15 @@ export default function AdminSchedule() {
         tz_offset: new Date().getTimezoneOffset(),
       }),
     });
-    setModalSaving(false);
-    if (res.ok) { closeModal(); loadData(); }
-    else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Could not update event."); }
+    if (res.ok) {
+      await loadData();
+      setModalSaving(false);
+      closeModal();
+    } else {
+      setModalSaving(false);
+      const err = await res.json().catch(() => ({}));
+      setModalError(err.error || "Could not update event.");
+    }
   };
 
   const handleDeleteEvent = async () => {
@@ -814,9 +844,15 @@ export default function AdminSchedule() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: modal.event.id }),
     });
-    setModalSaving(false);
-    if (res.ok) { closeModal(); loadData(); }
-    else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Could not delete event."); }
+    if (res.ok) {
+      await loadData();
+      setModalSaving(false);
+      closeModal();
+    } else {
+      setModalSaving(false);
+      const err = await res.json().catch(() => ({}));
+      setModalError(err.error || "Could not delete event.");
+    }
   };
 
   const handleCancelBooking = async () => {
@@ -829,11 +865,12 @@ export default function AdminSchedule() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
-    setModalSaving(false);
     if (res.ok) {
+      await loadData();
+      setModalSaving(false);
       closeModal();
-      loadData();
     } else {
+      setModalSaving(false);
       const err = await res.json().catch(() => ({}));
       setModalError(err.error || "Could not cancel booking.");
     }
@@ -1107,11 +1144,15 @@ export default function AdminSchedule() {
         }),
       });
     }
-    setModalSaving(false);
     if (res.ok) {
+      // Keep "Saving..." on the modal until the post-move refetch completes,
+      // so the user has a single continuous spinner across PATCH + reload
+      // instead of the modal vanishing while the calendar silently refreshes.
+      await loadData();
+      setModalSaving(false);
       setPendingMove(null);
-      loadData();
     } else {
+      setModalSaving(false);
       const err = await res.json().catch(() => ({}));
       alert(err.error || "Could not move item.");
       setPendingMove(null);
@@ -2040,7 +2081,7 @@ export default function AdminSchedule() {
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           <button style={S.btn} onClick={() => handleAcceptDecline("accept")} disabled={modalSaving}>
-            {modalSaving ? "Saving..." : "Accept"}
+            {modalSaving ? (<><Spinner />Saving...</>) : "Accept"}
           </button>
           <button
             style={{ ...S.btnSmOut, color: SRC.requested, border: `1px solid ${SRC.requested}` }}
@@ -2084,7 +2125,7 @@ export default function AdminSchedule() {
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <button style={S.btn} onClick={handleUpdateBooking} disabled={modalSaving}>
-            {modalSaving ? "Saving..." : "Save Changes"}
+            {modalSaving ? (<><Spinner />Saving...</>) : "Save Changes"}
           </button>
           <button
             style={{ ...S.btnSmOut, color: SRC.requested, border: `1px solid ${SRC.requested}` }}
@@ -2134,7 +2175,7 @@ export default function AdminSchedule() {
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <button style={S.btn} onClick={handleBookSession} disabled={modalSaving}>
-            {modalSaving ? "Booking..." : "Book Session"}
+            {modalSaving ? (<><Spinner />Booking...</>) : "Book Session"}
           </button>
           <button style={S.btnSmOut} onClick={closeModal}>Cancel</button>
         </div>
@@ -2163,7 +2204,7 @@ export default function AdminSchedule() {
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button style={S.btn} onClick={handleCreateEvent} disabled={modalSaving}>
-          {modalSaving ? "Creating..." : "Create Event"}
+          {modalSaving ? (<><Spinner />Creating...</>) : "Create Event"}
         </button>
         <button style={S.btnSmOut} onClick={closeModal}>Cancel</button>
       </div>
@@ -2191,7 +2232,7 @@ export default function AdminSchedule() {
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button style={S.btn} onClick={handleUpdateEvent} disabled={modalSaving}>
-          {modalSaving ? "Saving..." : "Save Changes"}
+          {modalSaving ? (<><Spinner />Saving...</>) : "Save Changes"}
         </button>
         <button
           style={{ ...S.btnSmOut, color: SRC.requested, border: `1px solid ${SRC.requested}` }}
@@ -2248,7 +2289,7 @@ export default function AdminSchedule() {
           <p style={S.p}>{body}</p>
           <div style={{ display: "flex", gap: 8 }}>
             <button style={{ ...S.btn, flex: 1, fontWeight: 600 }} onClick={confirmPendingMove} disabled={modalSaving}>
-              {modalSaving ? "Saving..." : "Yes"}
+              {modalSaving ? (<><Spinner />Saving...</>) : "Yes"}
             </button>
             <button
               style={{ ...S.btnSmOut, flex: 1, color: C.text, fontWeight: 600, border: `1px solid ${C.text}` }}

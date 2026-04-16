@@ -4,12 +4,70 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient } from "@/lib/notifications";
+import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
 
 function to12h(time) {
   const [h, m] = time.split(":").map(Number);
   const ampm = h >= 12 ? "PM" : "AM";
   const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${display}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+// Read Diana's stored Google OAuth refresh token. Returns null if not connected.
+async function getGoogleToken(adminClient) {
+  const { data } = await adminClient
+    .from("settings")
+    .select("value")
+    .eq("key", "google_refresh_token")
+    .single();
+  return data?.value || null;
+}
+
+// Race a promise against a timeout so a slow/hanging Google API call can't
+// stall the response. Rejects with "gcal timeout" if p doesn't settle in time.
+function withTimeout(p, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Best-effort Google Calendar sync for a booking. Never throws — DB is truth.
+// Bounded at 8s so the user's response never waits on a slow Google round-trip.
+// action: "upsert" (create or patch) | "delete"
+// On upsert, persists the returned event id back onto the booking row.
+async function syncBookingGoogle(adminClient, booking, clientProfile, status, action = "upsert", sessionType = null) {
+  try {
+    const token = await getGoogleToken(adminClient);
+    if (!token) return;
+
+    if (action === "delete") {
+      if (!booking.google_calendar_event_id) return;
+      const { deleteEvent } = await import("@/lib/google-calendar");
+      await withTimeout(deleteEvent(token, booking.google_calendar_event_id), 8000, "gcal delete");
+      await adminClient
+        .from("bookings")
+        .update({ google_calendar_event_id: null })
+        .eq("id", booking.id);
+      return;
+    }
+
+    const { syncBookingToGoogle } = await import("@/lib/google-calendar");
+    const gEvent = await withTimeout(
+      syncBookingToGoogle(token, booking, clientProfile, status, sessionType),
+      8000,
+      "gcal upsert"
+    );
+    if (gEvent?.id && gEvent.id !== booking.google_calendar_event_id) {
+      await adminClient
+        .from("bookings")
+        .update({ google_calendar_event_id: gEvent.id })
+        .eq("id", booking.id);
+    }
+  } catch (e) {
+    console.error(`[gcal] booking sync ${action} failed:`, e?.message || e);
+  }
 }
 
 async function getAuthContext() {
@@ -40,6 +98,11 @@ export async function GET(request) {
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+
+  // Opportunistic cleanup: flip stale/past-due requests to expired and clear
+  // their Google events so they don't hoard slots until the next daily cron.
+  // Throttled internally — safe to call on every read.
+  await maybeExpireStaleRequests(adminClient);
 
   const { searchParams } = new URL(request.url);
   const start = searchParams.get("start");
@@ -122,7 +185,7 @@ export async function POST(request) {
     .single();
   const increment = settings ? parseInt(settings.value) : 30;
 
-  if (!isSlotAvailable(slots, date, start_time, sessionType.duration, increment)) {
+  if (!checkSlotAvailable(slots, date, start_time, sessionType.duration, increment)) {
     return NextResponse.json({ error: "Time slot is not available" }, { status: 409 });
   }
 
@@ -158,13 +221,29 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Google Calendar sync — admin-on-behalf is confirmed; client request is tentative.
+  // Look up the client profile once so we can pass it to both sync and notification.
+  let clientProfileForSync;
   if (isAdmin && targetUserId) {
-    // Admin booked on behalf — notify the client
-    const { data: clientProfile } = await adminClient
+    const { data } = await adminClient
       .from("profiles")
-      .select("first_name, last_name, preferred_email, phone, notification_preference")
+      .select("first_name, last_name, full_name, preferred_email, phone, notification_preference")
       .eq("id", targetUserId)
       .single();
+    clientProfileForSync = data;
+  } else {
+    clientProfileForSync = {
+      first_name: ctx.profile.first_name,
+      last_name: ctx.profile.last_name,
+    };
+  }
+
+  const gcalStatus = bookingStatus === "booked" ? "confirmed" : "tentative";
+  await syncBookingGoogle(adminClient, booking, clientProfileForSync, gcalStatus, "upsert", sessionType);
+
+  if (isAdmin && targetUserId) {
+    // Admin booked on behalf — notify the client (reuse profile loaded above)
+    const clientProfile = clientProfileForSync;
 
     if (clientProfile) {
       try {
@@ -286,6 +365,9 @@ export async function PATCH(request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    // Google sync: flip tentative → confirmed (patches existing event; creates if missing)
+    await syncBookingGoogle(adminClient, data, clientProfile, "confirmed", "upsert");
+
     const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     try {
       await notifyClient(
@@ -313,6 +395,9 @@ export async function PATCH(request) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Google sync: remove the tentative event
+    await syncBookingGoogle(adminClient, booking, clientProfile, null, "delete");
 
     const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     try {
@@ -415,6 +500,22 @@ export async function PATCH(request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    // Google sync: patch event with new time/title. Status reflects post-update state:
+    // - admin edit of a booked session → stays confirmed
+    // - client edit of a booked session → reverts to requested (tentative)
+    const gcalStatus = data.status === "booked" ? "confirmed" : "tentative";
+    // If session type changed, pull the new label for the description.
+    let syncSessionType = null;
+    if (updates.session_type_id) {
+      const { data: st } = await adminClient
+        .from("session_types")
+        .select("label, duration, fee")
+        .eq("id", updates.session_type_id)
+        .single();
+      syncSessionType = st;
+    }
+    await syncBookingGoogle(adminClient, data, clientProfile, gcalStatus, "upsert", syncSessionType);
+
     const newStartFormatted = new Date(data.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
     if (isAdmin) {
@@ -501,6 +602,9 @@ export async function DELETE(request) {
     .eq("id", id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Google sync: remove the event
+  await syncBookingGoogle(adminClient, booking, null, null, "delete");
 
   const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 

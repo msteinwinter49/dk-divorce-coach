@@ -1,10 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { notifyAdmin, notifyClient } from "@/lib/notifications";
+import { expireStaleRequests } from "@/lib/bookings-sweep";
 
 // Cron job: expire unactioned requests, send admin reminders for pending,
 // and send session reminders for confirmed bookings.
-// Called by Vercel cron every 15 minutes.
+// Called by Vercel cron daily (Hobby plan limit).
 export async function GET(request) {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -20,16 +21,12 @@ export async function GET(request) {
   const results = { expired: 0, pending_reminders: 0, client_reminders: 0, admin_reminders: 0 };
 
   // ============================================
-  // 1. Expire requests where start_time has passed
+  // 1. Expire requests: past-start-time AND TTL (stale unactioned requests).
+  //    Shared with /api/bookings GET via lib/bookings-sweep so the same rules
+  //    apply on opportunistic sweeps.
   // ============================================
-  const { data: expired } = await supabase
-    .from("bookings")
-    .update({ status: "expired" })
-    .eq("status", "requested")
-    .lt("start_time", now.toISOString())
-    .select();
-
-  results.expired = expired?.length || 0;
+  const sweep = await expireStaleRequests(supabase);
+  results.expired = sweep.expired;
 
   // ============================================
   // 2. Admin reminders for pending requests (24h and 1h)
