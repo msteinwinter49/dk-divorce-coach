@@ -340,8 +340,9 @@ export async function PATCH(request) {
         );
         paymentIntentId = payment.id;
       } catch (e) {
+        const reason = (e.message || "").replace(/\.+$/, "");
         return NextResponse.json({
-          error: `Payment failed: ${e.message}. Booking not accepted.`
+          error: `Payment failed: ${reason}. Booking not accepted.`
         }, { status: 402 });
       }
     }

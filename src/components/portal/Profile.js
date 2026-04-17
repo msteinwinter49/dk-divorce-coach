@@ -4,7 +4,7 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
@@ -207,23 +207,19 @@ export default function Profile({ onSaved, viewAsClient }) {
               ? "You have a card on file. You can update it below."
               : "Add a card on file to book coaching sessions."}
           </p>
-          <Elements stripe={stripePromise}>
-            <CardForm userId={user?.id} hasCard={!!profile?.stripe_customer_id} onSaved={refreshProfile} />
-          </Elements>
+          <PaymentMethodSection hasCard={!!profile?.stripe_customer_id} onSaved={refreshProfile} />
         </div>
       )}
     </div>
   );
 }
 
-function CardForm({ userId, hasCard, onSaved }) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(false);
+function PaymentMethodSection({ hasCard, onSaved }) {
   const [cardInfo, setCardInfo] = useState(null);
   const [showForm, setShowForm] = useState(!hasCard);
+  const [clientSecret, setClientSecret] = useState(null);
+  const [loadingSecret, setLoadingSecret] = useState(false);
+  const [initError, setInitError] = useState(null);
 
   useEffect(() => {
     if (hasCard) {
@@ -233,35 +229,29 @@ function CardForm({ userId, hasCard, onSaved }) {
     }
   }, [hasCard]);
 
-  const handleSubmit = async () => {
-    if (!stripe || !elements) return;
-    setSaving(true);
-    setError(null);
-    setSuccess(false);
-
-    const res = await fetch("/api/stripe/setup", { method: "POST" });
-    if (!res.ok) {
-      setError("Could not initialize payment setup.");
-      setSaving(false);
-      return;
+  useEffect(() => {
+    if (showForm && !clientSecret && !loadingSecret && !initError) {
+      setLoadingSecret(true);
+      fetch("/api/stripe/setup", { method: "POST" })
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error("init failed"))))
+        .then(({ clientSecret }) => setClientSecret(clientSecret))
+        .catch(() => setInitError("Could not initialize payment setup."))
+        .finally(() => setLoadingSecret(false));
     }
-    const { clientSecret } = await res.json();
+  }, [showForm, clientSecret, loadingSecret, initError]);
 
-    const { error: stripeError } = await stripe.confirmCardSetup(clientSecret, {
-      payment_method: { card: elements.getElement(CardElement) },
-    });
+  const handleSaved = async () => {
+    const cardRes = await fetch("/api/stripe/card").then(r => r.json());
+    if (cardRes.card) setCardInfo(cardRes.card);
+    setShowForm(false);
+    setClientSecret(null);
+    if (onSaved) onSaved();
+  };
 
-    setSaving(false);
-    if (stripeError) {
-      setError(stripeError.message);
-    } else {
-      setSuccess(true);
-      setShowForm(false);
-      // Re-fetch card info
-      const cardRes = await fetch("/api/stripe/card").then(r => r.json());
-      if (cardRes.card) setCardInfo(cardRes.card);
-      if (onSaved) onSaved();
-    }
+  const handleCancel = () => {
+    setShowForm(false);
+    setClientSecret(null);
+    setInitError(null);
   };
 
   const brandName = (brand) => {
@@ -289,23 +279,58 @@ function CardForm({ userId, hasCard, onSaved }) {
 
       {showForm && (
         <>
-          <div style={{ padding: "10px 12px", border: `0.5px solid ${C.border}`, borderRadius: 8, marginBottom: "0.75rem", background: "#fff" }}>
-            <CardElement options={{
-              style: {
-                base: { fontSize: "14px", color: C.text, "::placeholder": { color: C.hint } },
-              },
-            }} />
-          </div>
-          {error && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{error}</p>}
-          {success && <p style={{ fontSize: 13, color: C.teal, marginBottom: 12 }}>{hasCard ? "Card updated." : "Card saved."}</p>}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button style={S.btn} onClick={handleSubmit} disabled={saving || !stripe}>
-              {saving ? "Saving..." : hasCard ? "Update card" : "Save card"}
-            </button>
-            {hasCard && <button style={S.btnSmOut} onClick={() => setShowForm(false)}>Cancel</button>}
-          </div>
+          {initError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{initError}</p>}
+          {!clientSecret && !initError && <p style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>Loading…</p>}
+          {clientSecret && (
+            <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" } }}>
+              <PaymentForm hasCard={hasCard} onSaved={handleSaved} onCancel={handleCancel} />
+            </Elements>
+          )}
         </>
       )}
+    </>
+  );
+}
+
+function PaymentForm({ hasCard, onSaved, onCancel }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSubmit = async () => {
+    if (!stripe || !elements) return;
+    setSaving(true);
+    setError(null);
+
+    const { error: stripeError, setupIntent } = await stripe.confirmSetup({
+      elements,
+      confirmParams: { return_url: window.location.href },
+      redirect: "if_required",
+    });
+
+    setSaving(false);
+    if (stripeError) {
+      setError(stripeError.message);
+    } else if (setupIntent && setupIntent.status === "succeeded") {
+      if (onSaved) await onSaved();
+    } else {
+      setError("Card could not be saved. Please try again.");
+    }
+  };
+
+  return (
+    <>
+      <div style={{ padding: "10px 12px", border: `0.5px solid ${C.border}`, borderRadius: 8, marginBottom: "0.75rem", background: "#fff" }}>
+        <PaymentElement options={{ wallets: { link: "never" } }} />
+      </div>
+      {error && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{error}</p>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button style={S.btn} onClick={handleSubmit} disabled={saving || !stripe}>
+          {saving ? "Saving..." : hasCard ? "Update card" : "Save card"}
+        </button>
+        {hasCard && <button style={S.btnSmOut} onClick={onCancel}>Cancel</button>}
+      </div>
     </>
   );
 }

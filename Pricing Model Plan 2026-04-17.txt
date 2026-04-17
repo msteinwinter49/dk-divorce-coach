@@ -1,0 +1,16 @@
+Plan to implement new pricing model and scheduling flows. 4/17/2026
+
+  1. Schema + admin pricing matrix editor (Settings page: grid of duration×size, price + expiration per cell).
+  2. Client purchase flow — portal nav item + inline modal on Schedule (shared component). Duration → package → price
+  → charge saved card. On success: write purchase + ledger(+). Decline: no writes.
+  3. Strip per-session charging; install balance gate. Remove Stripe call from booking accept. Booking POST: warn
+  client if balance < duration but allow; write ledger(−). Use a Postgres function with row lock for read-check-write
+  atomicity.
+  4. Ledger wiring on booking lifecycle — decline/cancel ledger(+), update (duration change) ledger(delta), admin
+  manual create ledger(−, warn on negative).
+  5. Display — portal home balance, floor(balance / preferred_duration) + "(plus)" when balance % preferred_duration ≠
+   0. Schedule page low-balance prompt.
+  6. Expiration cron — daily sweep, negative ledger rows for expired purchases with unused minutes. FIFO consumption
+  tracking via ledger.purchase_id.
+  7. Admin manual actions (client detail modal): Charge (Stripe only), Credit/Refund (Stripe only, capped at prior
+  charges), Adjust (balance only).
