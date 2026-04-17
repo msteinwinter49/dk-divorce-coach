@@ -60,6 +60,16 @@ export default function HomePage({ setPage }) {
         <p style={{...S.p, maxWidth:440, margin:"0 auto 1.5rem"}}>A free 30-minute consultation is the best way to find out if we&#39;re a good fit. No pressure, no commitment.</p>
         <button style={S.btn} onClick={() => setPage("Contact")}>Schedule a free call</button>
       </div>
+
+      <div style={{ borderTop:`0.5px solid ${C.border}`, padding:"1.25rem 1rem", textAlign:"center" }}>
+        <a href="/privacy" style={{ color:C.muted, fontSize:13, padding:"4px 8px", textDecoration:"underline" }}>
+          Privacy Policy
+        </a>
+        <span style={{ color:C.hint, fontSize:13 }}>·</span>
+        <a href="/terms" style={{ color:C.muted, fontSize:13, padding:"4px 8px", textDecoration:"underline" }}>
+          Terms &amp; Conditions
+        </a>
+      </div>
     </div>
   );
 }

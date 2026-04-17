@@ -8,6 +8,8 @@ import HomePage from "@/components/HomePage";
 import AboutPage from "@/components/AboutPage";
 import ContactPage from "@/components/ContactPage";
 import LoginPage from "@/components/LoginPage";
+import PrivacyPage from "@/components/PrivacyPage";
+import TermsPage from "@/components/TermsPage";
 import PortalHome from "@/components/portal/PortalHome";
 import Documents from "@/components/portal/Documents";
 import Schedule from "@/components/portal/Schedule";
@@ -53,6 +55,8 @@ export default function App() {
   };
 
   const renderPage = () => {
+    if (page === "Privacy") return <PrivacyPage setPage={setPage} />;
+    if (page === "Terms") return <TermsPage setPage={setPage} />;
     if (!inPortal) {
       if (page === "Home") return <HomePage setPage={setPage} />;
       if (page === "About") return <AboutPage />;
