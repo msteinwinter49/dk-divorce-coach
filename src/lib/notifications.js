@@ -4,6 +4,34 @@ import { createClient } from "@supabase/supabase-js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Business runs on Eastern Time. All client-facing date/time copy is rendered
+// in ET and explicitly labeled, regardless of server or viewer timezone.
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+// "2026-04-26" → "Friday, April 26, 2026"
+export function formatSessionDate(dateStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  // Noon UTC avoids day-off-by-one when getUTCDay is used on the server.
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  return `${WEEKDAYS[dt.getUTCDay()]}, ${MONTHS[m - 1]} ${d}, ${y}`;
+}
+
+// "15:45" → "3:45 pm ET"
+export function formatSessionTime(timeSlot) {
+  if (!timeSlot) return "";
+  const [h, m] = timeSlot.split(":").map(Number);
+  const ampm = h >= 12 ? "pm" : "am";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm} ET`;
+}
+
+// "2026-04-26", "15:45" → "Friday, April 26, 2026 at 3:45 pm ET"
+export function formatSessionDateTime(dateStr, timeSlot) {
+  return `${formatSessionDate(dateStr)} at ${formatSessionTime(timeSlot)}`;
+}
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,

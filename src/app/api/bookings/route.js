@@ -3,15 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
-import { notifyAdmin, notifyClient } from "@/lib/notifications";
+import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
-
-function to12h(time) {
-  const [h, m] = time.split(":").map(Number);
-  const ampm = h >= 12 ? "PM" : "AM";
-  const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${display}:${String(m).padStart(2, "0")} ${ampm}`;
-}
 
 // Read Diana's stored Google OAuth refresh token. Returns null if not connected.
 async function getGoogleToken(adminClient) {
@@ -252,11 +245,11 @@ export async function POST(request) {
           "Your coaching session is confirmed!",
           `<h2>Session Confirmed</h2>
            <p>A coaching session has been scheduled for you:</p>
-           <p><strong>Date:</strong> ${date}</p>
-           <p><strong>Time:</strong> ${start_time} - ${endTimeStr}</p>
+           <p><strong>Date:</strong> ${formatSessionDate(date)}</p>
+           <p><strong>Time:</strong> ${formatSessionTime(start_time).replace(" ET", "")} &ndash; ${formatSessionTime(endTimeStr)}</p>
            <p><strong>Duration:</strong> ${sessionType.duration} min</p>
            ${sessionType.fee > 0 ? `<p><strong>Fee:</strong> $${sessionType.fee}</p>` : ""}`,
-          `Your coaching session on ${date} at ${start_time} (${sessionType.duration}min) is confirmed.`
+          `Your coaching session on ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min) is confirmed.`
         );
       } catch (e) {
         console.error("Notification error:", e);
@@ -270,12 +263,12 @@ export async function POST(request) {
         `New session request from ${clientName}`,
         `<h2>New Session Request</h2>
          <p><strong>Client:</strong> ${clientName}</p>
-         <p><strong>Date:</strong> ${date}</p>
-         <p><strong>Time:</strong> ${to12h(start_time)} - ${to12h(endTimeStr)}</p>
+         <p><strong>Date:</strong> ${formatSessionDate(date)}</p>
+         <p><strong>Time:</strong> ${formatSessionTime(start_time).replace(" ET", "")} &ndash; ${formatSessionTime(endTimeStr)}</p>
          <p><strong>Duration:</strong> ${sessionType.duration} min</p>
          <p><strong>Fee:</strong> $${sessionType.fee}</p>
          <p>Log in to your admin calendar to accept or decline.</p>`,
-        `New session request from ${clientName}: ${date} at ${to12h(start_time)} (${sessionType.duration}min). Log in to accept or decline.`
+        `New session request from ${clientName}: ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min). Log in to accept or decline.`
       );
     } catch (e) {
       console.error("Notification error:", e);
@@ -368,16 +361,16 @@ export async function PATCH(request) {
     // Google sync: flip tentative → confirmed (patches existing event; creates if missing)
     await syncBookingGoogle(adminClient, data, clientProfile, "confirmed", "upsert");
 
-    const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
     try {
       await notifyClient(
         booking.profiles,
         "Your coaching session is confirmed!",
         `<h2>Session Confirmed</h2>
-         <p>Your coaching session on <strong>${booking.date}</strong> at <strong>${startTime}</strong> has been confirmed.</p>
+         <p>Your coaching session on <strong>${whenStr}</strong> has been confirmed.</p>
          <p><strong>Duration:</strong> ${booking.session_duration} min</p>
          ${booking.fee > 0 ? `<p><strong>Fee:</strong> $${booking.fee} (charged to card on file)</p>` : ""}`,
-        `Your coaching session on ${booking.date} at ${startTime} (${booking.session_duration}min) is confirmed.`
+        `Your coaching session on ${whenStr} (${booking.session_duration}min) is confirmed.`
       );
     } catch (e) {
       console.error("Notification error:", e);
@@ -399,15 +392,15 @@ export async function PATCH(request) {
     // Google sync: remove the tentative event
     await syncBookingGoogle(adminClient, booking, clientProfile, null, "delete");
 
-    const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
     try {
       await notifyClient(
         booking.profiles,
         "Coaching session update",
         `<h2>Session Not Available</h2>
-         <p>Unfortunately, the coaching session you requested on <strong>${booking.date}</strong> at <strong>${startTime}</strong> is not available.</p>
+         <p>Unfortunately, the coaching session you requested on <strong>${whenStr}</strong> is not available.</p>
          <p>Please visit your calendar to request a different time.</p>`,
-        `Your session request for ${booking.date} at ${startTime} was declined. Please request a different time.`
+        `Your session request for ${whenStr} was declined. Please request a different time.`
       );
     } catch (e) {
       console.error("Notification error:", e);
@@ -516,7 +509,7 @@ export async function PATCH(request) {
     }
     await syncBookingGoogle(adminClient, data, clientProfile, gcalStatus, "upsert", syncSessionType);
 
-    const newStartFormatted = new Date(data.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const whenStr = formatSessionDateTime(data.date, data.time_slot);
 
     if (isAdmin) {
       // Admin edited — notify client
@@ -526,11 +519,11 @@ export async function PATCH(request) {
           "Your coaching session has been updated",
           `<h2>Session Updated</h2>
            <p>Your coaching session has been updated to:</p>
-           <p><strong>Date:</strong> ${data.date}</p>
-           <p><strong>Time:</strong> ${newStartFormatted}</p>
+           <p><strong>Date:</strong> ${formatSessionDate(data.date)}</p>
+           <p><strong>Time:</strong> ${formatSessionTime(data.time_slot)}</p>
            <p><strong>Duration:</strong> ${data.session_duration} min</p>
            ${data.fee > 0 ? `<p><strong>Fee:</strong> $${data.fee}</p>` : ""}`,
-          `Your coaching session has been moved to ${data.date} at ${newStartFormatted} (${data.session_duration}min).`
+          `Your coaching session has been moved to ${whenStr} (${data.session_duration}min).`
         );
       } catch (e) {
         console.error("Notification error:", e);
@@ -546,13 +539,13 @@ export async function PATCH(request) {
             : `Session request updated by ${clientName}`,
           `<h2>${wasApproved ? "Session Change Requested" : "Session Request Updated"}</h2>
            <p><strong>Client:</strong> ${clientName}</p>
-           <p><strong>New date:</strong> ${data.date}</p>
-           <p><strong>New time:</strong> ${to12h(data.time_slot)}</p>
+           <p><strong>New date:</strong> ${formatSessionDate(data.date)}</p>
+           <p><strong>New time:</strong> ${formatSessionTime(data.time_slot)}</p>
            <p><strong>Duration:</strong> ${data.session_duration} min</p>
            <p><strong>Fee:</strong> $${data.fee}</p>
            ${wasApproved ? "<p>This session was previously approved and has been reverted to a pending request.</p>" : ""}
            <p>Log in to your admin calendar to accept or decline.</p>`,
-          `${wasApproved ? "CHANGE REQUEST" : "Updated request"} from ${clientName}: ${data.date} at ${to12h(data.time_slot)} (${data.session_duration}min). Log in to accept or decline.`
+          `${wasApproved ? "CHANGE REQUEST" : "Updated request"} from ${clientName}: ${whenStr} (${data.session_duration}min). Log in to accept or decline.`
         );
       } catch (e) {
         console.error("Notification error:", e);
@@ -606,7 +599,7 @@ export async function DELETE(request) {
   // Google sync: remove the event
   await syncBookingGoogle(adminClient, booking, null, null, "delete");
 
-  const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
 
   if (isAdmin) {
     // Admin cancelled — notify the client
@@ -622,9 +615,9 @@ export async function DELETE(request) {
           clientProfile,
           "Coaching session cancelled",
           `<h2>Session Cancelled</h2>
-           <p>Your coaching session on <strong>${booking.date}</strong> at <strong>${startTime}</strong> has been cancelled.</p>
+           <p>Your coaching session on <strong>${whenStr}</strong> has been cancelled.</p>
            <p>Please visit your calendar to request a new time if needed.</p>`,
-          `Your coaching session on ${booking.date} at ${startTime} has been cancelled. Please request a new time if needed.`
+          `Your coaching session on ${whenStr} has been cancelled. Please request a new time if needed.`
         );
       } catch (e) {
         console.error("Notification error:", e);
@@ -638,10 +631,10 @@ export async function DELETE(request) {
         `Session request cancelled by ${clientName}`,
         `<h2>Session Request Cancelled</h2>
          <p><strong>Client:</strong> ${clientName}</p>
-         <p><strong>Date:</strong> ${booking.date}</p>
-         <p><strong>Time:</strong> ${startTime}</p>
+         <p><strong>Date:</strong> ${formatSessionDate(booking.date)}</p>
+         <p><strong>Time:</strong> ${formatSessionTime(booking.time_slot)}</p>
          <p>The time slot has been returned to the available pool.</p>`,
-        `${clientName} cancelled their session request for ${booking.date} at ${startTime}.`
+        `${clientName} cancelled their session request for ${whenStr}.`
       );
     } catch (e) {
       console.error("Notification error:", e);

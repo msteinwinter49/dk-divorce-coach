@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { notifyAdmin, notifyClient } from "@/lib/notifications";
+import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { expireStaleRequests } from "@/lib/bookings-sweep";
 
 // Cron job: expire unactioned requests, send admin reminders for pending,
@@ -55,7 +55,7 @@ export async function GET(request) {
     for (const booking of pendingBookings) {
       const profile = profileMap[booking.user_id];
       const clientName = profile ? `${profile.first_name} ${profile.last_name}` : "Unknown client";
-      const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
       const isUrgent = new Date(booking.start_time) <= in1h;
 
       try {
@@ -63,11 +63,11 @@ export async function GET(request) {
           `${isUrgent ? "URGENT: " : ""}Pending session request from ${clientName}`,
           `<h2>${isUrgent ? "Urgent: " : ""}Pending Session Request</h2>
            <p>You have an unactioned session request from <strong>${clientName}</strong>.</p>
-           <p><strong>Date:</strong> ${booking.date}</p>
-           <p><strong>Time:</strong> ${startTime}</p>
+           <p><strong>Date:</strong> ${formatSessionDate(booking.date)}</p>
+           <p><strong>Time:</strong> ${formatSessionTime(booking.time_slot)}</p>
            <p>${isUrgent ? "This session starts in less than 1 hour!" : "This session starts in less than 24 hours."}</p>
            <p>Log in to accept or decline.</p>`,
-          `${isUrgent ? "URGENT: " : ""}Pending request from ${clientName} on ${booking.date} at ${startTime}. Log in to accept or decline.`
+          `${isUrgent ? "URGENT: " : ""}Pending request from ${clientName} on ${whenStr}. Log in to accept or decline.`
         );
         results.pending_reminders++;
       } catch (e) {
@@ -117,7 +117,7 @@ export async function GET(request) {
     for (const booking of confirmedBookings) {
       const profile = profileMap[booking.user_id];
       const clientName = profile ? `${profile.first_name} ${profile.last_name}` : "Unknown client";
-      const startTime = new Date(booking.start_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
       const minutesUntil = (new Date(booking.start_time) - now) / 60000;
 
       // --- Client reminders ---
@@ -141,10 +141,10 @@ export async function GET(request) {
               "Upcoming coaching session reminder",
               `<h2>Session Reminder</h2>
                <p>You have a coaching session coming up:</p>
-               <p><strong>Date:</strong> ${booking.date}</p>
-               <p><strong>Time:</strong> ${startTime}</p>
+               <p><strong>Date:</strong> ${formatSessionDate(booking.date)}</p>
+               <p><strong>Time:</strong> ${formatSessionTime(booking.time_slot)}</p>
                <p><strong>Duration:</strong> ${booking.session_duration} min</p>`,
-              `Reminder: You have a coaching session on ${booking.date} at ${startTime} (${booking.session_duration}min).`
+              `Reminder: You have a coaching session on ${whenStr} (${booking.session_duration}min).`
             );
             await supabase
               .from("bookings")
@@ -167,10 +167,10 @@ export async function GET(request) {
             `<h2>Session Reminder</h2>
              <p>You have a coaching session coming up:</p>
              <p><strong>Client:</strong> ${clientName}</p>
-             <p><strong>Date:</strong> ${booking.date}</p>
-             <p><strong>Time:</strong> ${startTime}</p>
+             <p><strong>Date:</strong> ${formatSessionDate(booking.date)}</p>
+             <p><strong>Time:</strong> ${formatSessionTime(booking.time_slot)}</p>
              <p><strong>Duration:</strong> ${booking.session_duration} min</p>`,
-            `Reminder: Session with ${clientName} on ${booking.date} at ${startTime} (${booking.session_duration}min).`
+            `Reminder: Session with ${clientName} on ${whenStr} (${booking.session_duration}min).`
           );
           await supabase
             .from("bookings")
