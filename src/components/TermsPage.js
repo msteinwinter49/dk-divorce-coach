@@ -18,7 +18,7 @@ export default function TermsPage({ setPage }) {
           <strong style={{ color:C.text }}>Service name:</strong> DK Divorce Coach (Diana Kierein, CDC).
         </p>
         <p style={{...S.p, marginBottom:0}}>
-          <strong style={{ color:C.text }}>Description:</strong> Certified Divorce Coaching services, including individual and co-parent coaching sessions, a secure client portal for document sharing and messaging, and online appointment scheduling. Divorce coaching is not therapy and is not legal advice.
+          <strong style={{ color:C.text }}>Description:</strong> Certified Divorce Coaching services, including individual and coparent coaching sessions, a secure client portal for document sharing and messaging, and online appointment scheduling. Divorce coaching is not therapy and is not legal advice.
         </p>
       </div>
 

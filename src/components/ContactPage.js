@@ -65,7 +65,7 @@ export default function ContactPage() {
           <select style={{...S.input}} value={processStage} onChange={e => setProcessStage(e.target.value)}>
             <option>Just starting to consider separation</option>
             <option>Separation is underway</option>
-            <option>Divorce is finalized — navigating co-parenting</option>
+            <option>Divorce is finalized — navigating coparenting</option>
             <option>Dealing with a specific custody challenge</option>
           </select>
           <label style={S.label}>What&#39;s on your mind?</label>

@@ -80,7 +80,7 @@ export default function PortalHome({ setPage, viewAsClient }) {
         <h3 style={S.h3}>Your progress</h3>
         <p style={{...S.p, fontSize:14}}>Work with Diana to track your coaching milestones here.</p>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {["Co-parenting plan","Communication tools","Child conversation guide","Legal prep checklist"].map(t => (
+          {["Coparenting plan","Communication tools","Child conversation guide","Legal prep checklist"].map(t => (
             <span key={t} style={{ fontSize:12, padding:"4px 12px", borderRadius:20, background:C.tealLight, color:C.teal, border:`0.5px solid ${C.tealMid}` }}>{t}</span>
           ))}
         </div>
