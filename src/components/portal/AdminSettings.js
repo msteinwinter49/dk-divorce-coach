@@ -32,10 +32,10 @@ export default function AdminSettings({ setPage }) {
 
   // Pricing matrix
   const [pricingRows, setPricingRows] = useState([]);
-  const [newPricing, setNewPricing] = useState({ duration_min: "", package_size: "", hourly_rate: "", expires_months: "" });
-  const [editingPricing, setEditingPricing] = useState(null);
-  const [editDraft, setEditDraft] = useState(null);
-  const [pricingError, setPricingError] = useState(null);
+  const [pricingDrafts, setPricingDrafts] = useState({}); // key `${dur}-${pkg}` → string hourly rate input
+  const [pricingErrors, setPricingErrors] = useState({}); // key → error message
+  const [defaultExpiresMonths, setDefaultExpiresMonths] = useState("12");
+  const [defaultExpiresError, setDefaultExpiresError] = useState(null);
 
   // Package sizes offered (1..20)
   const [packageSizes, setPackageSizes] = useState([]);
@@ -71,7 +71,7 @@ export default function AdminSettings({ setPage }) {
     const [settingsRes, typesRes, rulesRes, pricingRes] = await Promise.all([
       supabase.from("settings").select("key, value").in("key", [
         "contact_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token",
-        "admin_reminder_channel", "admin_reminder_minutes", "package_sizes"
+        "admin_reminder_channel", "admin_reminder_minutes", "package_sizes", "default_expires_months"
       ]),
       fetch("/api/session-types").then(r => r.json()),
       supabase.from("availability_rules").select("*").order("day_of_week").order("start_time"),
@@ -88,19 +88,17 @@ export default function AdminSettings({ setPage }) {
     setReminderMinutes(settings.admin_reminder_minutes || "30");
     setGoogleConnected(!!settings.google_refresh_token);
     setPackageSizes(parsePackageSizes(settings.package_sizes));
+    setDefaultExpiresMonths(settings.default_expires_months || "12");
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
     setRules(rulesRes.data || []);
-    const activePricing = Array.isArray(pricingRes) ? pricingRes.filter(p => p.is_active) : [];
-    setPricingRows(activePricing);
-    // Seed new-line form with last row's hourly rate + expiration (carry-over)
-    if (activePricing.length > 0) {
-      const last = activePricing[activePricing.length - 1];
-      setNewPricing(prev => ({
-        ...prev,
-        hourly_rate: hourlyRateOf(last).toFixed(2),
-        expires_months: String(last.expires_months),
-      }));
-    }
+    const allPricing = Array.isArray(pricingRes) ? pricingRes : [];
+    setPricingRows(allPricing);
+    // Seed in-progress drafts with current hourly rates from existing rows
+    const drafts = {};
+    allPricing.forEach(p => {
+      drafts[`${p.duration_min}-${p.package_size}`] = hourlyRateOf(p).toFixed(2);
+    });
+    setPricingDrafts(drafts);
     setLoading(false);
   };
 
@@ -176,78 +174,92 @@ export default function AdminSettings({ setPage }) {
   };
 
   // --- Pricing matrix ---
-  const addPricing = async () => {
-    const { duration_min, package_size, hourly_rate, expires_months } = newPricing;
-    const d = parseInt(duration_min);
-    const s = parseInt(package_size);
-    const hr = parseFloat(hourly_rate);
-    const m = parseInt(expires_months);
-    setPricingError(null);
-    const missing = [];
-    if (!d) missing.push("Duration");
-    if (!s) missing.push("Sessions");
-    if (!hr) missing.push("Hourly Rate");
-    if (!m) missing.push("Expires");
-    if (missing.length) {
-      setPricingError(`Fill in: ${missing.join(", ")}`);
-      return;
-    }
-    const price_cents = Math.round((hr * d * s / 60) * 100);
+  const matrixKey = (d, s) => `${d}-${s}`;
+  const findRow = (d, s) => pricingRows.find(p => p.duration_min === d && p.package_size === s);
+
+  const validateHourlyRate = (val) => {
+    if (val == null || val.trim() === "") return { ok: true, empty: true };
+    const trimmed = val.trim();
+    // Require a well-formed non-negative decimal: 5, 5.5, 5., .5 — but reject 5.5.5 etc.
+    if (!/^(\d+\.?\d*|\.\d+)$/.test(trimmed)) return { ok: false, error: "Must be a number ≥ 0" };
+    const n = parseFloat(trimmed);
+    if (!Number.isFinite(n) || n < 0) return { ok: false, error: "Must be a number ≥ 0" };
+    return { ok: true, value: n };
+  };
+
+  const upsertCell = async (d, s, hourlyRate, isActive) => {
+    const m = parseInt(defaultExpiresMonths);
+    if (!m || m < 1) return;
+    const price_cents = Math.round((hourlyRate * d * s / 60) * 100);
     const res = await fetch("/api/pricing-matrix", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ duration_min: d, package_size: s, price_cents, expires_months: m }),
+      body: JSON.stringify({
+        duration_min: d,
+        package_size: s,
+        price_cents,
+        expires_months: m,
+        is_active: isActive,
+      }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      setPricingRows([...pricingRows, data].sort(sortPricing));
-      // Carry-over hourly_rate + expires_months; clear duration + sessions
-      setNewPricing({ duration_min: "", package_size: "", hourly_rate, expires_months });
-    } else {
+    if (!res.ok) {
       const { error: e } = await res.json().catch(() => ({}));
-      setPricingError(e || "Could not add pricing row. (Duplicate duration + package size?)");
+      setPricingErrors(prev => ({ ...prev, [matrixKey(d, s)]: e || "Save failed" }));
+      return;
     }
-  };
-
-  const startEditPricing = (p) => {
-    setEditingPricing(p.id);
-    setEditDraft({
-      duration_min: String(p.duration_min),
-      package_size: String(p.package_size),
-      hourly_rate: hourlyRateOf(p).toFixed(2),
-      expires_months: String(p.expires_months),
+    const data = await res.json();
+    setPricingRows(prev => {
+      const idx = prev.findIndex(p => p.id === data.id);
+      const next = idx >= 0 ? prev.map((p, i) => i === idx ? data : p) : [...prev, data];
+      return next.sort(sortPricing);
     });
   };
 
-  const saveEditPricing = async () => {
-    if (!editDraft) return;
-    const d = parseInt(editDraft.duration_min);
-    const s = parseInt(editDraft.package_size);
-    const hr = parseFloat(editDraft.hourly_rate);
-    const m = parseInt(editDraft.expires_months);
-    if (!d || !s || !hr || !m) return;
-    const price_cents = Math.round((hr * d * s / 60) * 100);
+  const handleHourlyRateBlur = async (d, s, e) => {
+    const key = matrixKey(d, s);
+    const draft = pricingDrafts[key];
+    const v = validateHourlyRate(draft);
+    if (!v.ok) {
+      setPricingErrors(prev => ({ ...prev, [key]: v.error }));
+      const el = e?.target;
+      if (el) setTimeout(() => { el.focus(); el.select?.(); }, 0);
+      return;
+    }
+    setPricingErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
+    if (v.empty) return;
+    const formatted = v.value.toFixed(2);
+    setPricingDrafts(prev => ({ ...prev, [key]: formatted }));
+    const existing = findRow(d, s);
+    if (existing && hourlyRateOf(existing).toFixed(2) === formatted) return; // no change
+    await upsertCell(d, s, v.value, existing ? existing.is_active : true);
+  };
+
+  const handleHideToggle = async (d, s) => {
+    const existing = findRow(d, s);
+    if (!existing) return; // can't hide a row that doesn't exist yet
+    await upsertCell(d, s, hourlyRateOf(existing), !existing.is_active);
+  };
+
+  const handleDefaultExpiresBlur = async (e) => {
+    const trimmed = (defaultExpiresMonths || "").trim();
+    const valid = /^\d+$/.test(trimmed) && parseInt(trimmed) >= 1;
+    if (!valid) {
+      setDefaultExpiresError("Must be a whole number ≥ 1");
+      const el = e?.target;
+      if (el) setTimeout(() => { el.focus(); el.select?.(); }, 0);
+      return;
+    }
+    const m = parseInt(trimmed);
+    setDefaultExpiresError(null);
+    await saveSetting("default_expires_months", String(m));
+    if (pricingRows.length === 0) return;
     const res = await fetch("/api/pricing-matrix", {
-      method: "PATCH",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editingPricing, duration_min: d, package_size: s, price_cents, expires_months: m }),
+      body: JSON.stringify({ expires_months: m }),
     });
     if (res.ok) {
-      const data = await res.json();
-      setPricingRows(pricingRows.map(p => p.id === editingPricing ? data : p).sort(sortPricing));
-      setEditingPricing(null);
-      setEditDraft(null);
-    }
-  };
-
-  const removePricing = async (id) => {
-    const res = await fetch("/api/pricing-matrix", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    if (res.ok) {
-      setPricingRows(pricingRows.filter(p => p.id !== id));
+      setPricingRows(prev => prev.map(p => ({ ...p, expires_months: m })));
     }
   };
 
@@ -277,6 +289,13 @@ export default function AdminSettings({ setPage }) {
   };
 
   if (loading) return <div style={S.page}><p style={S.p}>Loading...</p></div>;
+
+  // Size the Session Type column to fit the longest label (incl. "(NN min)" suffix).
+  const longestLabel = sessionTypes.reduce((max, st) => {
+    const text = `${st.label} (${st.duration} min)`;
+    return text.length > max.length ? text : max;
+  }, "Session Type");
+  const sessionTypeColWidth = Math.max(120, Math.ceil(longestLabel.length * 7.5) + 16);
 
   return (
     <div style={S.page}>
@@ -388,89 +407,126 @@ export default function AdminSettings({ setPage }) {
       {/* Pricing matrix */}
       <div style={S.card}>
         <h3 style={S.h3}>Pricing</h3>
-        <p style={{ ...S.p, fontSize: 13 }}>Each row is a package offering: session duration × package size. Hourly rate drives the Package Price.</p>
-        {pricingError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{pricingError}</p>}
+        <p style={{ ...S.p, fontSize: 13 }}>Set the hourly rate for each combination of session type and package size. Hide rows you do not want to offer.</p>
 
-        {pricingRows.length > 0 && (
-          <div style={{ display: "flex", gap: "0.75rem", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.hint, fontWeight: 500 }}>
-            <span style={{ flex: 1 }}>Session Type</span>
-            <span style={{ flex: 1 }}>Package</span>
-            <span style={{ flex: 1 }}>Hourly Rate</span>
-            <span style={{ flex: 1 }}>Package Price</span>
-            <span style={{ flex: 1 }}>Expires</span>
-            <span style={{ width: 140 }}></span>
-          </div>
-        )}
-
-        {pricingRows.map(p => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.75rem", padding: "8px 0", borderBottom: `0.5px solid ${C.border}` }}>
-            {editingPricing === p.id && editDraft ? (
-              <>
-                <select style={{ ...plainNumberInput, cursor: "pointer" }} value={editDraft.duration_min} onChange={e => setEditDraft({ ...editDraft, duration_min: e.target.value })}>
-                  <option value="">Select…</option>
-                  {sessionTypes.map(st => (
-                    <option key={st.id} value={st.duration}>{st.label} ({st.duration} min)</option>
-                  ))}
-                </select>
-                <select style={{ ...plainNumberInput, cursor: "pointer" }} value={editDraft.package_size} onChange={e => setEditDraft({ ...editDraft, package_size: e.target.value })}>
-                  <option value="">Select…</option>
-                  {packageSizes.map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-                <input style={plainNumberInput} inputMode="decimal" value={editDraft.hourly_rate} onChange={e => setEditDraft({ ...editDraft, hourly_rate: e.target.value })} />
-                <span style={{ flex: 1, fontSize: 14, color: C.muted }}>{formatPrice(computedPrice(editDraft))}</span>
-                <input style={plainNumberInput} inputMode="numeric" value={editDraft.expires_months} onChange={e => setEditDraft({ ...editDraft, expires_months: e.target.value })} />
-                <button style={S.btnSm} onClick={saveEditPricing}>Save</button>
-                <button style={S.btnSmOut} onClick={() => { setEditingPricing(null); setEditDraft(null); }}>Cancel</button>
-              </>
-            ) : (
-              <>
-                <span style={{ flex: 1, fontSize: 14, color: C.text }}>{sessionTypeLabel(sessionTypes, p.duration_min)}</span>
-                <span style={{ flex: 1, fontSize: 14, color: C.text }}>{p.package_size}</span>
-                <span style={{ flex: 1, fontSize: 14, color: C.text }}>${hourlyRateOf(p).toFixed(2)}</span>
-                <span style={{ flex: 1, fontSize: 14, color: C.text }}>${(p.price_cents / 100).toFixed(2)}</span>
-                <span style={{ flex: 1, fontSize: 13, color: C.muted }}>{p.expires_months} mo</span>
-                <button style={S.btnSmOut} onClick={() => startEditPricing(p)}>Edit</button>
-                <button style={{ ...S.btnSmOut, color: "#c0392b", border: "0.5px solid #c0392b" }} onClick={() => removePricing(p.id)}>Remove</button>
-              </>
-            )}
-          </div>
-        ))}
-
-        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", alignItems: "flex-end" }}>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Session Type</label>
-            <select style={{ ...plainNumberInput, marginBottom: 0, cursor: "pointer" }} value={newPricing.duration_min} onChange={e => setNewPricing({ ...newPricing, duration_min: e.target.value })}>
-              <option value="">Select…</option>
-              {sessionTypes.map(st => (
-                <option key={st.id} value={st.duration}>{st.label} ({st.duration} min)</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Package</label>
-            <select style={{ ...plainNumberInput, marginBottom: 0, cursor: "pointer" }} value={newPricing.package_size} onChange={e => setNewPricing({ ...newPricing, package_size: e.target.value })}>
-              <option value="">Select…</option>
-              {packageSizes.map(n => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Hourly Rate ($)</label>
-            <input style={{ ...plainNumberInput, marginBottom: 0 }} inputMode="decimal" placeholder="180.00" value={newPricing.hourly_rate} onChange={e => setNewPricing({ ...newPricing, hourly_rate: e.target.value })} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Package Price</label>
-            <div style={{ padding: "10px 12px", fontSize: 14, color: C.muted }}>{formatPrice(computedPrice(newPricing))}</div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Expires (months)</label>
-            <input style={{ ...plainNumberInput, marginBottom: 0 }} inputMode="numeric" placeholder="12" value={newPricing.expires_months} onChange={e => setNewPricing({ ...newPricing, expires_months: e.target.value })} />
-          </div>
-          <button style={S.btnSm} onClick={addPricing}>Add</button>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+          <label style={{ ...S.label, marginBottom: 0 }}>Expires after</label>
+          <input
+            style={{
+              ...plainNumberInput,
+              flex: "0 0 80px",
+              width: 80,
+              borderColor: defaultExpiresError ? "#c0392b" : "#d0d0d0",
+            }}
+            inputMode="numeric"
+            value={defaultExpiresMonths}
+            onChange={e => setDefaultExpiresMonths(e.target.value)}
+            onBlur={e => handleDefaultExpiresBlur(e)}
+          />
+          <span style={{ fontSize: 13, color: C.muted }}>months (applies to all combinations)</span>
         </div>
+        {defaultExpiresError && <p style={{ fontSize: 12, color: "#c0392b", marginTop: -8, marginBottom: 12 }}>{defaultExpiresError}</p>}
+
+        {sessionTypes.length === 0 || packageSizes.length === 0 ? (
+          <p style={{ fontSize: 13, color: C.muted, marginBottom: 0 }}>
+            Configure at least one Session Type and one Package size above to populate the pricing table.
+          </p>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: "0.75rem", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.hint, fontWeight: 500 }}>
+              <span style={{ flex: `0 0 ${sessionTypeColWidth}px` }}>Session Type</span>
+              <span style={{ flex: 1, textAlign: "center" }}>Package</span>
+              <span style={{ flex: "0 0 110px" }}>Hourly Rate ($)</span>
+              <span style={{ flex: 1 }}>Package Price</span>
+              <span style={{ width: 60, textAlign: "center" }}>Hide</span>
+            </div>
+
+            {sessionTypes.map(st =>
+              packageSizes.map((sz, pi) => {
+                const key = matrixKey(st.duration, sz);
+                const row = findRow(st.duration, sz);
+                const draft = pricingDrafts[key] ?? "";
+                const err = pricingErrors[key];
+                const hidden = !!row && !row.is_active;
+                const hr = parseFloat(draft);
+                const computedCents = Number.isFinite(hr) && hr >= 0
+                  ? Math.round((hr * st.duration * sz / 60) * 100)
+                  : null;
+                const isFirstOfGroup = pi === 0;
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                      padding: "7.2px 0",
+                      borderBottom: `0.5px solid ${C.border}`,
+                      background: hidden ? "#f5f5f5" : "transparent",
+                      opacity: hidden ? 0.7 : 1,
+                    }}
+                  >
+                    <span
+                      style={{
+                        flex: `0 0 ${sessionTypeColWidth}px`,
+                        fontSize: 14,
+                        paddingLeft: 4,
+                        textAlign: isFirstOfGroup ? "left" : "center",
+                        color: isFirstOfGroup ? (hidden ? C.muted : C.text) : C.hint,
+                      }}
+                    >
+                      {isFirstOfGroup ? `${st.label} (${st.duration} min)` : "〃"}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 14, color: hidden ? C.muted : C.text, textAlign: "center" }}>
+                      {sz}
+                    </span>
+                    <div style={{ flex: "0 0 110px" }}>
+                      <div style={{ position: "relative" }}>
+                        <span style={{
+                          position: "absolute",
+                          left: 10,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          fontSize: 14,
+                          color: hidden ? C.muted : C.text,
+                          pointerEvents: "none",
+                        }}>$</span>
+                        <input
+                          style={{
+                            ...plainNumberInput,
+                            boxSizing: "border-box",
+                            paddingLeft: 22,
+                            borderColor: err ? "#c0392b" : "#d0d0d0",
+                            background: hidden ? "#fafafa" : "#fff",
+                          }}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          value={draft}
+                          onChange={e => setPricingDrafts(prev => ({ ...prev, [key]: e.target.value }))}
+                          onBlur={e => handleHourlyRateBlur(st.duration, sz, e)}
+                        />
+                      </div>
+                      {err && <div style={{ fontSize: 11, color: "#c0392b", marginTop: 2 }}>{err}</div>}
+                    </div>
+                    <span style={{ flex: 1, fontSize: 14, color: hidden ? C.muted : C.text }}>
+                      {computedCents != null ? `$${fmtUSD(computedCents / 100)}` : "—"}
+                    </span>
+                    <span style={{ width: 60, textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        tabIndex={-1}
+                        checked={hidden}
+                        disabled={!row}
+                        onChange={() => handleHideToggle(st.duration, sz)}
+                        title={!row ? "Set an hourly rate first" : (hidden ? "Show this combination" : "Hide this combination")}
+                      />
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </>
+        )}
       </div>
 
       {/* Availability rules */}
@@ -567,6 +623,10 @@ function computedPrice(draft) {
 
 function formatPrice(v) {
   return v == null ? "" : `$${v.toFixed(2)}`;
+}
+
+function fmtUSD(n) {
+  return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatTime(t) {

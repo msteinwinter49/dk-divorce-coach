@@ -1,0 +1,251 @@
+"use client";
+import { useEffect, useState } from "react";
+import { C, S } from "@/lib/constants";
+import { useAuth } from "@/context/AuthContext";
+
+export default function BuySessions({ setPage, viewAsClient }) {
+  const { user } = useAuth();
+  const readOnly = !!viewAsClient;
+
+  const [pricing, setPricing] = useState([]);
+  const [sessionTypes, setSessionTypes] = useState([]);
+  const [card, setCard] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [step, setStep] = useState("duration"); // duration | package | confirm | result
+  const [chosenDuration, setChosenDuration] = useState(null);
+  const [chosenPackage, setChosenPackage] = useState(null);
+
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null); // { ok, balance_after } | { ok:false, error }
+
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      fetch("/api/pricing-matrix").then(r => r.json()),
+      fetch("/api/session-types").then(r => r.json()),
+      fetch("/api/stripe/card").then(r => r.json()).catch(() => ({ card: null })),
+    ]).then(([p, t, c]) => {
+      setPricing(Array.isArray(p) ? p.filter(x => x.is_active) : []);
+      setSessionTypes(Array.isArray(t) ? t : []);
+      setCard(c?.card || null);
+      setLoading(false);
+    });
+  }, [user]);
+
+  const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min))).sort((a, b) => a - b);
+  const packagesForDuration = (d) => pricing.filter(p => p.duration_min === d).sort((a, b) => a.package_size - b.package_size);
+  const sessionLabel = (d) => sessionTypes.find(st => st.duration === d)?.label || `${d} min`;
+
+  const expiryPreview = (months) => {
+    const dt = new Date();
+    dt.setMonth(dt.getMonth() + months);
+    return dt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  };
+
+  const handleConfirm = async () => {
+    if (readOnly || !chosenPackage) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/purchases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matrix_id: chosenPackage.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResult({ ok: true, balance_after: data.balance_after });
+      } else {
+        setResult({ ok: false, error: data.error || "Purchase failed." });
+      }
+      setStep("result");
+    } catch (e) {
+      setResult({ ok: false, error: "Network error. Please try again." });
+      setStep("result");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const restart = () => {
+    setChosenDuration(null);
+    setChosenPackage(null);
+    setResult(null);
+    setStep("duration");
+  };
+
+  if (loading) {
+    return <div style={S.page}><p style={S.p}>Loading…</p></div>;
+  }
+
+  if (!card) {
+    return (
+      <div style={S.page}>
+        <h1 style={S.h1}>Buy Sessions</h1>
+        <div style={S.card}>
+          <h3 style={S.h3}>Add a card first</h3>
+          <p style={{ ...S.p, marginBottom: "1rem" }}>You need a payment method on file before you can purchase a package.</p>
+          <button style={S.btn} onClick={() => setPage("Profile")}>Add a card</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (pricing.length === 0) {
+    return (
+      <div style={S.page}>
+        <h1 style={S.h1}>Buy Sessions</h1>
+        <div style={S.card}>
+          <p style={{ ...S.p, marginBottom: 0 }}>No packages are currently available. Please contact Diana directly.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={S.page}>
+      <h1 style={S.h1}>Buy Sessions</h1>
+
+      {step === "duration" && (
+        <div style={S.card}>
+          <h3 style={S.h3}>Choose a session type</h3>
+          <div style={{ display: "grid", gap: 10 }}>
+            {distinctDurations.map(d => (
+              <button
+                key={d}
+                onClick={() => { setChosenDuration(d); setStep("package"); }}
+                style={{ ...optionRow }}
+              >
+                <span style={{ fontSize: 15, color: C.text, fontWeight: 500 }}>{sessionLabel(d)} ({d} min)</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {step === "package" && chosenDuration != null && (
+        <div style={S.card}>
+          <button style={backLink} onClick={() => setStep("duration")}>&larr; Back</button>
+          <h3 style={S.h3}>Choose a package</h3>
+          <p style={{ ...S.p, fontSize: 14 }}>{sessionLabel(chosenDuration)} — {chosenDuration} min sessions.</p>
+          <div style={{ display: "grid", gap: 10 }}>
+            {packagesForDuration(chosenDuration).map(p => {
+              const perSession = p.price_cents / p.package_size / 100;
+              const total = p.price_cents / 100;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => { setChosenPackage(p); setStep("confirm"); }}
+                  style={{ ...optionRow, justifyContent: "flex-start" }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                    <span style={{ fontSize: 15, color: C.text, fontWeight: 500 }}>
+                      {p.package_size} session{p.package_size > 1 ? "s" : ""}
+                      <span style={{ marginLeft: 12, color: C.teal }}>Total Price ${fmtUSD(total)}</span>
+                    </span>
+                    <span style={{ fontSize: 12, color: C.hint }}>${fmtUSD(perSession)} per session · expires in {p.expires_months} mo</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {step === "confirm" && chosenPackage && (
+        <div style={S.card}>
+          <button style={backLink} onClick={() => setStep("package")}>&larr; Choose a different package</button>
+          <h3 style={S.h3}>Confirm your purchase</h3>
+          <div style={{ display: "grid", gap: 8, marginBottom: "1rem", fontSize: 14, color: C.text }}>
+            <Row label="Package" value={`${chosenPackage.package_size} × ${chosenPackage.duration_min} min`} />
+            <Row label="Total minutes" value={`${chosenPackage.duration_min * chosenPackage.package_size} min`} />
+            <Row label="Sessions expire" value={expiryPreview(chosenPackage.expires_months)} />
+            <Row label="Payment method" value={`${card.brand?.toUpperCase() || "CARD"} ···· ${card.last4}`} />
+            <Row label="Total" value={`$${fmtUSD(chosenPackage.price_cents / 100)}`} bold />
+          </div>
+          {readOnly && (
+            <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>
+              Read-only mode — exit View as Client to make a purchase.
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={{ ...S.btn, opacity: submitting || readOnly ? 0.6 : 1 }}
+              disabled={submitting || readOnly}
+              onClick={handleConfirm}
+            >
+              {submitting ? "Processing…" : "Confirm Purchase"}
+            </button>
+            <button style={S.btnSmOut} disabled={submitting} onClick={() => setStep("package")}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {step === "result" && result && (
+        <div style={S.card}>
+          {result.ok ? (
+            <>
+              <h3 style={{ ...S.h3, color: C.teal }}>Purchase complete</h3>
+              <p style={{ ...S.p, fontSize: 14, marginBottom: "1rem" }}>
+                Your card was charged successfully. You now have <strong>{result.balance_after} minute{result.balance_after === 1 ? "" : "s"}</strong> available to schedule sessions.
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={S.btn} onClick={() => setPage("Schedule")}>Schedule a session</button>
+                <button style={S.btnSmOut} onClick={restart}>Buy another package</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h3 style={{ ...S.h3, color: "#c0392b" }}>Purchase failed</h3>
+              <p style={{ ...S.p, fontSize: 14, marginBottom: "1rem" }}>{result.error}</p>
+              <p style={{ ...S.p, fontSize: 13, marginBottom: "1rem" }}>
+                If your card was declined or needs verification, you can update your payment method and try again.
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={S.btn} onClick={restart}>Try again</button>
+                <button style={S.btnSmOut} onClick={() => setPage("Profile")}>Update card</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, bold }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", borderBottom: `0.5px solid ${C.border}`, paddingBottom: 6 }}>
+      <span style={{ color: C.muted }}>{label}</span>
+      <span style={{ fontWeight: bold ? 600 : 400, color: bold ? C.teal : C.text }}>{value}</span>
+    </div>
+  );
+}
+
+function fmtUSD(n) {
+  return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const optionRow = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "12px 16px",
+  background: "#fff",
+  border: `0.5px solid ${C.border}`,
+  borderRadius: 10,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  textAlign: "left",
+};
+
+const backLink = {
+  background: "none",
+  border: "none",
+  color: C.teal,
+  fontSize: 13,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  padding: 0,
+  marginBottom: 12,
+};

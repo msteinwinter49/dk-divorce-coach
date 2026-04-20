@@ -4,8 +4,9 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 
-// GET — fetch the client's card on file
-export async function GET() {
+// GET — fetch the client's card on file. Admins may pass ?client_id=X to look up
+// another client's card.
+export async function GET(request) {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -21,10 +22,25 @@ export async function GET() {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
+  let targetId = user.id;
+  const url = new URL(request.url);
+  const clientIdParam = url.searchParams.get("client_id");
+  if (clientIdParam && clientIdParam !== user.id) {
+    const { data: callerProfile } = await adminClient
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    if (callerProfile?.role !== "admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+    targetId = clientIdParam;
+  }
+
   const { data: profile } = await adminClient
     .from("profiles")
     .select("stripe_customer_id")
-    .eq("id", user.id)
+    .eq("id", targetId)
     .single();
 
   if (!profile?.stripe_customer_id) {

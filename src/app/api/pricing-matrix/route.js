@@ -43,30 +43,54 @@ export async function GET() {
   return NextResponse.json(data);
 }
 
-// POST — create a pricing row (admin only)
+// POST — upsert a pricing row by (duration_min, package_size). Admin only.
 export async function POST(request) {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
 
-  const { duration_min, package_size, price_cents, expires_months } = await request.json();
+  const { duration_min, package_size, price_cents, expires_months, is_active } = await request.json();
   if (!duration_min || !package_size || price_cents == null || !expires_months) {
     return NextResponse.json({ error: "duration_min, package_size, price_cents, expires_months are required" }, { status: 400 });
   }
 
+  const row = {
+    duration_min: parseInt(duration_min),
+    package_size: parseInt(package_size),
+    price_cents: parseInt(price_cents),
+    expires_months: parseInt(expires_months),
+    updated_at: new Date().toISOString(),
+  };
+  if (typeof is_active === "boolean") row.is_active = is_active;
+
   const { data, error } = await adminSupabase()
     .from("pricing_matrix")
-    .insert({
-      duration_min: parseInt(duration_min),
-      package_size: parseInt(package_size),
-      price_cents: parseInt(price_cents),
-      expires_months: parseInt(expires_months),
-    })
+    .upsert(row, { onConflict: "duration_min,package_size" })
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
+}
+
+// PUT — bulk update expires_months across every pricing row. Admin only.
+export async function PUT(request) {
+  const ctx = await getAuthContext();
+  if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+  if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+
+  const { expires_months } = await request.json();
+  const m = parseInt(expires_months);
+  if (!m || m < 1) return NextResponse.json({ error: "expires_months must be >= 1" }, { status: 400 });
+
+  const { data, error } = await adminSupabase()
+    .from("pricing_matrix")
+    .update({ expires_months: m, updated_at: new Date().toISOString() })
+    .neq("duration_min", -1)
+    .select();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ updated: data?.length || 0 });
 }
 
 // PATCH — update a pricing row (admin only)

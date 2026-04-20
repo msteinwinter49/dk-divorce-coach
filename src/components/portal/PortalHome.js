@@ -63,12 +63,13 @@ export default function PortalHome({ setPage, viewAsClient }) {
             : "You have no upcoming sessions. Head to Schedule to book one."}
         </p>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(3,1fr)", gap:12 }}>
+      <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(2,1fr)", gap:12 }}>
         {[
           ["Documents", "Documents", `${docCount} file${docCount !== 1 ? "s" : ""} shared`],
           // Admin (not in view-as-client) gets the AdminSchedule page
           [profile?.role === "admin" && !viewAsClient ? "Admin Schedule" : "Schedule", "Schedule", formatBooking()],
           ["Messages", "Messages", `${unreadCount} message${unreadCount !== 1 ? "s" : ""}`],
+          ["Buy Sessions", "Buy Sessions", "Purchase a package"],
         ].map(([target, label, d]) => (
           <div key={label} style={{ ...S.card, cursor:"pointer" }} onClick={() => setPage(target)}>
             <h3 style={{ ...S.h3, color:C.teal }}>{label}</h3>

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { C, S } from "@/lib/constants";
+import AdminPurchasePackage from "./AdminPurchasePackage";
 
 function formatPhoneInput(value) {
   const digits = (value || "").replace(/\D/g, "").slice(0, 10);
@@ -380,6 +381,13 @@ export default function Clients({ setPage, onViewAsClient }) {
                 </button>
               </div>
             </div>
+
+            {detail.role !== "admin" && (
+              <div style={{ padding: "16px 18px", borderBottom: `0.5px solid ${C.border}` }}>
+                <h3 style={{ ...S.h3, fontSize: 14, marginBottom: 10 }}>Purchase package on behalf of client</h3>
+                <AdminPurchasePackage client={detail} />
+              </div>
+            )}
 
             <div style={{ padding: "16px 18px", borderBottom: `0.5px solid ${C.border}` }}>
               <h3 style={{ ...S.h3, fontSize: 14, marginBottom: 10 }}>Portal actions</h3>
