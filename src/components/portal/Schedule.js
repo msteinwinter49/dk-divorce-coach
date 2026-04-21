@@ -33,7 +33,7 @@ function sameDay(a, b) { return dateStr(a) === dateStr(b); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function startOfWeek(d) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; }
 
-export default function Schedule({ viewAsClient }) {
+export default function Schedule({ setPage, viewAsClient }) {
   const { user, profile } = useAuth();
   const isAdminViewing = !!viewAsClient && profile?.role === "admin";
   const readOnly = !!viewAsClient && !isAdminViewing;
@@ -1189,6 +1189,15 @@ export default function Schedule({ viewAsClient }) {
           })()}
         </div>
       </div>
+
+      {!readOnly && !isAdminViewing && balanceMinutes !== null && sessionTypes.length > 0 && balanceMinutes < Math.min(...sessionTypes.map(t => t.duration)) && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 14px", marginBottom: 12, background: "#fdecea", borderRadius: 8, fontSize: 13, color: "#c0392b" }}>
+          Your session balance is too low to book a session.
+          <button style={{ ...S.btnSm, padding: "4px 12px", fontSize: 13, background: "#c0392b" }} onClick={() => setPage("Buy Sessions")}>
+            Buy Sessions
+          </button>
+        </div>
+      )}
 
       {needsRefresh && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", marginBottom: 12, background: C.tealLight, borderRadius: 8, fontSize: 13, color: C.teal }}>

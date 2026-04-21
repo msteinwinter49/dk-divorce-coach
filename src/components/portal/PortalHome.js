@@ -11,6 +11,7 @@ export default function PortalHome({ setPage, viewAsClient }) {
   const [nextBooking, setNextBooking] = useState(null);
   const [docCount, setDocCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [balanceMinutes, setBalanceMinutes] = useState(null);
 
   const targetId = viewAsClient?.id || user?.id;
   const targetProfile = viewAsClient || profile;
@@ -35,6 +36,9 @@ export default function PortalHome({ setPage, viewAsClient }) {
       .select("id", { count: "exact", head: true })
       .eq("user_id", targetId)
       .then(({ count }) => setDocCount(count || 0));
+
+    const balUrl = viewAsClient ? `/api/purchases?client_id=${targetId}` : "/api/purchases";
+    fetch(balUrl).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
 
     supabase.from("messages")
       .select("id", { count: "exact", head: true })
@@ -69,7 +73,15 @@ export default function PortalHome({ setPage, viewAsClient }) {
           // Admin (not in view-as-client) gets the AdminSchedule page
           [profile?.role === "admin" && !viewAsClient ? "Admin Schedule" : "Schedule", "Schedule", formatBooking()],
           ["Messages", "Messages", `${unreadCount} message${unreadCount !== 1 ? "s" : ""}`],
-          ["Buy Sessions", "Buy Sessions", "Purchase a package"],
+          ["Buy Sessions", "Buy Sessions", (() => {
+            if (balanceMinutes === null) return "Purchase a package";
+            if (balanceMinutes <= 0) return "Low balance — buy more";
+            const h = Math.floor(balanceMinutes / 60);
+            const m = balanceMinutes % 60;
+            if (h === 0) return `${m} minute${m !== 1 ? "s" : ""} available`;
+            if (m === 0) return `${h} hour${h !== 1 ? "s" : ""} available`;
+            return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""} available`;
+          })()],
         ].map(([target, label, d]) => (
           <div key={label} style={{ ...S.card, cursor:"pointer" }} onClick={() => setPage(target)}>
             <h3 style={{ ...S.h3, color:C.teal }}>{label}</h3>

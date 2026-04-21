@@ -184,6 +184,17 @@ export async function GET(request) {
     }
   }
 
+  // ============================================
+  // Expire purchase minutes: debit balance for expired packages.
+  // ============================================
+  try {
+    const { data: expiredMinutes } = await supabase.rpc("expire_purchase_minutes");
+    results.expired_purchase_rows = expiredMinutes ?? 0;
+  } catch (e) {
+    console.error("Purchase expiration error:", e);
+    results.expired_purchase_rows = -1;
+  }
+
   return NextResponse.json(results);
 }
 
