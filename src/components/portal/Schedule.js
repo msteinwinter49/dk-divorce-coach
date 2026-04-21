@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
+import { createClient } from "@/lib/supabase/client";
 import MiniCalendar from "@/components/portal/MiniCalendar";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
@@ -113,6 +114,17 @@ export default function Schedule({ viewAsClient }) {
   }, [user, viewAsClient?.id]);
 
   useEffect(() => { refreshBalance(); }, [refreshBalance]);
+
+  useEffect(() => {
+    if (!user) return;
+    const watchId = viewAsClient?.id || user.id;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`balance_ledger:${watchId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "balance_ledger", filter: `client_id=eq.${watchId}` }, refreshBalance)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, viewAsClient?.id, refreshBalance]);
 
   const navigate = (dir) => {
     const d = new Date(currentDate);
@@ -894,15 +906,13 @@ export default function Schedule({ viewAsClient }) {
                 {noChangeMessage
                   ? "No changes were made."
                   : editingBooking
-                    ? (editingBooking.status === "booked" ? "Change submitted!" : "Request updated!")
+                    ? "Changes saved!"
                     : (isAdminViewing ? "Session booked!" : "Session requested!")}
               </div>
               {!noChangeMessage && (
                 <p style={{ ...S.p, color: C.muted }}>
                   {editingBooking
-                    ? (editingBooking.status === "booked"
-                        ? `Your change for ${dateLabel} at ${selectedTime} has been sent to Diana for re-approval.`
-                        : `Your updated request for ${dateLabel} at ${selectedTime} has been submitted.`)
+                    ? `Your updated session for ${dateLabel} at ${selectedTime} has been submitted for Diana's review.`
                     : (isAdminViewing
                         ? `Session for ${viewAsClient.first_name} on ${dateLabel} at ${selectedTime} has been confirmed.`
                         : `Your request for ${dateLabel} at ${selectedTime} has been submitted. Diana will review and confirm.`)}
@@ -919,7 +929,7 @@ export default function Schedule({ viewAsClient }) {
             <>
               <h3 style={S.h3}>
                 {editingBooking
-                  ? (editingBooking.status === "booked" ? "Change Session" : "Edit Request")
+                  ? "Edit Session"
                   : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session")}
               </h3>
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
@@ -1034,17 +1044,17 @@ export default function Schedule({ viewAsClient }) {
                     {confirming
                       ? (editingBooking ? "Saving..." : isAdminViewing ? "Booking..." : "Requesting...")
                       : editingBooking
-                        ? (editingBooking.status === "booked" ? "Submit Change" : "Update Request")
+                        ? "Save Changes"
                         : (isAdminViewing ? "Book Session" : "Request Session")}
                   </button>
                 )}
-                {editingBooking && editingBooking.status === "requested" && (
+                {editingBooking && ["requested", "booked"].includes(editingBooking.status) && (
                   <button
                     style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
                     onClick={() => { const b = editingBooking; closePopup(); setCancelTarget(b); }}
                     disabled={confirming}
                   >
-                    Cancel Request
+                    {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
                   </button>
                 )}
                 <button style={{ ...S.btnSmOut, marginLeft: "auto" }} onClick={closePopup}>Cancel</button>
@@ -1164,7 +1174,7 @@ export default function Schedule({ viewAsClient }) {
             const label = h === 0 ? `${sign}${m} minute${m !== 1 ? "s" : ""}`
               : m === 0 ? `${sign}${h} hour${h !== 1 ? "s" : ""}`
               : `${sign}${h} hour${h !== 1 ? "s" : ""} ${m} minute${m !== 1 ? "s" : ""}`;
-            return <p style={{ ...S.p, fontSize: 26, color: C.muted, marginTop: 2, marginBottom: 0 }}>sessions unused: {label}</p>;
+            return <p style={{ ...S.p, fontSize: 20, color: C.muted, marginTop: 2, marginBottom: 0 }}>Available to schedule: {label}</p>;
           })()}
         </div>
       </div>

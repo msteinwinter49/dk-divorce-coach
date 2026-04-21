@@ -288,6 +288,7 @@ export default function AdminSchedule() {
   const [eventEndTime, setEventEndTime] = useState("");
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   // Drag-to-move state (existing bookings + events)
   const dragRef = useRef(null);
@@ -698,6 +699,7 @@ export default function AdminSchedule() {
     setModal(null);
     setModalError(null);
     setModalSaving(false);
+    setConfirmCancel(false);
   };
 
   // --- Action handlers ---
@@ -722,7 +724,7 @@ export default function AdminSchedule() {
     }
   };
 
-  const handleBookSession = async () => {
+  const handleBookSession = async (force = false) => {
     if (!bookClient || !bookType || !bookDate || !bookTime) {
       setModalError("All fields are required.");
       return;
@@ -737,6 +739,7 @@ export default function AdminSchedule() {
         session_type_id: bookType,
         date: bookDate,
         start_time: bookTime,
+        ...(force && { force: true }),
       }),
     });
     if (res.ok) {
@@ -2031,7 +2034,16 @@ export default function AdminSchedule() {
           {modal.mode === "book" && renderBookContent()}
           {modal.mode === "event" && renderEventContent()}
           {modal.mode === "editEvent" && renderEditEventContent()}
-          {modalError && <p style={{ fontSize: 13, color: SRC.requested, marginTop: 8 }}>{modalError}</p>}
+          {modalError && (
+            <div style={{ marginTop: 8 }}>
+              <p style={{ fontSize: 13, color: SRC.requested, marginBottom: modalError === "Time slot is not available" && modal?.mode === "book" ? 6 : 0 }}>{modalError}</p>
+              {modalError === "Time slot is not available" && modal?.mode === "book" && (
+                <button style={{ ...S.btnSmOut, borderColor: SRC.requested, color: SRC.requested, fontSize: 13 }} onClick={() => handleBookSession(true)} disabled={modalSaving}>
+                  Submit Anyway
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2122,19 +2134,37 @@ export default function AdminSchedule() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <button style={S.btn} onClick={handleUpdateBooking} disabled={modalSaving}>
-            {modalSaving ? (<><Spinner />Saving...</>) : "Save Changes"}
-          </button>
-          <button
-            style={{ ...S.btnSmOut, color: SRC.requested, border: `1px solid ${SRC.requested}` }}
-            onClick={handleCancelBooking}
-            disabled={modalSaving}
-          >
-            Cancel Session
-          </button>
-          <button style={S.btnSmOut} onClick={closeModal}>Close</button>
-        </div>
+        {confirmCancel ? (
+          <div style={{ marginTop: 8, padding: "12px 14px", background: "#fdecea", borderRadius: 8 }}>
+            <p style={{ fontSize: 13, color: SRC.requested, marginBottom: 8 }}>
+              Are you sure you want to cancel this session? The client will be notified and their balance refunded.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                style={{ ...S.btn, background: SRC.requested }}
+                onClick={handleCancelBooking}
+                disabled={modalSaving}
+              >
+                {modalSaving ? <><Spinner />Cancelling...</> : "Yes, Cancel Session"}
+              </button>
+              <button style={S.btnSmOut} onClick={() => setConfirmCancel(false)} disabled={modalSaving}>Go Back</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button style={S.btn} onClick={handleUpdateBooking} disabled={modalSaving}>
+              {modalSaving ? (<><Spinner />Saving...</>) : "Save Changes"}
+            </button>
+            <button
+              style={{ ...S.btnSmOut, color: SRC.requested, border: `1px solid ${SRC.requested}` }}
+              onClick={() => setConfirmCancel(true)}
+              disabled={modalSaving}
+            >
+              Cancel Session
+            </button>
+            <button style={S.btnSmOut} onClick={closeModal}>Close</button>
+          </div>
+        )}
       </>
     );
   };

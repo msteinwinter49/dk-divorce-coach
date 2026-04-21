@@ -141,7 +141,7 @@ export async function POST(request) {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { session_type_id, date, start_time, user_id: targetUserId } = await request.json();
+  const { session_type_id, date, start_time, user_id: targetUserId, force } = await request.json();
   if (!session_type_id || !date || !start_time) {
     return NextResponse.json({ error: "session_type_id, date, and start_time are required" }, { status: 400 });
   }
@@ -177,7 +177,9 @@ export async function POST(request) {
   const increment = settings ? parseInt(settings.value) : 30;
 
   if (!checkSlotAvailable(slots, date, start_time, sessionType.duration, increment)) {
-    return NextResponse.json({ error: "Time slot is not available" }, { status: 409 });
+    if (!(isAdmin && force)) {
+      return NextResponse.json({ error: "Time slot is not available" }, { status: 409 });
+    }
   }
 
   // Calculate end time
@@ -566,7 +568,7 @@ export async function DELETE(request) {
     .eq("id", id);
 
   if (!isAdmin) {
-    query = query.eq("user_id", ctx.user.id).eq("status", "requested");
+    query = query.eq("user_id", ctx.user.id).in("status", ["requested", "booked"]);
   } else {
     query = query.in("status", ["requested", "booked"]);
   }
@@ -624,14 +626,15 @@ export async function DELETE(request) {
     // Client cancelled — notify Diana
     const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
     try {
+      const wasBooked = booking.status === "booked";
       await notifyAdmin(
-        `Session request cancelled by ${clientName}`,
-        `<h2>Session Request Cancelled</h2>
+        `Session ${wasBooked ? "cancelled" : "request cancelled"} by ${clientName}`,
+        `<h2>Session ${wasBooked ? "Cancelled" : "Request Cancelled"}</h2>
          <p><strong>Client:</strong> ${clientName}</p>
          <p><strong>Date:</strong> ${formatSessionDate(booking.date)}</p>
          <p><strong>Time:</strong> ${formatSessionTime(booking.time_slot)}</p>
          <p>The time slot has been returned to the available pool.</p>`,
-        `${clientName} cancelled their session request for ${whenStr}.`
+        `${clientName} cancelled their ${wasBooked ? "confirmed session" : "session request"} for ${whenStr}.`
       );
     } catch (e) {
       console.error("Notification error:", e);

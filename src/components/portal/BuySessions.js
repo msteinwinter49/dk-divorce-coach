@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
+import { createClient } from "@/lib/supabase/client";
 
 export default function BuySessions({ setPage, viewAsClient }) {
   const { user } = useAuth();
@@ -22,6 +23,12 @@ export default function BuySessions({ setPage, viewAsClient }) {
 
   const clientId = viewAsClient?.id || null;
 
+  const refreshBalance = useCallback(() => {
+    if (!user) return;
+    const balanceUrl = clientId ? `/api/purchases?client_id=${clientId}` : "/api/purchases";
+    fetch(balanceUrl).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
+  }, [user, clientId]);
+
   useEffect(() => {
     if (!user) return;
     const cardUrl = clientId ? `/api/stripe/card?client_id=${clientId}` : "/api/stripe/card";
@@ -40,6 +47,17 @@ export default function BuySessions({ setPage, viewAsClient }) {
     });
   }, [user, clientId]);
 
+  useEffect(() => {
+    if (!user) return;
+    const watchId = clientId || user.id;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`balance_ledger_buy:${watchId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "balance_ledger", filter: `client_id=eq.${watchId}` }, refreshBalance)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, clientId, refreshBalance]);
+
   const fmtBalance = (min) => {
     const h = Math.floor(Math.abs(min) / 60);
     const m = Math.abs(min) % 60;
@@ -49,7 +67,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
     return `${sign}${h} hour${h !== 1 ? "s" : ""} ${m} minute${m !== 1 ? "s" : ""}`;
   };
   const balanceSubtitle = balanceMinutes != null
-    ? <p style={{ ...S.p, fontSize: 26, color: C.muted, marginTop: 4, marginBottom: 0 }}>sessions unused: {fmtBalance(balanceMinutes)}</p>
+    ? <p style={{ ...S.p, fontSize: 20, color: C.muted, marginTop: 4, marginBottom: 0 }}>Available to schedule: {fmtBalance(balanceMinutes)}</p>
     : null;
 
   const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min))).sort((a, b) => a - b);
@@ -181,7 +199,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
           <h3 style={S.h3}>Confirm your purchase</h3>
           <div style={{ display: "grid", gap: 8, marginBottom: "1rem", fontSize: 14, color: C.text }}>
             <Row label="Package" value={`${chosenPackage.package_size} × ${chosenPackage.duration_min} min`} />
-            <Row label="Total minutes" value={`${chosenPackage.duration_min * chosenPackage.package_size} min`} />
+            <Row label="Total time" value={(() => { const total = chosenPackage.duration_min * chosenPackage.package_size; const h = Math.floor(total / 60); const m = total % 60; if (h === 0) return `${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${h} hour${h !== 1 ? "s" : ""}`; return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()} />
             <Row label="Sessions expire" value={expiryPreview(chosenPackage.expires_months)} />
             <Row label="Payment method" value={`${card.brand?.toUpperCase() || "CARD"} ···· ${card.last4}`} />
             <Row label="Total" value={`$${fmtUSD(chosenPackage.price_cents / 100)}`} bold />
@@ -210,7 +228,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
             <>
               <h3 style={{ ...S.h3, color: C.teal }}>Purchase complete</h3>
               <p style={{ ...S.p, fontSize: 14, marginBottom: "1rem" }}>
-                Your card was charged successfully. You now have <strong>{result.balance_after} minute{result.balance_after === 1 ? "" : "s"}</strong> available to schedule sessions.
+                Your card was charged successfully. You now have <strong>{(() => { const h = Math.floor(result.balance_after / 60); const m = result.balance_after % 60; if (h === 0) return `${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${h} hour${h !== 1 ? "s" : ""}`; return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()}</strong> available to schedule sessions.
               </p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={S.btn} onClick={() => setPage("Schedule")}>Schedule a session</button>

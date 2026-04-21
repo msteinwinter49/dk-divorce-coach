@@ -149,7 +149,7 @@ export default function AdminPurchasePackage({ client }) {
       {result && (
         result.ok ? (
           <p style={{ fontSize: 13, color: C.teal, marginBottom: 0 }}>
-            Charged ${result.charged_dollars}. New balance: {result.balance_after} min. Email receipt sent.
+            Charged ${result.charged_dollars}. New balance: {(() => { const h = Math.floor(result.balance_after / 60); const m = result.balance_after % 60; if (h === 0) return `${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${h} hour${h !== 1 ? "s" : ""}`; return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()}. Email receipt sent.
           </p>
         ) : (
           <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 0 }}>{result.error}</p>
