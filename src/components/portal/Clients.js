@@ -38,6 +38,10 @@ export default function Clients({ setPage, onViewAsClient }) {
   const [detailSuccess, setDetailSuccess] = useState(null);
   const [magicLoading, setMagicLoading] = useState(false);
   const [magicResult, setMagicResult] = useState(null); // { ok, text }
+  const [adjustMinutes, setAdjustMinutes] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
+  const [adjustSaving, setAdjustSaving] = useState(false);
+  const [adjustResult, setAdjustResult] = useState(null); // { ok, balance_after } | { ok: false, error }
 
   const TIMEZONES = [
     { value: "America/New_York", label: "Eastern Time (New York)" },
@@ -66,6 +70,30 @@ export default function Clients({ setPage, onViewAsClient }) {
     setDetailError(null);
     setDetailSuccess(null);
     setMagicResult(null);
+    setAdjustMinutes("");
+    setAdjustNote("");
+    setAdjustResult(null);
+  };
+
+  const handleAdjust = async () => {
+    const delta = parseInt(adjustMinutes, 10);
+    if (!detail || isNaN(delta) || delta === 0) return;
+    setAdjustSaving(true);
+    setAdjustResult(null);
+    const res = await fetch("/api/purchases", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: detail.id, delta_minutes: delta, note: adjustNote.trim() || undefined }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setAdjustSaving(false);
+    if (res.ok) {
+      setAdjustResult({ ok: true, balance_after: data.balance_after });
+      setAdjustMinutes("");
+      setAdjustNote("");
+    } else {
+      setAdjustResult({ ok: false, error: data.error || "Adjustment failed." });
+    }
   };
 
   const saveDetail = async () => {
@@ -386,6 +414,44 @@ export default function Clients({ setPage, onViewAsClient }) {
               <div style={{ padding: "16px 18px", borderBottom: `0.5px solid ${C.border}` }}>
                 <h3 style={{ ...S.h3, fontSize: 14, marginBottom: 10 }}>Purchase package on behalf of client</h3>
                 <AdminPurchasePackage client={detail} />
+              </div>
+            )}
+
+            {detail.role !== "admin" && (
+              <div style={{ padding: "16px 18px", borderBottom: `0.5px solid ${C.border}` }}>
+                <h3 style={{ ...S.h3, fontSize: 14, marginBottom: 10 }}>Adjust balance</h3>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div>
+                    <label style={{ ...S.label, marginBottom: 4 }}>Minutes (+ add, − remove)</label>
+                    <input
+                      style={{ ...S.input, width: 120, marginBottom: 0 }}
+                      type="number"
+                      placeholder="e.g. 30 or -30"
+                      value={adjustMinutes}
+                      onChange={e => { setAdjustMinutes(e.target.value); setAdjustResult(null); }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 140 }}>
+                    <label style={{ ...S.label, marginBottom: 4 }}>Note (optional)</label>
+                    <input
+                      style={{ ...S.input, marginBottom: 0 }}
+                      type="text"
+                      placeholder="Reason for adjustment"
+                      value={adjustNote}
+                      onChange={e => setAdjustNote(e.target.value)}
+                    />
+                  </div>
+                  <button style={S.btn} onClick={handleAdjust} disabled={adjustSaving || !adjustMinutes || adjustMinutes === "0"}>
+                    {adjustSaving ? "Saving..." : "Apply"}
+                  </button>
+                </div>
+                {adjustResult && (
+                  <p style={{ fontSize: 13, marginTop: 8, marginBottom: 0, color: adjustResult.ok ? C.teal : "#c0392b" }}>
+                    {adjustResult.ok
+                      ? `Done. New balance: ${adjustResult.balance_after} min.`
+                      : adjustResult.error}
+                  </p>
+                )}
               </div>
             )}
 

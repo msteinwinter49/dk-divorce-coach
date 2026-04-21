@@ -179,3 +179,39 @@ export async function POST(request) {
 
   return NextResponse.json({ purchase, balance_after: balanceAfter });
 }
+
+// PATCH — admin manual balance adjustment (no Stripe, minutes only).
+// Body: { client_id, delta_minutes, note? }
+export async function PATCH(request) {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { cookies: { getAll() { return cookieStore.getAll(); } } }
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const { data: callerProfile } = await adminSupabase()
+    .from("profiles").select("role").eq("id", user.id).single();
+  if (callerProfile?.role !== "admin") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
+  const { client_id, delta_minutes, note } = await request.json();
+  if (!client_id || delta_minutes === undefined || delta_minutes === 0) {
+    return NextResponse.json({ error: "client_id and non-zero delta_minutes are required" }, { status: 400 });
+  }
+
+  const { data: ledgerRows, error } = await adminSupabase().rpc("apply_balance_delta", {
+    p_client_id: client_id,
+    p_delta_minutes: delta_minutes,
+    p_source_type: "admin_adjust",
+    p_note: note || null,
+    p_created_by: user.id,
+  });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ balance_after: ledgerRows?.[0]?.balance_after ?? null });
+}
