@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { chargeClient } from "@/lib/stripe";
+import { chargeClient, refundPaymentIntent } from "@/lib/stripe";
 import { notifyClient } from "@/lib/notifications";
 
 function adminSupabase() {
@@ -180,8 +180,7 @@ export async function POST(request) {
   return NextResponse.json({ purchase, balance_after: balanceAfter });
 }
 
-// PATCH — admin manual balance adjustment (no Stripe, minutes only).
-// Body: { client_id, delta_minutes, note? }
+// PATCH — admin manual actions. action = 'admin_adjust' | 'admin_charge'
 export async function PATCH(request) {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -198,20 +197,118 @@ export async function PATCH(request) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  const { client_id, delta_minutes, note } = await request.json();
-  if (!client_id || delta_minutes === undefined || delta_minutes === 0) {
-    return NextResponse.json({ error: "client_id and non-zero delta_minutes are required" }, { status: 400 });
+  const body = await request.json();
+  const { action, client_id } = body;
+  if (!client_id) return NextResponse.json({ error: "client_id is required" }, { status: 400 });
+
+  // --- admin_adjust: minutes only, no Stripe ---
+  if (action === "admin_adjust" || !action) {
+    const { delta_minutes, note } = body;
+    if (delta_minutes === undefined || delta_minutes === 0) {
+      return NextResponse.json({ error: "Non-zero delta_minutes is required" }, { status: 400 });
+    }
+    const { data: ledgerRows, error } = await adminSupabase().rpc("apply_balance_delta", {
+      p_client_id: client_id,
+      p_delta_minutes: delta_minutes,
+      p_source_type: "admin_adjust",
+      p_note: note || null,
+      p_created_by: user.id,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ balance_after: ledgerRows?.[0]?.balance_after ?? null });
   }
 
-  const { data: ledgerRows, error } = await adminSupabase().rpc("apply_balance_delta", {
-    p_client_id: client_id,
-    p_delta_minutes: delta_minutes,
-    p_source_type: "admin_adjust",
-    p_note: note || null,
-    p_created_by: user.id,
-  });
+  // --- admin_charge: Stripe only, no minutes ---
+  if (action === "admin_charge") {
+    const { amount_dollars, note } = body;
+    const dollars = parseFloat(amount_dollars);
+    if (!dollars || dollars <= 0) {
+      return NextResponse.json({ error: "amount_dollars must be a positive number" }, { status: 400 });
+    }
+    const amount_cents = Math.round(dollars * 100);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const { data: profile } = await adminSupabase()
+      .from("profiles").select("stripe_customer_id").eq("id", client_id).single();
+    if (!profile?.stripe_customer_id) {
+      return NextResponse.json({ error: "No card on file for this client." }, { status: 400 });
+    }
 
-  return NextResponse.json({ balance_after: ledgerRows?.[0]?.balance_after ?? null });
+    let paymentIntentId;
+    try {
+      const payment = await chargeClient(
+        profile.stripe_customer_id,
+        amount_cents,
+        note || "Manual coaching charge"
+      );
+      paymentIntentId = payment.id;
+    } catch (e) {
+      return NextResponse.json({ error: (e.message || "Payment failed").replace(/\.+$/, "") }, { status: 402 });
+    }
+
+    const { error } = await adminSupabase().rpc("apply_balance_delta", {
+      p_client_id: client_id,
+      p_delta_minutes: 0,
+      p_source_type: "admin_charge",
+      p_amount_cents: amount_cents,
+      p_stripe_payment_intent_id: paymentIntentId,
+      p_note: note || null,
+      p_created_by: user.id,
+    });
+    if (error) {
+      console.error("Ledger write failed after admin charge", paymentIntentId, error);
+    }
+
+    return NextResponse.json({ charged_dollars: dollars, payment_intent_id: paymentIntentId });
+  }
+
+  // --- admin_refund: Stripe refund only, capped at prior charges for this client ---
+  if (action === "admin_refund") {
+    const { amount_dollars, note } = body;
+    const dollars = parseFloat(amount_dollars);
+    if (!dollars || dollars <= 0) {
+      return NextResponse.json({ error: "amount_dollars must be a positive number" }, { status: 400 });
+    }
+    const amount_cents = Math.round(dollars * 100);
+
+    // Find prior succeeded PaymentIntents for this client, most recent first
+    const { data: priorCharges } = await adminSupabase()
+      .from("balance_ledger")
+      .select("stripe_payment_intent_id, amount_cents")
+      .eq("client_id", client_id)
+      .in("source_type", ["purchase", "admin_charge"])
+      .not("stripe_payment_intent_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (!priorCharges?.length) {
+      return NextResponse.json({ error: "No prior charges found for this client." }, { status: 400 });
+    }
+
+    // Use the most recent PaymentIntent as the refund target
+    const target = priorCharges[0];
+
+    let refund;
+    try {
+      refund = await refundPaymentIntent(target.stripe_payment_intent_id, amount_cents);
+    } catch (e) {
+      return NextResponse.json({ error: (e.message || "Refund failed").replace(/\.+$/, "") }, { status: 402 });
+    }
+
+    const { error } = await adminSupabase().rpc("apply_balance_delta", {
+      p_client_id: client_id,
+      p_delta_minutes: 0,
+      p_source_type: "admin_refund",
+      p_amount_cents: -amount_cents,
+      p_stripe_payment_intent_id: target.stripe_payment_intent_id,
+      p_note: note || null,
+      p_created_by: user.id,
+    });
+    if (error) {
+      console.error("Ledger write failed after admin refund", refund.id, error);
+    }
+
+    return NextResponse.json({ refunded_dollars: dollars, refund_id: refund.id });
+  }
+
+  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }

@@ -188,8 +188,48 @@ export async function GET(request) {
   // Expire purchase minutes: debit balance for expired packages.
   // ============================================
   try {
-    const { data: expiredMinutes } = await supabase.rpc("expire_purchase_minutes");
-    results.expired_purchase_rows = expiredMinutes ?? 0;
+    const sweepStart = now.toISOString();
+    const { data: expiredRows } = await supabase.rpc("expire_purchase_minutes");
+    results.expired_purchase_rows = expiredRows ?? 0;
+
+    if ((expiredRows ?? 0) > 0) {
+      // Find actual debits (non-zero delta) written during this sweep
+      const { data: expirations } = await supabase
+        .from("balance_ledger")
+        .select("client_id, delta_minutes")
+        .eq("source_type", "expiration")
+        .lt("delta_minutes", 0)
+        .gte("created_at", sweepStart);
+
+      if (expirations?.length > 0) {
+        const clientIds = [...new Set(expirations.map(e => e.client_id))];
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, first_name, last_name")
+          .in("id", clientIds);
+        const profileMap = {};
+        (profiles || []).forEach(p => { profileMap[p.id] = p; });
+
+        const listItems = expirations.map(e => {
+          const p = profileMap[e.client_id];
+          const name = p ? `${p.first_name || ""} ${p.last_name || ""}`.trim() || "Unknown" : "Unknown";
+          return `<li><strong>${name}</strong>: ${Math.abs(e.delta_minutes)} min expired</li>`;
+        }).join("");
+
+        const smsLine = expirations.map(e => {
+          const p = profileMap[e.client_id];
+          return `${p?.first_name || "Client"} ${p?.last_name || ""}: ${Math.abs(e.delta_minutes)}min`;
+        }).join("; ");
+
+        await notifyAdmin(
+          "Purchased minutes expired",
+          `<h2>Purchased Minutes Expired</h2>
+           <p>The following clients had purchased minutes expire in today's sweep:</p>
+           <ul>${listItems}</ul>`,
+          `Expired minutes: ${smsLine}`
+        );
+      }
+    }
   } catch (e) {
     console.error("Purchase expiration error:", e);
     results.expired_purchase_rows = -1;

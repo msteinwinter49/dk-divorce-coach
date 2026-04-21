@@ -48,6 +48,14 @@ async function getDefaultPaymentMethod(customerId) {
   return methods.data[0]?.id || null;
 }
 
+// Refund a prior PaymentIntent (full or partial)
+export async function refundPaymentIntent(paymentIntentId, amountCents) {
+  return stripe.refunds.create({
+    payment_intent: paymentIntentId,
+    ...(amountCents ? { amount: amountCents } : {}),
+  });
+}
+
 // Construct and verify a webhook event
 export function constructWebhookEvent(body, signature) {
   return stripe.webhooks.constructEvent(

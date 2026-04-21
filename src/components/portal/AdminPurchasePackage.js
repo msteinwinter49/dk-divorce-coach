@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { C, S } from "@/lib/constants";
 
-export default function AdminPurchasePackage({ client }) {
+export default function AdminPurchasePackage({ client, onDirtyChange }) {
   const [pricing, setPricing] = useState([]);
   const [sessionTypes, setSessionTypes] = useState([]);
   const [card, setCard] = useState(null);
@@ -62,6 +62,7 @@ export default function AdminPurchasePackage({ client }) {
         });
         setChosenDuration("");
         setChosenMatrixId("");
+        onDirtyChange?.(false);
       } else {
         setResult({ ok: false, error: data.error || "Charge failed." });
       }
@@ -73,19 +74,19 @@ export default function AdminPurchasePackage({ client }) {
   };
 
   if (loading) {
-    return <p style={{ fontSize: 13, color: C.muted, marginBottom: 0 }}>Loading…</p>;
+    return <p style={{ fontSize: 16, color: C.muted, marginBottom: 0 }}>Loading…</p>;
   }
 
   if (!card) {
     return (
-      <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 0 }}>
+      <p style={{ fontSize: 16, color: "#c0392b", marginBottom: 0 }}>
         No card on file. Ask the client to add a payment method in their portal first.
       </p>
     );
   }
 
   if (pricing.length === 0) {
-    return <p style={{ fontSize: 13, color: C.muted, marginBottom: 0 }}>No active packages configured.</p>;
+    return <p style={{ fontSize: 16, color: C.muted, marginBottom: 0 }}>No active packages configured.</p>;
   }
 
   const cardLine = `${(card.brand || "card").toUpperCase()} ···· ${card.last4}`;
@@ -94,11 +95,11 @@ export default function AdminPurchasePackage({ client }) {
     <div style={{ display: "grid", gap: 10 }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 160 }}>
-          <label style={S.label}>Session type</label>
+          <label style={{ ...S.label, fontSize: 16 }}>Session type</label>
           <select
             style={{ ...S.input, marginBottom: 0, cursor: "pointer" }}
             value={chosenDuration}
-            onChange={e => { setChosenDuration(e.target.value); setChosenMatrixId(""); }}
+            onChange={e => { setChosenDuration(e.target.value); setChosenMatrixId(""); onDirtyChange?.(!!e.target.value); }}
           >
             <option value="">Select…</option>
             {distinctDurations.map(d => (
@@ -107,7 +108,7 @@ export default function AdminPurchasePackage({ client }) {
           </select>
         </div>
         <div style={{ flex: 1, minWidth: 160 }}>
-          <label style={S.label}>Package</label>
+          <label style={{ ...S.label, fontSize: 16 }}>Package</label>
           <select
             style={{ ...S.input, marginBottom: 0, cursor: "pointer" }}
             value={chosenMatrixId}
@@ -128,7 +129,7 @@ export default function AdminPurchasePackage({ client }) {
       </div>
 
       {chosenPackage && (
-        <div style={{ background: C.warm, border: `0.5px solid ${C.warmBorder}`, borderRadius: 8, padding: "10px 12px", fontSize: 13, color: C.text }}>
+        <div style={{ background: C.warm, border: `0.5px solid ${C.warmBorder}`, borderRadius: 8, padding: "10px 12px", fontSize: 16, color: C.text }}>
           <div>Will charge <strong>{cardLine}</strong>: <strong>${(chosenPackage.price_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
           <div style={{ color: C.muted, marginTop: 2 }}>
             Adds {chosenPackage.duration_min * chosenPackage.package_size} min · expires {expiryPreview(chosenPackage.expires_months)}
@@ -142,17 +143,17 @@ export default function AdminPurchasePackage({ client }) {
           disabled={!chosenPackage || submitting}
           onClick={handleCharge}
         >
-          {submitting ? "Charging…" : "Charge this card"}
+          {submitting ? "Charging…" : "Charge Card on File"}
         </button>
       </div>
 
       {result && (
         result.ok ? (
-          <p style={{ fontSize: 13, color: C.teal, marginBottom: 0 }}>
+          <p style={{ fontSize: 16, color: C.teal, marginBottom: 0 }}>
             Charged ${result.charged_dollars}. New balance: {(() => { const h = Math.floor(result.balance_after / 60); const m = result.balance_after % 60; if (h === 0) return `${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${h} hour${h !== 1 ? "s" : ""}`; return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()}. Email receipt sent.
           </p>
         ) : (
-          <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 0 }}>{result.error}</p>
+          <p style={{ fontSize: 16, color: "#c0392b", marginBottom: 0 }}>{result.error}</p>
         )
       )}
     </div>
