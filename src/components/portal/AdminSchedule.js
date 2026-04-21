@@ -2077,7 +2077,6 @@ export default function AdminSchedule() {
           <p><strong>Date:</strong> {b.date}</p>
           <p><strong>Time:</strong> {formatTime(b.start_time)} - {formatTime(b.end_time)}</p>
           <p><strong>Duration:</strong> {b.session_duration} min</p>
-          <p><strong>Fee:</strong> ${Number(b.fee).toFixed(2)}</p>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           <button style={S.btn} onClick={() => handleAcceptDecline("accept")} disabled={modalSaving}>
@@ -2108,7 +2107,7 @@ export default function AdminSchedule() {
         <label style={S.label}>Session type</label>
         <select style={{ ...S.input, cursor: "pointer" }} value={bookType} onChange={e => setBookType(e.target.value)}>
           {sessionTypes.map(t => (
-            <option key={t.id} value={t.id}>{t.label} ({t.duration}min — ${Number(t.fee).toFixed(2)})</option>
+            <option key={t.id} value={t.id}>{t.label} ({t.duration}min)</option>
           ))}
         </select>
 
@@ -2158,7 +2157,7 @@ export default function AdminSchedule() {
         <select style={{ ...S.input, cursor: "pointer" }} value={bookType} onChange={e => setBookType(e.target.value)}>
           <option value="">Select a session type...</option>
           {sessionTypes.map(t => (
-            <option key={t.id} value={t.id}>{t.label} ({t.duration}min — ${Number(t.fee).toFixed(2)})</option>
+            <option key={t.id} value={t.id}>{t.label} ({t.duration}min)</option>
           ))}
         </select>
 
@@ -2316,7 +2315,7 @@ export default function AdminSchedule() {
           <div style={{ fontWeight: 600, marginBottom: 4 }}>{clientName(b.profiles)}</div>
           <div>{b.session_types?.label || "Session"}</div>
           <div>{formatTime(b.start_time)} – {formatTime(b.end_time)}</div>
-          <div>{b.session_duration} min · ${Number(b.fee).toFixed(2)}</div>
+          <div>{b.session_duration} min</div>
           <div style={{ marginTop: 4, fontStyle: "italic", color: b.status === "requested" ? SRC.requested : C.teal }}>
             {b.status}
           </div>

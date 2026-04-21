@@ -31,7 +31,7 @@ export async function expireStaleRequests(supabase) {
   // but we still need the stored event id to clean Google).
   const { data: candidates } = await supabase
     .from("bookings")
-    .select("id, google_calendar_event_id, start_time, created_at")
+    .select("id, user_id, session_duration, google_calendar_event_id, start_time, created_at")
     .eq("status", "requested")
     .lt("start_time", now.toISOString());
 
@@ -42,6 +42,21 @@ export async function expireStaleRequests(supabase) {
     .from("bookings")
     .update({ status: "expired" })
     .in("id", ids);
+
+  // Refund the debited minutes for each expired request
+  for (const c of candidates) {
+    try {
+      await supabase.rpc("apply_balance_delta", {
+        p_client_id: c.user_id,
+        p_delta_minutes: c.session_duration,
+        p_source_type: "cancel",
+        p_source_id: c.id,
+        p_created_by: null,
+      });
+    } catch (e) {
+      console.error(`[sweep] balance refund failed for booking ${c.id}:`, e?.message || e);
+    }
+  }
 
   // Best-effort Google cleanup. Load the token once and delete each event
   // whose id we have on file.

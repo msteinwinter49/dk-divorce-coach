@@ -18,20 +18,39 @@ export default function BuySessions({ setPage, viewAsClient }) {
 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null); // { ok, balance_after } | { ok:false, error }
+  const [balanceMinutes, setBalanceMinutes] = useState(null);
+
+  const clientId = viewAsClient?.id || null;
 
   useEffect(() => {
     if (!user) return;
+    const cardUrl = clientId ? `/api/stripe/card?client_id=${clientId}` : "/api/stripe/card";
+    const balanceUrl = clientId ? `/api/purchases?client_id=${clientId}` : "/api/purchases";
     Promise.all([
       fetch("/api/pricing-matrix").then(r => r.json()),
       fetch("/api/session-types").then(r => r.json()),
-      fetch("/api/stripe/card").then(r => r.json()).catch(() => ({ card: null })),
-    ]).then(([p, t, c]) => {
+      fetch(cardUrl).then(r => r.json()).catch(() => ({ card: null })),
+      fetch(balanceUrl).then(r => r.json()).catch(() => ({ balance_minutes: 0 })),
+    ]).then(([p, t, c, b]) => {
       setPricing(Array.isArray(p) ? p.filter(x => x.is_active) : []);
       setSessionTypes(Array.isArray(t) ? t : []);
       setCard(c?.card || null);
+      setBalanceMinutes(b?.balance_minutes ?? 0);
       setLoading(false);
     });
-  }, [user]);
+  }, [user, clientId]);
+
+  const fmtBalance = (min) => {
+    const h = Math.floor(Math.abs(min) / 60);
+    const m = Math.abs(min) % 60;
+    const sign = min < 0 ? "-" : "";
+    if (h === 0) return `${sign}${m} minute${m !== 1 ? "s" : ""}`;
+    if (m === 0) return `${sign}${h} hour${h !== 1 ? "s" : ""}`;
+    return `${sign}${h} hour${h !== 1 ? "s" : ""} ${m} minute${m !== 1 ? "s" : ""}`;
+  };
+  const balanceSubtitle = balanceMinutes != null
+    ? <p style={{ ...S.p, fontSize: 26, color: C.muted, marginTop: 4, marginBottom: 0 }}>sessions unused: {fmtBalance(balanceMinutes)}</p>
+    : null;
 
   const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min))).sort((a, b) => a - b);
   const packagesForDuration = (d) => pricing.filter(p => p.duration_min === d).sort((a, b) => a.package_size - b.package_size);
@@ -55,6 +74,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
       const data = await res.json();
       if (res.ok) {
         setResult({ ok: true, balance_after: data.balance_after });
+        if (data.balance_after != null) setBalanceMinutes(data.balance_after);
       } else {
         setResult({ ok: false, error: data.error || "Purchase failed." });
       }
@@ -82,6 +102,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
     return (
       <div style={S.page}>
         <h1 style={S.h1}>Buy Sessions</h1>
+        {balanceSubtitle}
         <div style={S.card}>
           <h3 style={S.h3}>Add a card first</h3>
           <p style={{ ...S.p, marginBottom: "1rem" }}>You need a payment method on file before you can purchase a package.</p>
@@ -95,6 +116,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
     return (
       <div style={S.page}>
         <h1 style={S.h1}>Buy Sessions</h1>
+        {balanceSubtitle}
         <div style={S.card}>
           <p style={{ ...S.p, marginBottom: 0 }}>No packages are currently available. Please contact Diana directly.</p>
         </div>
@@ -105,6 +127,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
   return (
     <div style={S.page}>
       <h1 style={S.h1}>Buy Sessions</h1>
+      {balanceSubtitle}
 
       {step === "duration" && (
         <div style={S.card}>

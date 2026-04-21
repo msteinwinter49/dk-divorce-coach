@@ -12,6 +12,31 @@ function adminSupabase() {
   );
 }
 
+// GET — return the authenticated client's current minute balance.
+export async function GET(request) {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { cookies: { getAll() { return cookieStore.getAll(); } } }
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const clientId = searchParams.get("client_id");
+
+  const admin = adminSupabase();
+  const targetId = clientId || user.id;
+  const { data } = await admin
+    .from("client_balances")
+    .select("balance_minutes")
+    .eq("client_id", targetId)
+    .maybeSingle();
+
+  return NextResponse.json({ balance_minutes: data?.balance_minutes ?? 0 });
+}
+
 // POST — purchase a pricing_matrix package. Charges card on file.
 // Body: { matrix_id, client_id? }
 // If client_id is provided AND caller is admin, the purchase is made on behalf

@@ -43,6 +43,7 @@ export default function Schedule({ viewAsClient }) {
   const [bookings, setBookings] = useState([]);
   const [sessionTypes, setSessionTypes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [balanceMinutes, setBalanceMinutes] = useState(null);
 
   // Booking popup state
   const [bookingDate, setBookingDate] = useState(null);
@@ -51,6 +52,7 @@ export default function Schedule({ viewAsClient }) {
   const [confirming, setConfirming] = useState(false);
   const [bookingError, setBookingError] = useState(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [lowBalance, setLowBalance] = useState(false);
   const [editingBooking, setEditingBooking] = useState(null);
   const [noChangeMessage, setNoChangeMessage] = useState(false);
 
@@ -103,6 +105,15 @@ export default function Schedule({ viewAsClient }) {
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
 
+  const refreshBalance = useCallback(() => {
+    if (!user) return;
+    const clientId = viewAsClient?.id;
+    const url = clientId ? `/api/purchases?client_id=${clientId}` : "/api/purchases";
+    fetch(url).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
+  }, [user, viewAsClient?.id]);
+
+  useEffect(() => { refreshBalance(); }, [refreshBalance]);
+
   const navigate = (dir) => {
     const d = new Date(currentDate);
     if (view === "day") d.setDate(d.getDate() + dir);
@@ -120,6 +131,7 @@ export default function Schedule({ viewAsClient }) {
     setBookingSuccess(false);
     setEditingBooking(null);
     setNoChangeMessage(false);
+    setLowBalance(false);
   };
 
   const openEditPopup = (b) => {
@@ -134,7 +146,7 @@ export default function Schedule({ viewAsClient }) {
     setSelectedTime(timeOnly);
     // Pre-select the session type from sessionTypes by id
     const t = sessionTypes.find(s => s.id === b.session_type_id);
-    setSelectedType(t || (b.session_types ? { id: b.session_type_id, label: b.session_types.label, duration: b.session_duration, fee: b.fee } : null));
+    setSelectedType(t || (b.session_types ? { id: b.session_type_id, label: b.session_types.label, duration: b.session_duration } : null));
     setBookingError(null);
     setBookingSuccess(false);
   };
@@ -186,6 +198,8 @@ export default function Schedule({ viewAsClient }) {
     }
 
     if (res.ok) {
+      const responseData = await res.json();
+      if (!editingBooking) setLowBalance(!!responseData.low_balance);
       const { start, end } = getRange();
       const [availRes, bookingsRes] = await Promise.all([
         fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
@@ -196,10 +210,21 @@ export default function Schedule({ viewAsClient }) {
       setAvailability(slotsByDate);
       if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
       setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
+      refreshBalance();
       setBookingSuccess(true);
     } else {
       const err = await res.json();
       setBookingError(err.error || "Could not book. Please try again.");
+      // Refresh availability so the UI reflects the real state after a conflict
+      if (res.status === 409) {
+        const { start, end } = getRange();
+        fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).then(availRes => {
+          const availOk = availRes && !availRes.error ? availRes : {};
+          const { __increment, ...slotsByDate } = availOk;
+          setAvailability(slotsByDate);
+          if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
+        }).catch(() => {});
+      }
     }
     clearTimeout(spinnerTimer);
     setShowSpinner(false);
@@ -220,6 +245,7 @@ export default function Schedule({ viewAsClient }) {
     setConfirming(false);
     if (res.ok) {
       setCancelSuccess(true);
+      refreshBalance();
       loadData();
     } else {
       alert("Could not cancel request.");
@@ -431,14 +457,12 @@ export default function Schedule({ viewAsClient }) {
     setTimeout(() => document.body.removeChild(ghost), 0);
   };
 
-  // Block on (a) overlap with another booking, or (b) start time outside every
-  // availability range. The end is allowed to overflow past the range end so a
-  // session flush against a chunk boundary can still slide within its chunk —
-  // the server reverts booked → requested for Diana's review either way.
+  // Block only on overlap with another booking. Availability containment is not
+  // enforced — the server reverts booked → requested for Diana's review anyway.
   const isDropAllowed = (date, startMin, durationMin) => {
     const endMin = startMin + durationMin;
     const dragId = dragRef.current?.id;
-    const overlaps = bookings.some(b => {
+    return !bookings.some(b => {
       if (b.id === dragId) return false;
       if (!["requested", "booked"].includes(b.status)) return false;
       const bDate = b.date || localDateStr(new Date(b.start_time));
@@ -448,45 +472,6 @@ export default function Schedule({ viewAsClient }) {
       const bEnd = bStart + (b.session_duration || 60);
       return startMin < bEnd && endMin > bStart;
     });
-    if (overlaps) return false;
-
-    // Build availability ranges from discrete slots; add back the dragged
-    // booking's own span so it doesn't block itself.
-    const slots = availability[date] || [];
-    const ranges = [];
-    for (const s of slots) {
-      const [sh, sm] = s.split(":").map(Number);
-      const sMin = sh * 60 + sm;
-      const sEnd = sMin + increment;
-      if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
-        ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], sEnd);
-      } else {
-        ranges.push([sMin, sEnd]);
-      }
-    }
-    // Add the dragged booking's own span as a separate range so the original
-    // position stays "allowed" — but do NOT merge with adjacent availability.
-    // Merging would let the ghost slide into white space that happens to touch
-    // the booking's edge (e.g. a booking flush against an isolated 12:30 slot
-    // would otherwise be draggable down to 1:00 through three slots of white).
-    const dragBooking = dragRef.current;
-    const dragDate = dragBooking?.date
-      || (dragBooking?.start_time ? localDateStr(new Date(dragBooking.start_time)) : null);
-    if (dragBooking && dragDate === date) {
-      let dStart = null;
-      if (dragBooking.time_slot) {
-        const [dh, dm] = dragBooking.time_slot.split(":").map(Number);
-        dStart = dh * 60 + dm;
-      } else if (dragBooking.start_time) {
-        const d = new Date(dragBooking.start_time);
-        dStart = d.getHours() * 60 + d.getMinutes();
-      }
-      if (dStart != null) {
-        ranges.push([dStart, dStart + durationMin]);
-      }
-    }
-    // Strict containment: the whole ghost span must fit inside a single range.
-    return ranges.some(([rStart, rEnd]) => startMin >= rStart && endMin <= rEnd);
   };
 
   const handleDragOver = (e, date, hour) => {
@@ -616,7 +601,7 @@ export default function Schedule({ viewAsClient }) {
           {new Date(b.start_time).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
         </div>
         <div>{formatTime(b.start_time)} – {formatTime(b.end_time)}</div>
-        <div>{b.session_duration} min · ${Number(b.fee).toFixed(2)}</div>
+        <div>{b.session_duration} min</div>
         <div style={{ marginTop: 4, fontStyle: "italic", color: b.status === "requested" ? "#c0392b" : C.teal }}>
           {b.status}
         </div>
@@ -693,7 +678,7 @@ export default function Schedule({ viewAsClient }) {
             </div>
             {height > 36 && (
               <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {formatTime(b.start_time)} - {formatTime(b.end_time)} | {b.session_duration}min | ${Number(b.fee).toFixed(2)}
+                {formatTime(b.start_time)} - {formatTime(b.end_time)} | {b.session_duration}min
               </div>
             )}
           </>
@@ -923,6 +908,11 @@ export default function Schedule({ viewAsClient }) {
                         : `Your request for ${dateLabel} at ${selectedTime} has been submitted. Diana will review and confirm.`)}
                 </p>
               )}
+              {lowBalance && (
+                <p style={{ fontSize: 13, color: "#c0392b", marginTop: 8, marginBottom: 4 }}>
+                  Your session balance is now negative. Please purchase more sessions to maintain a positive balance.
+                </p>
+              )}
               <button style={S.btn} onClick={closePopup}>Close</button>
             </div>
           ) : (
@@ -961,7 +951,7 @@ export default function Schedule({ viewAsClient }) {
                       background: selectedType?.id === t.id ? C.tealLight : "#fff",
                     }}>
                     <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{t.label}</div>
-                    <div style={{ fontSize: 12, color: C.muted }}>{t.duration} min — ${Number(t.fee).toFixed(2)}</div>
+                    <div style={{ fontSize: 12, color: C.muted }}>{t.duration} min</div>
                   </div>
                 ))}
               </div>
@@ -974,12 +964,8 @@ export default function Schedule({ viewAsClient }) {
                 const endMin = startMin + selectedType.duration;
 
                 // Build continuous available ranges from discrete slots
-                let increment = 30;
-                if (slots.length >= 2) {
-                  const [h0, m0] = slots[0].split(":").map(Number);
-                  const [h1, m1] = slots[1].split(":").map(Number);
-                  increment = (h1 * 60 + m1) - (h0 * 60 + m0);
-                }
+                // Use the authoritative increment from the API, not slot gap inference
+                // (gaps caused by SP appointments would produce a wrong larger value).
                 const ranges = [];
                 for (const s of slots) {
                   const [sh, sm] = s.split(":").map(Number);
@@ -1017,8 +1003,12 @@ export default function Schedule({ viewAsClient }) {
                   return startMin < bEnd && endMin > bStart;
                 });
 
+                const validStart = !!editingBooking || (availability[bookingDate] || []).includes(selectedTime);
                 if (overlap) {
                   return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>This time overlaps an existing booking.</p>;
+                }
+                if (!validStart) {
+                  return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>This start time is not on an available time slot.</p>;
                 }
                 if (!covered) {
                   return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>Part of this time slot is outside available hours.</p>;
@@ -1031,7 +1021,7 @@ export default function Schedule({ viewAsClient }) {
                 <div style={{ padding: "1rem", background: C.warm, borderRadius: 12, marginBottom: 12 }}>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{selectedType.label}</div>
                   <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-                    {dateLabel} at {formatTimeStr(selectedTime)} — {selectedType.duration} min — ${Number(selectedType.fee).toFixed(2)}
+                    {dateLabel} at {formatTimeStr(selectedTime)} — {selectedType.duration} min
                   </div>
                 </div>
               )}
@@ -1048,16 +1038,16 @@ export default function Schedule({ viewAsClient }) {
                         : (isAdminViewing ? "Book Session" : "Request Session")}
                   </button>
                 )}
-                <button style={S.btnSmOut} onClick={closePopup}>Cancel</button>
                 {editingBooking && editingBooking.status === "requested" && (
                   <button
-                    style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b", marginLeft: "auto" }}
+                    style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
                     onClick={() => { const b = editingBooking; closePopup(); setCancelTarget(b); }}
                     disabled={confirming}
                   >
                     Cancel Request
                   </button>
                 )}
+                <button style={{ ...S.btnSmOut, marginLeft: "auto" }} onClick={closePopup}>Cancel</button>
               </div>
             </>
           )}
@@ -1165,7 +1155,18 @@ export default function Schedule({ viewAsClient }) {
     <div style={S.page}>
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
-        <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Schedule</h1>
+        <div>
+          <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Schedule</h1>
+          {balanceMinutes != null && (() => {
+            const h = Math.floor(Math.abs(balanceMinutes) / 60);
+            const m = Math.abs(balanceMinutes) % 60;
+            const sign = balanceMinutes < 0 ? "-" : "";
+            const label = h === 0 ? `${sign}${m} minute${m !== 1 ? "s" : ""}`
+              : m === 0 ? `${sign}${h} hour${h !== 1 ? "s" : ""}`
+              : `${sign}${h} hour${h !== 1 ? "s" : ""} ${m} minute${m !== 1 ? "s" : ""}`;
+            return <p style={{ ...S.p, fontSize: 26, color: C.muted, marginTop: 2, marginBottom: 0 }}>sessions unused: {label}</p>;
+          })()}
+        </div>
       </div>
 
       <p style={{ ...S.p, fontSize: 13 }}>

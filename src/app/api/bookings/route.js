@@ -105,9 +105,7 @@ export async function GET(request) {
 
   let query = adminClient
     .from("bookings")
-    .select(isAdmin
-      ? "*, session_types(label, duration, fee)"
-      : "*, session_types(label, duration, fee)")
+    .select("*, session_types(label, duration)")
     .in("status", ["requested", "booked"])
     .order("start_time");
 
@@ -207,12 +205,22 @@ export async function POST(request) {
       end_time: endTimestamp,
       session_type_id,
       session_duration: sessionType.duration,
-      fee: sessionType.fee,
     })
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Debit the client's minute balance. Allowed to go negative — warn but don't block.
+  const { data: ledgerRows } = await adminClient.rpc("apply_balance_delta", {
+    p_client_id: bookingUserId,
+    p_delta_minutes: -sessionType.duration,
+    p_source_type: "request",
+    p_source_id: booking.id,
+    p_created_by: ctx.user.id,
+  });
+  const balanceAfter = ledgerRows?.[0]?.balance_after ?? null;
+  const lowBalance = balanceAfter != null && balanceAfter < 0;
 
   // Google Calendar sync — admin-on-behalf is confirmed; client request is tentative.
   // Look up the client profile once so we can pass it to both sync and notification.
@@ -247,8 +255,7 @@ export async function POST(request) {
            <p>A coaching session has been scheduled for you:</p>
            <p><strong>Date:</strong> ${formatSessionDate(date)}</p>
            <p><strong>Time:</strong> ${formatSessionTime(start_time).replace(" ET", "")} &ndash; ${formatSessionTime(endTimeStr)}</p>
-           <p><strong>Duration:</strong> ${sessionType.duration} min</p>
-           ${sessionType.fee > 0 ? `<p><strong>Fee:</strong> $${sessionType.fee}</p>` : ""}`,
+           <p><strong>Duration:</strong> ${sessionType.duration} min</p>`,
           `Your coaching session on ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min) is confirmed.`
         );
       } catch (e) {
@@ -266,7 +273,6 @@ export async function POST(request) {
          <p><strong>Date:</strong> ${formatSessionDate(date)}</p>
          <p><strong>Time:</strong> ${formatSessionTime(start_time).replace(" ET", "")} &ndash; ${formatSessionTime(endTimeStr)}</p>
          <p><strong>Duration:</strong> ${sessionType.duration} min</p>
-         <p><strong>Fee:</strong> $${sessionType.fee}</p>
          <p>Log in to your admin calendar to accept or decline.</p>`,
         `New session request from ${clientName}: ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min). Log in to accept or decline.`
       );
@@ -275,7 +281,7 @@ export async function POST(request) {
     }
   }
 
-  return NextResponse.json(booking);
+  return NextResponse.json({ ...booking, balance_after: balanceAfter, low_balance: lowBalance });
 }
 
 // PATCH — admin accepts, declines, or updates a booking; client updates own booking
@@ -321,38 +327,16 @@ export async function PATCH(request) {
   // Get client profile separately (no FK between bookings and profiles)
   const { data: clientProfile } = await adminClient
     .from("profiles")
-    .select("first_name, last_name, preferred_email, phone, notification_preference, stripe_customer_id")
+    .select("first_name, last_name, preferred_email, phone, notification_preference")
     .eq("id", booking.user_id)
     .single();
 
   booking.profiles = clientProfile;
 
   if (action === "accept") {
-    // Charge the client if they have a payment method
-    let paymentIntentId = null;
-    if (booking.profiles.stripe_customer_id && booking.fee > 0) {
-      try {
-        const { chargeClient } = await import("@/lib/stripe");
-        const payment = await chargeClient(
-          booking.profiles.stripe_customer_id,
-          Math.round(booking.fee * 100),
-          `Coaching session - ${booking.date}`
-        );
-        paymentIntentId = payment.id;
-      } catch (e) {
-        const reason = (e.message || "").replace(/\.+$/, "");
-        return NextResponse.json({
-          error: `Payment failed: ${reason}. Booking not accepted.`
-        }, { status: 402 });
-      }
-    }
-
     const { data, error } = await adminClient
       .from("bookings")
-      .update({
-        status: "booked",
-        stripe_payment_intent_id: paymentIntentId,
-      })
+      .update({ status: "booked" })
       .eq("id", id)
       .select()
       .single();
@@ -369,8 +353,7 @@ export async function PATCH(request) {
         "Your coaching session is confirmed!",
         `<h2>Session Confirmed</h2>
          <p>Your coaching session on <strong>${whenStr}</strong> has been confirmed.</p>
-         <p><strong>Duration:</strong> ${booking.session_duration} min</p>
-         ${booking.fee > 0 ? `<p><strong>Fee:</strong> $${booking.fee} (charged to card on file)</p>` : ""}`,
+         <p><strong>Duration:</strong> ${booking.session_duration} min</p>`,
         `Your coaching session on ${whenStr} (${booking.session_duration}min) is confirmed.`
       );
     } catch (e) {
@@ -389,6 +372,15 @@ export async function PATCH(request) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Refund the debited minutes back to the client's balance
+    await adminClient.rpc("apply_balance_delta", {
+      p_client_id: booking.user_id,
+      p_delta_minutes: booking.session_duration,
+      p_source_type: "decline",
+      p_source_id: booking.id,
+      p_created_by: ctx.user.id,
+    });
 
     // Google sync: remove the tentative event
     await syncBookingGoogle(adminClient, booking, clientProfile, null, "delete");
@@ -416,7 +408,6 @@ export async function PATCH(request) {
 
     // If session type changed, look it up
     let duration = booking.session_duration;
-    let fee = booking.fee;
     if (session_type_id && session_type_id !== booking.session_type_id) {
       const { data: sessionType } = await adminClient
         .from("session_types")
@@ -426,9 +417,7 @@ export async function PATCH(request) {
       if (!sessionType) return NextResponse.json({ error: "Invalid session type" }, { status: 400 });
       updates.session_type_id = session_type_id;
       updates.session_duration = sessionType.duration;
-      updates.fee = sessionType.fee;
       duration = sessionType.duration;
-      fee = sessionType.fee;
     }
 
     // If date or time changed, recalculate timestamps
@@ -503,7 +492,7 @@ export async function PATCH(request) {
     if (updates.session_type_id) {
       const { data: st } = await adminClient
         .from("session_types")
-        .select("label, duration, fee")
+        .select("label, duration")
         .eq("id", updates.session_type_id)
         .single();
       syncSessionType = st;
@@ -522,8 +511,7 @@ export async function PATCH(request) {
            <p>Your coaching session has been updated to:</p>
            <p><strong>Date:</strong> ${formatSessionDate(data.date)}</p>
            <p><strong>Time:</strong> ${formatSessionTime(data.time_slot)}</p>
-           <p><strong>Duration:</strong> ${data.session_duration} min</p>
-           ${data.fee > 0 ? `<p><strong>Fee:</strong> $${data.fee}</p>` : ""}`,
+           <p><strong>Duration:</strong> ${data.session_duration} min</p>`,
           `Your coaching session has been moved to ${whenStr} (${data.session_duration}min).`
         );
       } catch (e) {
@@ -543,7 +531,6 @@ export async function PATCH(request) {
            <p><strong>New date:</strong> ${formatSessionDate(data.date)}</p>
            <p><strong>New time:</strong> ${formatSessionTime(data.time_slot)}</p>
            <p><strong>Duration:</strong> ${data.session_duration} min</p>
-           <p><strong>Fee:</strong> $${data.fee}</p>
            ${wasApproved ? "<p>This session was previously approved and has been reverted to a pending request.</p>" : ""}
            <p>Log in to your admin calendar to accept or decline.</p>`,
           `${wasApproved ? "CHANGE REQUEST" : "Updated request"} from ${clientName}: ${whenStr} (${data.session_duration}min). Log in to accept or decline.`
@@ -596,6 +583,15 @@ export async function DELETE(request) {
     .eq("id", id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Refund the debited minutes back to the client's balance
+  await adminClient.rpc("apply_balance_delta", {
+    p_client_id: booking.user_id,
+    p_delta_minutes: booking.session_duration,
+    p_source_type: "cancel",
+    p_source_id: booking.id,
+    p_created_by: ctx.user.id,
+  });
 
   // Google sync: remove the event
   await syncBookingGoogle(adminClient, booking, null, null, "delete");

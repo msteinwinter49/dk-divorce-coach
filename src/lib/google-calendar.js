@@ -150,8 +150,6 @@ function buildBookingDescription(booking, sessionType, status) {
   if (sessionType?.label) lines.push(`Session: ${sessionType.label}`);
   const duration = booking.session_duration ?? sessionType?.duration;
   if (duration) lines.push(`Duration: ${duration} min`);
-  const fee = booking.fee ?? sessionType?.fee;
-  if (fee != null) lines.push(`Fee: $${fee}`);
   lines.push(`Status: ${status}`);
   lines.push("");
   lines.push("https://dkdivorcecoach.com/");
