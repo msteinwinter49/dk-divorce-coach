@@ -485,6 +485,18 @@ export async function PATCH(request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    // If session duration changed, write a ledger delta for the difference.
+    const durationDelta = booking.session_duration - duration;
+    if (durationDelta !== 0) {
+      await adminClient.rpc("apply_balance_delta", {
+        p_client_id: booking.user_id,
+        p_delta_minutes: durationDelta,
+        p_source_type: "edit_delta",
+        p_source_id: booking.id,
+        p_created_by: ctx.user.id,
+      });
+    }
+
     // Google sync: patch event with new time/title. Status reflects post-update state:
     // - admin edit of a booked session → stays confirmed
     // - client edit of a booked session → reverts to requested (tentative)

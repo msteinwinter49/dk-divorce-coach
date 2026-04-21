@@ -62,6 +62,8 @@ export default function Schedule({ viewAsClient }) {
   // Cancel state
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelSuccess, setCancelSuccess] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const lastOwnActionAt = useRef(0);
 
   // Drag-and-drop state (move existing bookings)
   const dragRef = useRef(null);
@@ -121,7 +123,10 @@ export default function Schedule({ viewAsClient }) {
     const supabase = createClient();
     const channel = supabase
       .channel(`balance_ledger:${watchId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "balance_ledger", filter: `client_id=eq.${watchId}` }, refreshBalance)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "balance_ledger", filter: `client_id=eq.${watchId}` }, () => {
+          refreshBalance();
+          if (Date.now() - lastOwnActionAt.current > 3000) setNeedsRefresh(true);
+        })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, viewAsClient?.id, refreshBalance]);
@@ -223,6 +228,8 @@ export default function Schedule({ viewAsClient }) {
       if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
       setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
       refreshBalance();
+      lastOwnActionAt.current = Date.now();
+      setNeedsRefresh(false);
       setBookingSuccess(true);
     } else {
       const err = await res.json();
@@ -257,6 +264,8 @@ export default function Schedule({ viewAsClient }) {
     setConfirming(false);
     if (res.ok) {
       setCancelSuccess(true);
+      lastOwnActionAt.current = Date.now();
+      setNeedsRefresh(false);
       refreshBalance();
       loadData();
     } else {
@@ -553,6 +562,8 @@ export default function Schedule({ viewAsClient }) {
     setConfirming(false);
     if (res.ok) {
       setPendingMove(null);
+      lastOwnActionAt.current = Date.now();
+      setNeedsRefresh(false);
       loadData();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -1178,6 +1189,15 @@ export default function Schedule({ viewAsClient }) {
           })()}
         </div>
       </div>
+
+      {needsRefresh && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", marginBottom: 12, background: C.tealLight, borderRadius: 8, fontSize: 13, color: C.teal }}>
+          Your schedule may have changed.
+          <button style={{ ...S.btnSm, padding: "4px 12px", fontSize: 13 }} onClick={() => { setNeedsRefresh(false); loadData(); }}>
+            Refresh Now
+          </button>
+        </div>
+      )}
 
       <p style={{ ...S.p, fontSize: 13 }}>
         {readOnly
