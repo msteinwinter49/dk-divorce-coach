@@ -27,24 +27,26 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const supabase = createClient();
 
-    // Invite links use the legacy implicit flow — tokens arrive in the URL hash.
-    // createBrowserClient (SSR) doesn't process these automatically, so we do it here.
-    if (typeof window !== "undefined" && window.location.hash.includes("access_token")) {
-      const params = new URLSearchParams(window.location.hash.substring(1));
-      const access_token = params.get("access_token");
-      const refresh_token = params.get("refresh_token");
-      if (access_token && refresh_token) {
-        window.history.replaceState(null, "", window.location.pathname);
-        supabase.auth.setSession({ access_token, refresh_token });
-        // onAuthStateChange below will pick up the SIGNED_IN event
+    async function init() {
+      // Invite links use the legacy implicit flow — tokens arrive in the URL hash.
+      // createBrowserClient (SSR) skips these, so we set the session explicitly first.
+      if (typeof window !== "undefined" && window.location.hash.includes("access_token")) {
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const access_token = params.get("access_token");
+        const refresh_token = params.get("refresh_token");
+        if (access_token && refresh_token) {
+          window.history.replaceState(null, "", window.location.pathname);
+          await supabase.auth.setSession({ access_token, refresh_token });
+        }
       }
-    }
 
-    supabase.auth.getUser().then(({ data: { user } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
       if (user) fetchProfile(user.id);
       else setLoading(false);
-    });
+    }
+
+    init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const u = session?.user ?? null;
