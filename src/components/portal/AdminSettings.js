@@ -432,7 +432,8 @@ export default function AdminSettings({ setPage }) {
             Configure at least one Session Type and one Package size above to populate the pricing table.
           </p>
         ) : (
-          <>
+          <div style={{ overflowX: "auto", marginLeft: -4, marginRight: -4, paddingLeft: 4, paddingRight: 4 }}>
+            <div style={{ minWidth: 420 }}>
             <div style={{ display: "flex", gap: "0.75rem", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.hint, fontWeight: 500 }}>
               <span style={{ flex: `0 0 ${sessionTypeColWidth}px` }}>Session Type</span>
               <span style={{ flex: 1, textAlign: "center" }}>Package</span>
@@ -525,7 +526,8 @@ export default function AdminSettings({ setPage }) {
                 );
               })
             )}
-          </>
+            </div>
+          </div>
         )}
       </div>
 
