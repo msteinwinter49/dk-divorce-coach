@@ -379,6 +379,7 @@ export default function Clients({ setPage, onViewAsClient }) {
             {search ? "No clients match your search." : "No clients yet."}
           </p>
         ) : (
+          <>
           {mobile && (
             <p style={{ fontSize: 12, color: C.muted, background: C.warm, borderRadius: 6, padding: "6px 10px", marginBottom: 8 }}>
               Best viewed in landscape mode.
@@ -428,6 +429,7 @@ export default function Clients({ setPage, onViewAsClient }) {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
