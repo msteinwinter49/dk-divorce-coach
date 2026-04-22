@@ -12,7 +12,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" style={{ overscrollBehavior: "none" }}>
+      <head><style>{`html, body { overscroll-behavior: none; }`}</style></head>
       <body style={{ margin: 0, padding: 0, fontFamily: "system-ui, sans-serif", overscrollBehavior: "none" }}>
         <AuthProvider>
           {children}
