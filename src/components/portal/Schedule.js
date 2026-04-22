@@ -922,7 +922,7 @@ export default function Schedule({ setPage, viewAsClient }) {
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
       }} onClick={tryClose}>
-        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto", overscrollBehavior: "contain", position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={tryClose} aria-label="Close" style={{
             position: "absolute", top: 10, right: 10, background: "none", border: "none",
             cursor: "pointer", fontSize: 18, color: C.muted, lineHeight: 1, padding: "4px 8px", zIndex: 1,
