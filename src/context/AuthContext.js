@@ -27,6 +27,19 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const supabase = createClient();
 
+    // Invite links use the legacy implicit flow — tokens arrive in the URL hash.
+    // createBrowserClient (SSR) doesn't process these automatically, so we do it here.
+    if (typeof window !== "undefined" && window.location.hash.includes("access_token")) {
+      const params = new URLSearchParams(window.location.hash.substring(1));
+      const access_token = params.get("access_token");
+      const refresh_token = params.get("refresh_token");
+      if (access_token && refresh_token) {
+        window.history.replaceState(null, "", window.location.pathname);
+        supabase.auth.setSession({ access_token, refresh_token });
+        // onAuthStateChange below will pick up the SIGNED_IN event
+      }
+    }
+
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
       if (user) fetchProfile(user.id);
