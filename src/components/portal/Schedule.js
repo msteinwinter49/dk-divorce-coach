@@ -984,14 +984,14 @@ export default function Schedule({ setPage, viewAsClient }) {
               )}
 
               {/* Start / End time */}
-              <div style={{ display: "flex", gap: 16, alignItems: "flex-end", marginBottom: 16 }}>
-                <div style={{ flex: mobile ? "0 0 40%" : 1 }}>
+              <div style={{ display: "flex", gap: 20, alignItems: "flex-end", marginBottom: 16 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
                   <input type="time" value={selectedTime || ""}
                     onChange={e => setSelectedTime(e.target.value)}
                     style={{ ...S.input, width: "100%", fontSize: 14, marginBottom: 0 }} />
                 </div>
-                <div style={{ flex: mobile ? "0 0 40%" : 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
                   <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
                     {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
