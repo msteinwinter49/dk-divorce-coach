@@ -21,6 +21,13 @@ export default function Profile({ onSaved, viewAsClient }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+
   const isFirstLogin = !profile?.first_name;
 
   const TIMEZONES = [
@@ -197,6 +204,64 @@ export default function Profile({ onSaved, viewAsClient }) {
           {saving ? "Saving..." : "Save profile"}
         </button>
       </div>
+
+      {/* Change password — only show after profile is set up, not in admin view mode */}
+      {!viewAsClient && !isFirstLogin && (
+        <div style={{ ...S.card, marginTop: "1rem" }}>
+          <h3 style={S.h3}>Change password</h3>
+          <label style={S.label}>New password</label>
+          <div style={{ position: "relative", marginBottom: "0.75rem" }}>
+            <input
+              type={showPw ? "text" : "password"}
+              style={{ ...S.input, marginBottom: 0, paddingRight: 40 }}
+              placeholder="Minimum 8 characters"
+              value={pwNew}
+              onChange={e => { setPwNew(e.target.value); setPwError(null); setPwSuccess(false); }}
+            />
+            <button onClick={() => setShowPw(v => !v)} style={{
+              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 4,
+            }}>
+              {showPw ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              )}
+            </button>
+          </div>
+          <label style={S.label}>Confirm new password</label>
+          <input
+            type={showPw ? "text" : "password"}
+            style={S.input}
+            placeholder="Re-enter your new password"
+            value={pwConfirm}
+            onChange={e => { setPwConfirm(e.target.value); setPwError(null); setPwSuccess(false); }}
+          />
+          {pwError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{pwError}</p>}
+          {pwSuccess && <p style={{ fontSize: 13, color: C.teal, marginBottom: 12 }}>Password updated.</p>}
+          <button style={S.btn} disabled={pwSaving} onClick={async () => {
+            if (!pwNew) { setPwError("Enter a new password."); return; }
+            if (pwNew.length < 8) { setPwError("Password must be at least 8 characters."); return; }
+            if (pwNew !== pwConfirm) { setPwError("Passwords do not match."); return; }
+            setPwSaving(true);
+            setPwError(null);
+            const supabase = createClient();
+            const { error: err } = await supabase.auth.updateUser({ password: pwNew });
+            setPwSaving(false);
+            if (err) { setPwError(err.message || "Could not update password."); }
+            else { setPwSuccess(true); setPwNew(""); setPwConfirm(""); }
+          }}>
+            {pwSaving ? "Updating…" : "Update password"}
+          </button>
+        </div>
+      )}
 
       {/* Payment method — only show for clients after initial profile setup, not in admin view */}
       {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (

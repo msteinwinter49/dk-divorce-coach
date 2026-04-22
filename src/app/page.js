@@ -15,6 +15,7 @@ import Documents from "@/components/portal/Documents";
 import Schedule from "@/components/portal/Schedule";
 import Messages from "@/components/portal/Messages";
 import Profile from "@/components/portal/Profile";
+import ClientIntake from "@/components/portal/ClientIntake";
 import BuySessions from "@/components/portal/BuySessions";
 import Admin from "@/components/portal/Admin";
 import Clients from "@/components/portal/Clients";
@@ -66,6 +67,9 @@ export default function App() {
     }
     // Force profile setup on first login
     if (needsProfile) {
+      if (profile?.role === "client") {
+        return <ClientIntake onComplete={() => { refreshProfile(); setPage("Portal Home"); }} />;
+      }
       return <Profile onSaved={() => { refreshProfile(); setPage("Portal Home"); }} />;
     }
     if (page === "Profile") return <Profile onSaved={refreshProfile} viewAsClient={viewAsClient} />;
