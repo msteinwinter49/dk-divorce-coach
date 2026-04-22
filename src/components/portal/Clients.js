@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { C, S } from "@/lib/constants";
+import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
 
 function formatPhoneInput(value) {
@@ -12,6 +13,7 @@ function formatPhoneInput(value) {
 }
 
 export default function Clients({ setPage, onViewAsClient }) {
+  const mobile = useIsMobile();
   // Invite form state
   const [email, setEmail] = useState("");
   const [makeAdmin, setMakeAdmin] = useState(false);
@@ -377,6 +379,11 @@ export default function Clients({ setPage, onViewAsClient }) {
             {search ? "No clients match your search." : "No clients yet."}
           </p>
         ) : (
+          {mobile && (
+            <p style={{ fontSize: 12, color: C.muted, background: C.warm, borderRadius: 6, padding: "6px 10px", marginBottom: 8 }}>
+              Best viewed in landscape mode.
+            </p>
+          )}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
