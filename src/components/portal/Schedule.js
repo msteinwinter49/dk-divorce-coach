@@ -56,6 +56,7 @@ export default function Schedule({ setPage, viewAsClient }) {
   const [lowBalance, setLowBalance] = useState(false);
   const [editingBooking, setEditingBooking] = useState(null);
   const [noChangeMessage, setNoChangeMessage] = useState(false);
+  const [showCloseWarning, setShowCloseWarning] = useState(false);
 
   const [showSpinner, setShowSpinner] = useState(false);
 
@@ -149,6 +150,7 @@ export default function Schedule({ setPage, viewAsClient }) {
     setEditingBooking(null);
     setNoChangeMessage(false);
     setLowBalance(false);
+    setShowCloseWarning(false);
   };
 
   const openEditPopup = (b) => {
@@ -166,6 +168,7 @@ export default function Schedule({ setPage, viewAsClient }) {
     setSelectedType(t || (b.session_types ? { id: b.session_type_id, label: b.session_types.label, duration: b.session_duration } : null));
     setBookingError(null);
     setBookingSuccess(false);
+    setShowCloseWarning(false);
   };
 
   const handleBook = async () => {
@@ -232,7 +235,7 @@ export default function Schedule({ setPage, viewAsClient }) {
       setNeedsRefresh(false);
       setBookingSuccess(true);
     } else {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       setBookingError(err.error || "Could not book. Please try again.");
       // Refresh availability so the UI reflects the real state after a conflict
       if (res.status === 409) {
@@ -752,7 +755,7 @@ export default function Schedule({ setPage, viewAsClient }) {
     return (
       <div style={{ overflowX: "auto", userSelect: "none" }}>
         <div style={{ display: "flex", minWidth: mobile ? 770 : "auto" }}>
-          <div style={{ width: 70, flexShrink: 0 }}>
+          <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>
             <div style={{ height: 36, padding: "4px 0", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, background: "#fafafa" }} />
             {HOURS.map(h => (
               <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -834,7 +837,7 @@ export default function Schedule({ setPage, viewAsClient }) {
 
               return (
                 <div key={di} style={{
-                  minHeight: 80, padding: "4px 6px",
+                  minHeight: 80, padding: "4px 6px", minWidth: 0, overflow: "hidden",
                   borderBottom: wi < weeks.length - 1 ? `0.5px solid ${C.gridLine}` : "none",
                   borderRight: di < 6 ? `0.5px solid ${C.gridLine}` : "none",
                   opacity: isCurrentMonth ? 1 : 0.4,
@@ -904,12 +907,26 @@ export default function Schedule({ setPage, viewAsClient }) {
     const times = selectedType ? getTimesForDuration(bookingDate, selectedType.duration) : [];
     const dateLabel = new Date(bookingDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
+    const origDate = editingBooking ? (editingBooking.date || localDateStr(new Date(editingBooking.start_time))) : null;
+    const origTime = editingBooking ? (editingBooking.time_slot || (() => {
+      const d = new Date(editingBooking.start_time);
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    })()) : null;
+    const hasUnsavedChanges = !bookingSuccess && (editingBooking
+      ? (bookingDate !== origDate || selectedTime !== origTime || selectedType?.id !== editingBooking.session_type_id)
+      : !!(selectedTime || selectedType));
+    const tryClose = () => { if (hasUnsavedChanges) setShowCloseWarning(true); else closePopup(); };
+
     return (
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }} onClick={closePopup}>
-        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+      }} onClick={tryClose}>
+        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto", position: "relative" }} onClick={e => e.stopPropagation()}>
+          <button onClick={tryClose} aria-label="Close" style={{
+            position: "absolute", top: 10, right: 10, background: "none", border: "none",
+            cursor: "pointer", fontSize: 18, color: C.muted, lineHeight: 1, padding: "4px 8px", zIndex: 1,
+          }}>✕</button>
 
           {bookingSuccess ? (
             <div style={{ textAlign: "center", padding: "1rem" }}>
@@ -938,22 +955,43 @@ export default function Schedule({ setPage, viewAsClient }) {
             </div>
           ) : (
             <>
-              <h3 style={S.h3}>
+              <h3 style={{ ...S.h3, paddingRight: 32 }}>
                 {editingBooking
-                  ? "Edit Session"
+                  ? (editingBooking.status === "requested" ? "Edit Request" : "Edit Session")
                   : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session")}
               </h3>
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
+              {showCloseWarning && (
+                <div style={{
+                  background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8,
+                  padding: "10px 14px", marginBottom: 16,
+                }}>
+                  <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>
+                    You have unsaved changes. Save or discard before closing?
+                  </p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button style={S.btn} disabled={!selectedType || !selectedTime || confirming}
+                      onClick={() => { setShowCloseWarning(false); handleBook(); }}>
+                      {confirming ? "Saving..." : "Save"}
+                    </button>
+                    <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
+                      onClick={closePopup}>
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Start / End time */}
               <div style={{ display: "flex", gap: 16, alignItems: "flex-end", marginBottom: 16 }}>
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: mobile ? "0 0 40%" : 1 }}>
                   <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
                   <input type="time" value={selectedTime || ""}
                     onChange={e => setSelectedTime(e.target.value)}
                     style={{ ...S.input, width: "100%", fontSize: 14, marginBottom: 0 }} />
                 </div>
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: mobile ? "0 0 40%" : 1 }}>
                   <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
                   <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
                     {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
@@ -1068,7 +1106,6 @@ export default function Schedule({ setPage, viewAsClient }) {
                     {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
                   </button>
                 )}
-                <button style={{ ...S.btnSmOut, marginLeft: "auto" }} onClick={closePopup}>Cancel</button>
               </div>
             </>
           )}
@@ -1221,61 +1258,85 @@ export default function Schedule({ setPage, viewAsClient }) {
       ) : (
         <>
           {(view === "day" || view === "week") ? (
-            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
-              </div>
-              <MiniCalendar currentDate={currentDate} onSelectDate={(d) => { setCurrentDate(d); closePopup(); }} view={view} />
-              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
-                {["day", "week", "month"].map(v => (
-                  <button key={v}
-                    style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                    onClick={() => { setView(v); closePopup(); }}>
-                    {v.charAt(0).toUpperCase() + v.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <>
+              {mobile ? (
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 6 }}>
+                  <MiniCalendar currentDate={currentDate} onSelectDate={(d) => { setCurrentDate(d); closePopup(); }} view={view} />
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
+                  </div>
+                  <MiniCalendar currentDate={currentDate} onSelectDate={(d) => { setCurrentDate(d); closePopup(); }} view={view} />
+                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                    {["day", "week", "month"].map(v => (
+                      <button key={v}
+                        style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                        onClick={() => { setView(v); closePopup(); }}>
+                        {v.charAt(0).toUpperCase() + v.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {mobile && (
+                <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+                  <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
+                  {["day", "week", "month"].map(v => (
+                    <button key={v}
+                      style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                      onClick={() => { setView(v); closePopup(); }}>
+                      {v.charAt(0).toUpperCase() + v.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <button
-                  onClick={() => navigate(-1)}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700,
-                    padding: "0 6px", fontFamily: "inherit",
-                  }}
-                >
-                  &lsaquo;
-                </button>
-                <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>
-                  {`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}
-                </span>
-                <button
-                  onClick={() => navigate(1)}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700,
-                    padding: "0 6px", fontFamily: "inherit",
-                  }}
-                >
-                  &rsaquo;
-                </button>
-              </div>
-              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
-                {["day", "week", "month"].map(v => (
-                  <button key={v}
-                    style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                    onClick={() => { setView(v); closePopup(); }}>
-                    {v.charAt(0).toUpperCase() + v.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <>
+              {mobile ? (
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&lsaquo;</button>
+                    <span style={{ fontSize: 18, color: C.text, fontWeight: 600 }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
+                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&rsaquo;</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&lsaquo;</button>
+                    <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
+                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&rsaquo;</button>
+                  </div>
+                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4 }}>
+                    {["day", "week", "month"].map(v => (
+                      <button key={v}
+                        style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                        onClick={() => { setView(v); closePopup(); }}>
+                        {v.charAt(0).toUpperCase() + v.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {mobile && (
+                <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+                  <button style={S.btnSmOut} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
+                  {["day", "week", "month"].map(v => (
+                    <button key={v}
+                      style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                      onClick={() => { setView(v); closePopup(); }}>
+                      {v.charAt(0).toUpperCase() + v.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           {view === "day" && renderDayView()}
           {view === "week" && renderWeekView()}

@@ -1,5 +1,10 @@
 import { AuthProvider } from "@/context/AuthContext";
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export const metadata = {
   title: "DK Divorce Coach | Diana Kierein, CDC",
   description: "Certified Divorce Coaching helping separating parents navigate with clarity, cooperation, and a focus on protecting their kids.",

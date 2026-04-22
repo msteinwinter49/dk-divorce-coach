@@ -289,6 +289,7 @@ export default function AdminSchedule() {
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [showAdminCloseWarning, setShowAdminCloseWarning] = useState(false);
 
   // Drag-to-move state (existing bookings + events)
   const dragRef = useRef(null);
@@ -700,6 +701,7 @@ export default function AdminSchedule() {
     setModalError(null);
     setModalSaving(false);
     setConfirmCancel(false);
+    setShowAdminCloseWarning(false);
   };
 
   // --- Action handlers ---
@@ -1456,7 +1458,7 @@ export default function AdminSchedule() {
     return (
       <div style={{ overflowX: "auto", userSelect: "none" }}>
         <div style={{ display: "flex", minWidth: mobile ? 770 : "auto" }}>
-          <div style={{ width: 70, flexShrink: 0 }}>
+          <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>
             <div style={{ height: 36, padding: "4px 0", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, background: "#fafafa" }} />
             {HOURS.map(h => (
               <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1560,7 +1562,7 @@ export default function AdminSchedule() {
 
               return (
                 <div key={di} style={{
-                  minHeight: 80, padding: "4px 6px",
+                  minHeight: 80, padding: "4px 6px", minWidth: 0, overflow: "hidden",
                   borderBottom: wi < weeks.length - 1 ? `0.5px solid ${C.gridLine}` : "none",
                   borderRight: di < 6 ? `0.5px solid ${C.gridLine}` : "none",
                   opacity: isCurrentMonth ? 1 : 0.4,
@@ -2022,12 +2024,41 @@ export default function AdminSchedule() {
   // --- Modal renderer ---
   const renderModal = () => {
     if (!modal) return null;
+
+    const hasAdminUnsavedChanges = (() => {
+      if (modal.mode === "edit") {
+        const b = modal.booking;
+        return bookType !== (b.session_type_id || "") || bookDate !== (b.date || "") || bookTime !== (b.time_slot || "");
+      }
+      if (modal.mode === "editEvent") {
+        const ev = modal.event;
+        const startD = ev.start?.dateTime ? new Date(ev.start.dateTime) : null;
+        const endD = ev.end?.dateTime ? new Date(ev.end.dateTime) : null;
+        const origDate = startD ? dateStr(startD) : "";
+        const origStart = startD ? `${String(startD.getHours()).padStart(2, "0")}:${String(startD.getMinutes()).padStart(2, "0")}` : "";
+        const origEnd = endD ? `${String(endD.getHours()).padStart(2, "0")}:${String(endD.getMinutes()).padStart(2, "0")}` : "";
+        return eventTitle !== (ev.summary || "") || bookDate !== origDate || bookTime !== origStart || eventEndTime !== origEnd;
+      }
+      if (modal.mode === "book") return !!(bookClient || bookType);
+      if (modal.mode === "event") return !!eventTitle;
+      return false;
+    })();
+
+    const tryCloseAdmin = () => {
+      if (hasAdminUnsavedChanges) setShowAdminCloseWarning(true);
+      else closeModal();
+    };
+
     return (
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }} onClick={closeModal}>
-        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+      }} onClick={tryCloseAdmin}>
+        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto", position: "relative" }} onClick={e => e.stopPropagation()}>
+          <button onClick={tryCloseAdmin} aria-label="Close" style={{
+            position: "absolute", top: 10, right: 10, background: "none", border: "none",
+            cursor: "pointer", fontSize: 18, color: C.muted, lineHeight: 1, padding: "4px 8px", zIndex: 1,
+          }}>✕</button>
           {modal.mode === "choose" && renderChooseContent()}
           {modal.mode === "accept" && renderAcceptContent()}
           {modal.mode === "edit" && renderEditContent()}
@@ -2058,7 +2089,7 @@ export default function AdminSchedule() {
       : bookTime ? `at ${formatTimeStr(bookTime)}` : "";
     return (
       <>
-        <h3 style={S.h3}>New Entry</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32 }}>New Entry</h3>
         {dateLabel && <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}{timeRange ? ` \u00b7 ${timeRange}` : ""}</p>}
         <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
           <div onClick={openBookModal}
@@ -2072,9 +2103,6 @@ export default function AdminSchedule() {
             <div style={{ fontSize: 12, color: C.muted }}>Add a personal or other calendar event</div>
           </div>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <button style={S.btnSmOut} onClick={closeModal}>Cancel</button>
-        </div>
       </>
     );
   };
@@ -2083,7 +2111,7 @@ export default function AdminSchedule() {
     const b = modal.booking;
     return (
       <>
-        <h3 style={S.h3}>Session Request</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32 }}>Session Request</h3>
         <div style={{ fontSize: 14, color: C.text, marginBottom: 8 }}>
           <p><strong>Client:</strong> {clientName(b.profiles)}</p>
           <p><strong>Date:</strong> {b.date}</p>
@@ -2111,10 +2139,21 @@ export default function AdminSchedule() {
     const b = modal.booking;
     return (
       <>
-        <h3 style={S.h3}>Edit Session</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32 }}>Edit Session</h3>
         <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
           <strong>Client:</strong> {clientName(b.profiles)}
         </p>
+        {showAdminCloseWarning && (
+          <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
+            <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={S.btn} disabled={modalSaving} onClick={() => { setShowAdminCloseWarning(false); handleUpdateBooking(); }}>
+                {modalSaving ? "Saving..." : "Save"}
+              </button>
+              <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }} onClick={closeModal}>Discard</button>
+            </div>
+          </div>
+        )}
 
         <label style={S.label}>Session type</label>
         <select style={{ ...S.input, cursor: "pointer" }} value={bookType} onChange={e => setBookType(e.target.value)}>
@@ -2162,7 +2201,6 @@ export default function AdminSchedule() {
             >
               Cancel Session
             </button>
-            <button style={S.btnSmOut} onClick={closeModal}>Close</button>
           </div>
         )}
       </>
@@ -2173,7 +2211,18 @@ export default function AdminSchedule() {
     const clientList = clients.filter(c => c.role === "client");
     return (
       <>
-        <h3 style={S.h3}>Book a Session</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32 }}>Book a Session</h3>
+        {showAdminCloseWarning && (
+          <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
+            <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={S.btn} disabled={modalSaving || !bookClient || !bookType} onClick={() => { setShowAdminCloseWarning(false); handleBookSession(); }}>
+                {modalSaving ? "Saving..." : "Save"}
+              </button>
+              <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }} onClick={closeModal}>Discard</button>
+            </div>
+          </div>
+        )}
 
         <label style={S.label}>Client</label>
         <select style={{ ...S.input, cursor: "pointer" }} value={bookClient} onChange={e => setBookClient(e.target.value)}>
@@ -2206,7 +2255,6 @@ export default function AdminSchedule() {
           <button style={S.btn} onClick={handleBookSession} disabled={modalSaving}>
             {modalSaving ? (<><Spinner />Booking...</>) : "Book Session"}
           </button>
-          <button style={S.btnSmOut} onClick={closeModal}>Cancel</button>
         </div>
       </>
     );
@@ -2214,7 +2262,18 @@ export default function AdminSchedule() {
 
   const renderEventContent = () => (
     <>
-      <h3 style={S.h3}>Add Event</h3>
+      <h3 style={{ ...S.h3, paddingRight: 32 }}>Add Event</h3>
+      {showAdminCloseWarning && (
+        <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
+          <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btn} disabled={modalSaving || !eventTitle} onClick={() => { setShowAdminCloseWarning(false); handleCreateEvent(); }}>
+              {modalSaving ? "Saving..." : "Save"}
+            </button>
+            <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }} onClick={closeModal}>Discard</button>
+          </div>
+        </div>
+      )}
       <label style={S.label}>Title</label>
       <input style={S.input} placeholder="e.g. Lunch, Meeting, Personal" value={eventTitle} onChange={e => setEventTitle(e.target.value)} />
       <div style={{ display: "flex", gap: "1rem" }}>
@@ -2235,14 +2294,24 @@ export default function AdminSchedule() {
         <button style={S.btn} onClick={handleCreateEvent} disabled={modalSaving}>
           {modalSaving ? (<><Spinner />Creating...</>) : "Create Event"}
         </button>
-        <button style={S.btnSmOut} onClick={closeModal}>Cancel</button>
       </div>
     </>
   );
 
   const renderEditEventContent = () => (
     <>
-      <h3 style={S.h3}>Edit Event</h3>
+      <h3 style={{ ...S.h3, paddingRight: 32 }}>Edit Event</h3>
+      {showAdminCloseWarning && (
+        <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
+          <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btn} disabled={modalSaving} onClick={() => { setShowAdminCloseWarning(false); handleUpdateEvent(); }}>
+              {modalSaving ? "Saving..." : "Save"}
+            </button>
+            <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }} onClick={closeModal}>Discard</button>
+          </div>
+        </div>
+      )}
       <label style={S.label}>Title</label>
       <input style={S.input} value={eventTitle} onChange={e => setEventTitle(e.target.value)} />
       <div style={{ display: "flex", gap: "1rem" }}>
@@ -2270,7 +2339,6 @@ export default function AdminSchedule() {
         >
           Delete Event
         </button>
-        <button style={S.btnSmOut} onClick={closeModal}>Close</button>
       </div>
     </>
   );
@@ -2590,63 +2658,85 @@ export default function AdminSchedule() {
       ) : (
         <>
           {(view === "day" || view === "week") ? (
-            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                {renderSearchIconButton()}
-              </div>
-              <MiniCalendar currentDate={currentDate} onSelectDate={(d) => setCurrentDate(d)} view={view} />
-              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
-                <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
-                {["day", "week", "month"].map(v => (
-                  <button key={v}
-                    style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                    onClick={() => setView(v)}>
-                    {v.charAt(0).toUpperCase() + v.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <>
+              {mobile ? (
+                <div style={{ position: "relative", display: "flex", justifyContent: "center", alignItems: "flex-end", marginBottom: 6 }}>
+                  <div style={{ position: "absolute", left: 0 }}>{renderSearchIconButton()}</div>
+                  <MiniCalendar currentDate={currentDate} onSelectDate={(d) => setCurrentDate(d)} view={view} />
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>{renderSearchIconButton()}</div>
+                  <MiniCalendar currentDate={currentDate} onSelectDate={(d) => setCurrentDate(d)} view={view} />
+                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
+                    <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
+                    {["day", "week", "month"].map(v => (
+                      <button key={v}
+                        style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                        onClick={() => setView(v)}>
+                        {v.charAt(0).toUpperCase() + v.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {mobile && (
+                <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+                  <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
+                  {["day", "week", "month"].map(v => (
+                    <button key={v}
+                      style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                      onClick={() => setView(v)}>
+                      {v.charAt(0).toUpperCase() + v.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
-                {renderSearchIconButton()}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <button
-                  onClick={() => navigate(-1)}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700,
-                    padding: "0 6px", fontFamily: "inherit",
-                  }}
-                >
-                  &lsaquo;
-                </button>
-                <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>
-                  {`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}
-                </span>
-                <button
-                  onClick={() => navigate(1)}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700,
-                    padding: "0 6px", fontFamily: "inherit",
-                  }}
-                >
-                  &rsaquo;
-                </button>
-              </div>
-              <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
-                <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
-                {["day", "week", "month"].map(v => (
-                  <button key={v}
-                    style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                    onClick={() => setView(v)}>
-                    {v.charAt(0).toUpperCase() + v.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <>
+              {mobile ? (
+                <div style={{ position: "relative", display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ position: "absolute", left: 0 }}>{renderSearchIconButton()}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&lsaquo;</button>
+                    <span style={{ fontSize: 18, color: C.text, fontWeight: 600 }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
+                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&rsaquo;</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>{renderSearchIconButton()}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&lsaquo;</button>
+                    <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
+                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&rsaquo;</button>
+                  </div>
+                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
+                    <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
+                    {["day", "week", "month"].map(v => (
+                      <button key={v}
+                        style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                        onClick={() => setView(v)}>
+                        {v.charAt(0).toUpperCase() + v.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {mobile && (
+                <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+                  <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
+                  {["day", "week", "month"].map(v => (
+                    <button key={v}
+                      style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
+                      onClick={() => setView(v)}>
+                      {v.charAt(0).toUpperCase() + v.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           {view === "day" && renderDayView()}
           {view === "week" && renderWeekView()}

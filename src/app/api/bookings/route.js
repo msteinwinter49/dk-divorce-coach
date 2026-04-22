@@ -467,7 +467,7 @@ export async function PATCH(request) {
         return NextResponse.json({ error: "Time slot overlaps another booking" }, { status: 409 });
       }
 
-      if (booking.status === "booked" && dateOrTimeChanged) {
+      if (booking.status === "booked") {
         updates.status = "requested";
       }
     }
@@ -534,7 +534,7 @@ export async function PATCH(request) {
     } else {
       // Client edited — notify Diana for re-approval
       const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
-      const wasApproved = booking.status === "booked" && dateOrTimeChanged;
+      const wasApproved = booking.status === "booked";
       try {
         await notifyAdmin(
           wasApproved
