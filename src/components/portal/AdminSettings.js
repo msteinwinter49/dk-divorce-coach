@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { C, S } from "@/lib/constants";
+import { useIsMobile } from "@/lib/hooks";
 import { createClient } from "@/lib/supabase/client";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -19,6 +20,7 @@ const plainNumberInput = {
 };
 
 export default function AdminSettings({ setPage }) {
+  const mobile = useIsMobile();
   const [contactEmail, setContactEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -407,6 +409,11 @@ export default function AdminSettings({ setPage }) {
       {/* Pricing matrix */}
       <div style={S.card}>
         <h3 style={S.h3}>Pricing</h3>
+        {mobile && (
+          <p style={{ fontSize: 12, color: C.muted, background: C.warm, borderRadius: 6, padding: "6px 10px", marginBottom: 12 }}>
+            Best viewed in landscape mode.
+          </p>
+        )}
         <p style={{ ...S.p, fontSize: 13 }}>Set the hourly rate for each combination of session type and package size. Hide rows you do not want to offer.</p>
 
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
