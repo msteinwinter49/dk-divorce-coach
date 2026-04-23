@@ -33,7 +33,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
 
   useEffect(() => {
     if (scrollTo === "payment" && paymentRef.current) {
-      paymentRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      paymentRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
       if (onScrolled) onScrolled();
     }
   }, [scrollTo, onScrolled, profile]);
