@@ -48,6 +48,7 @@ export default function PortalHome({ setPage, viewAsClient }) {
   }, [targetId]);
 
   const displayName = targetProfile?.first_name || targetProfile?.full_name?.split(" ")[0] || "there";
+  const showCardBanner = !viewAsClient && targetProfile?.role === "client" && !targetProfile?.stripe_customer_id;
 
   const formatBooking = () => {
     if (!nextBooking) return "No upcoming sessions";
@@ -59,6 +60,15 @@ export default function PortalHome({ setPage, viewAsClient }) {
 
   return (
     <div style={S.page}>
+      {showCardBanner && (
+        <div style={{ background:"#fff8e1", border:"1px solid #ffe082", borderRadius:8, padding:"0.75rem 1rem", marginBottom:"1rem", fontSize:14, color:C.text, lineHeight:1.5 }}>
+          To book a session, you must have a valid credit card on file.{" "}
+          <button onClick={() => setPage("Profile")} style={{ background:"none", border:"none", padding:0, color:C.teal, fontFamily:"inherit", fontSize:14, cursor:"pointer", textDecoration:"underline" }}>
+            Go to your Profile page
+          </button>
+          {" "}to enter that information securely.
+        </div>
+      )}
       <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, marginBottom:"1.5rem" }}>
         <h2 style={{...S.h2, color:C.teal}}>Welcome back, {displayName}</h2>
         <p style={{...S.p, color:C.teal, marginBottom:0}}>
