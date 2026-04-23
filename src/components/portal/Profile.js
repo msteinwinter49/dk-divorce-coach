@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
@@ -8,7 +8,7 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
-export default function Profile({ onSaved, viewAsClient }) {
+export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled }) {
   const { user, profile, refreshProfile } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -27,6 +27,15 @@ export default function Profile({ onSaved, viewAsClient }) {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwError, setPwError] = useState(null);
   const [pwSuccess, setPwSuccess] = useState(false);
+
+  const paymentRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollTo === "payment" && paymentRef.current) {
+      paymentRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (onScrolled) onScrolled();
+    }
+  }, [scrollTo, onScrolled]);
 
   const isFirstLogin = !profile?.first_name;
 
@@ -265,7 +274,7 @@ export default function Profile({ onSaved, viewAsClient }) {
 
       {/* Payment method — only show for clients after initial profile setup, not in admin view */}
       {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (
-        <div style={{ ...S.card, marginTop: "1rem" }}>
+        <div ref={paymentRef} style={{ ...S.card, marginTop: "1rem" }}>
           <h3 style={S.h3}>Payment Method</h3>
           <p style={{ ...S.p, fontSize: 13 }}>
             {profile?.stripe_customer_id

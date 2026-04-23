@@ -5,7 +5,7 @@ import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
-export default function PortalHome({ setPage, viewAsClient }) {
+export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const mobile = useIsMobile();
   const { user, profile } = useAuth();
   const [nextBooking, setNextBooking] = useState(null);
@@ -63,7 +63,7 @@ export default function PortalHome({ setPage, viewAsClient }) {
       {showCardBanner && (
         <div style={{ background:"#fff8e1", border:"1px solid #ffe082", borderRadius:8, padding:"0.75rem 1rem", marginBottom:"1rem", fontSize:14, color:C.text, lineHeight:1.5 }}>
           To book a session, you must have a valid credit card on file.{" "}
-          <button onClick={() => setPage("Profile")} style={{ background:"none", border:"none", padding:0, color:C.teal, fontFamily:"inherit", fontSize:14, cursor:"pointer", textDecoration:"underline" }}>
+          <button onClick={() => { setProfileFocus("payment"); setPage("Profile"); }} style={{ background:"none", border:"none", padding:0, color:C.teal, fontFamily:"inherit", fontSize:14, cursor:"pointer", textDecoration:"underline" }}>
             Go to your Profile page
           </button>
           {" "}to enter that information securely.

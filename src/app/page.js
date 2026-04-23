@@ -35,6 +35,7 @@ export default function App() {
     return "Home";
   });
   const [viewAsClient, setViewAsClient] = useState(null);
+  const [profileFocus, setProfileFocus] = useState(null);
   const inPortal = !!user;
   const isAdmin = profile?.role === "admin";
   const needsProfile = inPortal && profile && !profile.first_name;
@@ -72,8 +73,8 @@ export default function App() {
       }
       return <Profile onSaved={() => { refreshProfile(); setPage("Portal Home"); }} />;
     }
-    if (page === "Profile") return <Profile onSaved={refreshProfile} viewAsClient={viewAsClient} />;
-    if (page === "Portal Home") return <PortalHome setPage={setPage} viewAsClient={viewAsClient} />;
+    if (page === "Profile") return <Profile onSaved={refreshProfile} viewAsClient={viewAsClient} scrollTo={profileFocus} onScrolled={() => setProfileFocus(null)} />;
+    if (page === "Portal Home") return <PortalHome setPage={setPage} viewAsClient={viewAsClient} setProfileFocus={setProfileFocus} />;
     if (page === "Documents") return <Documents viewAsClient={viewAsClient} />;
     if (page === "Schedule") return <Schedule setPage={setPage} viewAsClient={viewAsClient} />;
     if (page === "Buy Sessions") return <BuySessions setPage={setPage} viewAsClient={viewAsClient} />;
