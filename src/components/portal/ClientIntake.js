@@ -49,6 +49,10 @@ export default function ClientIntake({ onComplete }) {
 
   const handleSubmit = async () => {
     if (!firstName.trim() || !lastName.trim()) { setError("First and last name are required."); return; }
+    const emailVal = preferredEmail.trim() || user?.email || "";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) { setError("Please enter a valid email address."); return; }
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits && phoneDigits.length !== 10) { setError("Phone number must be 10 digits."); return; }
     if (!password) { setError("Please set a password."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (password !== confirmPassword) { setError("Passwords do not match."); return; }
