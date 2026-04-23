@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(request) {
   const { email, makeAdmin } = await request.json();
+  const origin = new URL(request.url).origin;
 
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -45,7 +46,9 @@ export async function POST(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email);
+  const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${origin}/auth/confirm`,
+  });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

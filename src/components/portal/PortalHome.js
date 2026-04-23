@@ -12,6 +12,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const [docCount, setDocCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [balanceMinutes, setBalanceMinutes] = useState(null);
+  const [hasCard, setHasCard] = useState(null);
 
   const targetId = viewAsClient?.id || user?.id;
   const targetProfile = viewAsClient || profile;
@@ -45,10 +46,15 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
       .eq("conversation_id", targetId)
       .neq("sender_id", targetId)
       .then(({ count }) => setUnreadCount(count || 0));
+
+    if (!viewAsClient && targetProfile?.role === "client") {
+      const cardUrl = viewAsClient ? `/api/stripe/card?client_id=${targetId}` : "/api/stripe/card";
+      fetch(cardUrl).then(r => r.json()).then(d => setHasCard(!!d.card)).catch(() => setHasCard(false));
+    }
   }, [targetId]);
 
   const displayName = targetProfile?.first_name || targetProfile?.full_name?.split(" ")[0] || "there";
-  const showCardBanner = !viewAsClient && targetProfile?.role === "client" && !targetProfile?.stripe_customer_id;
+  const showCardBanner = !viewAsClient && targetProfile?.role === "client" && hasCard === false;
 
   const formatBooking = () => {
     if (!nextBooking) return "No upcoming sessions";
@@ -61,12 +67,12 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   return (
     <div style={S.page}>
       {showCardBanner && (
-        <div style={{ background:"#fff8e1", border:"1px solid #ffe082", borderRadius:8, padding:"0.75rem 1rem", marginBottom:"1rem", fontSize:14, color:C.text, lineHeight:1.5 }}>
-          To book a session, you must have a valid credit card on file.{" "}
-          <button onClick={() => { setProfileFocus("payment"); setPage("Profile"); }} style={{ background:"none", border:"none", padding:0, color:C.teal, fontFamily:"inherit", fontSize:14, cursor:"pointer", textDecoration:"underline" }}>
-            Go to your Profile page
-          </button>
-          {" "}to enter that information securely.
+        <div
+          onClick={() => { setProfileFocus("payment"); setPage("Profile"); }}
+          style={{ background:"#fff8e1", border:"1px solid #ffe082", borderRadius:8, padding:"0.75rem 1rem", marginBottom:"1rem", fontSize:14, color:C.text, lineHeight:1.5, cursor:"pointer" }}
+        >
+          To book a session, you must have a valid credit card on file.<br />
+          Click to enter a Payment Method on your Profile page.
         </div>
       )}
       <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, marginBottom:"1.5rem" }}>

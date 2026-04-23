@@ -27,6 +27,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   const [pwSaving, setPwSaving] = useState(false);
   const [pwError, setPwError] = useState(null);
   const [pwSuccess, setPwSuccess] = useState(false);
+  const [cardOnFile, setCardOnFile] = useState(null);
 
   const paymentRef = useRef(null);
 
@@ -38,6 +39,15 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   }, [scrollTo, onScrolled, profile]);
 
   const isFirstLogin = !profile?.first_name;
+
+  useEffect(() => {
+    if (!viewAsClient && profile?.role === "client" && !isFirstLogin) {
+      fetch("/api/stripe/card")
+        .then(r => r.json())
+        .then(d => setCardOnFile(!!d.card))
+        .catch(() => {});
+    }
+  }, [profile, viewAsClient, isFirstLogin]);
 
   const TIMEZONES = [
     { value: "America/New_York", label: "Eastern Time (New York)" },
@@ -217,7 +227,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       {/* Change password — only show after profile is set up, not in admin view mode */}
       {!viewAsClient && !isFirstLogin && (
         <div style={{ ...S.card, marginTop: "1rem" }}>
-          <h3 style={S.h3}>Change password</h3>
+          <h3 style={{ ...S.h3, fontWeight: 700 }}>Change Password</h3>
           <label style={S.label}>New password</label>
           <div style={{ position: "relative", marginBottom: "0.75rem" }}>
             <input
@@ -275,11 +285,13 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       {/* Payment method — only show for clients after initial profile setup, not in admin view */}
       {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (
         <div ref={paymentRef} style={{ ...S.card, marginTop: "1rem" }}>
-          <h3 style={S.h3}>Payment Method</h3>
+          <h3 style={{ ...S.h3, fontWeight: 700 }}>Payment Method</h3>
           <p style={{ ...S.p, fontSize: 13 }}>
-            {profile?.stripe_customer_id
+            {cardOnFile === true
               ? "You have a card on file. You can update it below."
-              : "Add a card on file to book coaching sessions."}
+              : cardOnFile === false
+              ? "Add a card on file to book coaching sessions."
+              : " "}
           </p>
           <PaymentMethodSection hasCard={!!profile?.stripe_customer_id} onSaved={refreshProfile} />
         </div>
@@ -298,7 +310,11 @@ function PaymentMethodSection({ hasCard, onSaved }) {
   useEffect(() => {
     if (hasCard) {
       fetch("/api/stripe/card").then(r => r.json()).then(data => {
-        if (data.card) setCardInfo(data.card);
+        if (data.card) {
+          setCardInfo(data.card);
+        } else {
+          setShowForm(true);
+        }
       });
     }
   }, [hasCard]);

@@ -102,7 +102,7 @@ export default function Clients({ setPage, onViewAsClient }) {
     const dirty =
       editFirst !== (detail.first_name || "") ||
       editLast !== (detail.last_name || "") ||
-      phoneDigits !== (detail.phone || "") ||
+      phoneDigits !== (detail.phone || "").replace(/\D/g, "") ||
       editContactEmail !== (detail.preferred_email || detail.email || "") ||
       editTimezone !== (detail.timezone || "America/New_York");
     if (dirty) { setConfirmClose(true); } else { closeDetail(); }
@@ -469,7 +469,7 @@ export default function Clients({ setPage, onViewAsClient }) {
             <div style={{ overflowY: "auto", flex: 1 }}>
 
             <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-              <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "") || editContactEmail !== (d.preferred_email || d.email || "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
+              <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "").replace(/\D/g,"") || editContactEmail !== (d.preferred_email || d.email || "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <label style={{ ...S.label, fontSize: 16 }}>First name</label>

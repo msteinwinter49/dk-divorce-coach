@@ -69,7 +69,7 @@ export default function App() {
     // Force profile setup on first login
     if (needsProfile) {
       if (profile?.role === "client") {
-        return <ClientIntake onComplete={() => { refreshProfile(); setPage("Portal Home"); }} />;
+        return <ClientIntake onComplete={() => { refreshProfile(); setPage("Portal Home"); window.scrollTo(0, 0); }} />;
       }
       return <Profile onSaved={() => { refreshProfile(); setPage("Portal Home"); }} />;
     }
