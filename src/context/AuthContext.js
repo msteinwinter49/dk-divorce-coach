@@ -10,15 +10,17 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = useCallback(async (userId) => {
+    console.log("[auth] fetchProfile called", userId);
     const supabase = createClient();
     const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
     if (error) {
-      console.error("Profile fetch error:", error.message);
-      // Retry once after a short delay (session may not be ready yet)
+      console.log("[auth] fetchProfile error:", error.message, "— retrying");
       await new Promise(r => setTimeout(r, 500));
       const { data: retryData } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      console.log("[auth] fetchProfile retry result:", retryData);
       setProfile(retryData);
     } else {
+      console.log("[auth] fetchProfile success, first_name:", data?.first_name, "role:", data?.role);
       setProfile(data);
     }
     setLoading(false);
@@ -50,6 +52,7 @@ export function AuthProvider({ children }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user ?? null;
+      console.log("[auth] onAuthStateChange:", event, "user:", u?.id ?? "null");
       setUser(u);
       if (u) {
         if (event === "SIGNED_IN") setLoading(true);
