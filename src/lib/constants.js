@@ -19,7 +19,7 @@ export const S = {
   btnOutline: { background:"none", color:C.teal, border:`1px solid ${C.teal}`, borderRadius:8, padding:"11px 24px", fontSize:14, cursor:"pointer", fontFamily:"inherit" },
   btnSm: { background:C.teal, color:"#fff", border:"none", borderRadius:8, padding:"8px 14px", fontSize:12, cursor:"pointer", fontFamily:"inherit" },
   btnSmOut: { background:"none", color:C.muted, border:`0.5px solid ${C.border}`, borderRadius:8, padding:"8px 14px", fontSize:12, cursor:"pointer", fontFamily:"inherit" },
-  page: { minHeight:"calc(100vh - 64px)", padding:"2rem 1rem", maxWidth:800, margin:"0 auto" },
+  page: { minHeight:"calc(100vh - 64px)", padding:"2rem 1rem 5rem", maxWidth:800, margin:"0 auto" },
   h1: { fontSize:30, fontWeight:500, color:C.text, marginBottom:"1rem", lineHeight:1.25 },
   h2: { fontSize:22, fontWeight:500, color:C.text, marginBottom:"0.75rem" },
   h3: { fontSize:16, fontWeight:500, color:C.text, marginBottom:"0.5rem" },
