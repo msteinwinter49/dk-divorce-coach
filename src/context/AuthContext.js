@@ -48,11 +48,16 @@ export function AuthProvider({ children }) {
 
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user ?? null;
       setUser(u);
-      if (u) fetchProfile(u.id);
-      else { setProfile(null); setLoading(false); }
+      if (u) {
+        if (event === "SIGNED_IN") setLoading(true);
+        fetchProfile(u.id);
+      } else {
+        setProfile(null);
+        if (event === "SIGNED_OUT") setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
