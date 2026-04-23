@@ -69,7 +69,7 @@ export default function App() {
     // Force profile setup on first login
     if (needsProfile) {
       if (profile?.role === "client") {
-        return <ClientIntake onComplete={() => { refreshProfile(); setPage("Portal Home"); window.scrollTo(0, 0); }} />;
+        return <ClientIntake onComplete={() => { refreshProfile(); setPage("Portal Home"); setTimeout(() => window.scrollTo(0, 0), 0); }} />;
       }
       return <Profile onSaved={() => { refreshProfile(); setPage("Portal Home"); }} />;
     }
@@ -99,7 +99,7 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
-      <Nav page={page} setPage={setPage} inPortal={inPortal && !needsProfile} onLogout={handleLogout} viewAsClient={viewAsClient} />
+      {!needsProfile && <Nav page={page} setPage={setPage} inPortal={inPortal} onLogout={handleLogout} viewAsClient={viewAsClient} />}
       {viewAsClient && (
         <div style={{ padding:"8px 1rem", background:"#fdecea", borderBottom:"1px solid #e6b8b0", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
           <span style={{ fontSize:13, color:"#c0392b", fontWeight:500 }}>

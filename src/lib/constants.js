@@ -25,6 +25,6 @@ export const S = {
   h3: { fontSize:16, fontWeight:500, color:C.text, marginBottom:"0.5rem" },
   p: { fontSize:15, color:C.muted, lineHeight:1.75, marginBottom:"1rem" },
   card: { background:"#fff", border:`0.5px solid ${C.border}`, borderRadius:12, padding:"1.25rem 1.5rem", marginBottom:"1rem" },
-  input: { width:"100%", padding:"10px 12px", border:`0.5px solid ${C.border}`, borderRadius:8, fontSize:14, fontFamily:"inherit", marginBottom:"0.75rem", boxSizing:"border-box", outline:"none" },
+  input: { width:"100%", padding:"10px 12px", border:`0.5px solid ${C.border}`, borderRadius:8, fontSize:16, fontFamily:"inherit", marginBottom:"0.75rem", boxSizing:"border-box", outline:"none" },
   label: { fontSize:13, color:C.muted, display:"block", marginBottom:4 },
 };
