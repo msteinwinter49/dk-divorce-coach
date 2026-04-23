@@ -4,7 +4,7 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
-export default function BuySessions({ setPage, viewAsClient }) {
+export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) {
   const { user } = useAuth();
   const readOnly = !!viewAsClient;
 
@@ -124,7 +124,7 @@ export default function BuySessions({ setPage, viewAsClient }) {
         <div style={S.card}>
           <h3 style={S.h3}>Add a card first</h3>
           <p style={{ ...S.p, marginBottom: "1rem" }}>You need a payment method on file before you can purchase a package.</p>
-          <button style={S.btn} onClick={() => setPage("Profile")}>Add a card</button>
+          <button style={S.btn} onClick={() => { setProfileFocus("payment"); setPage("Profile"); }}>Add a card</button>
         </div>
       </div>
     );
