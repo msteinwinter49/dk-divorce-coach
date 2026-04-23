@@ -28,24 +28,28 @@ export async function POST() {
     .eq("id", user.id)
     .single();
 
-  let customerId = profile.stripe_customer_id;
+  if (!profile) return NextResponse.json({ error: "Profile not found" }, { status: 404 });
 
-  if (!customerId) {
-    const customer = await createCustomer(
-      profile.preferred_email || user.email,
-      `${profile.first_name} ${profile.last_name}`
-    );
-    customerId = customer.id;
+  try {
+    let customerId = profile.stripe_customer_id;
 
-    await adminClient
-      .from("profiles")
-      .update({ stripe_customer_id: customerId })
-      .eq("id", user.id);
+    if (!customerId) {
+      const customer = await createCustomer(
+        profile.preferred_email || user.email,
+        `${profile.first_name} ${profile.last_name}`
+      );
+      customerId = customer.id;
+
+      await adminClient
+        .from("profiles")
+        .update({ stripe_customer_id: customerId })
+        .eq("id", user.id);
+    }
+
+    const setupIntent = await createSetupIntent(customerId);
+    return NextResponse.json({ clientSecret: setupIntent.client_secret });
+  } catch (err) {
+    console.error("Stripe setup error:", err);
+    return NextResponse.json({ error: err.message || "Stripe error" }, { status: 500 });
   }
-
-  const setupIntent = await createSetupIntent(customerId);
-
-  return NextResponse.json({
-    clientSecret: setupIntent.client_secret,
-  });
 }

@@ -35,7 +35,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       paymentRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       if (onScrolled) onScrolled();
     }
-  }, [scrollTo, onScrolled]);
+  }, [scrollTo, onScrolled, profile]);
 
   const isFirstLogin = !profile?.first_name;
 
@@ -307,9 +307,12 @@ function PaymentMethodSection({ hasCard, onSaved }) {
     if (showForm && !clientSecret && !loadingSecret && !initError) {
       setLoadingSecret(true);
       fetch("/api/stripe/setup", { method: "POST" })
-        .then(r => (r.ok ? r.json() : Promise.reject(new Error("init failed"))))
-        .then(({ clientSecret }) => setClientSecret(clientSecret))
-        .catch(() => setInitError("Could not initialize payment setup."))
+        .then(r => r.json().then(body => ({ ok: r.ok, body })))
+        .then(({ ok, body }) => {
+          if (!ok) throw new Error(body.error || "init failed");
+          setClientSecret(body.clientSecret);
+        })
+        .catch(err => setInitError(err.message || "Could not initialize payment setup."))
         .finally(() => setLoadingSecret(false));
     }
   }, [showForm, clientSecret, loadingSecret, initError]);
