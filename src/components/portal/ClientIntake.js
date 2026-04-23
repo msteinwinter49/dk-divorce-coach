@@ -116,7 +116,11 @@ export default function ClientIntake({ onComplete }) {
   };
 
   return (
-    <div style={{ ...S.page, minHeight: "100dvh", paddingBottom: "max(2rem, env(safe-area-inset-bottom, 2rem))" }}>
+    <div style={{ ...S.page, minHeight: "100dvh", paddingBottom: "max(5rem, env(safe-area-inset-bottom, 5rem))" }}>
+      <div style={{ ...S.logo, marginBottom: "1.5rem" }}>
+        <span style={S.logoMain}>DK Divorce Coach</span>
+        <span style={S.logoSub}>DIANA KIEREIN · CDC</span>
+      </div>
       <h1 style={{ ...S.h1, fontSize: 26 }}>Welcome! Let&apos;s get you set up.</h1>
       <p style={S.p}>Complete your registration to access your coaching portal.</p>
 
