@@ -13,6 +13,7 @@ export default function ContactPage() {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [sendCopy, setSendCopy] = useState(true);
+  const [honeypot, setHoneypot] = useState("");
 
   const handleSubmit = async () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -32,6 +33,7 @@ export default function ContactPage() {
         process_stage: processStage,
         message: message || null,
         send_copy: sendCopy,
+        _hp: honeypot,
       }),
     });
     setSubmitting(false);
@@ -53,6 +55,17 @@ export default function ContactPage() {
         </div>
       ) : (
         <div style={S.card}>
+          {/* Honeypot — hidden from humans, bots fill it in */}
+          <input
+            type="text"
+            name="website"
+            value={honeypot}
+            onChange={e => setHoneypot(e.target.value)}
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+            style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
+          />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <div><label style={S.label}>First name</label><input style={S.input} placeholder="Jane" value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
             <div><label style={S.label}>Last name</label><input style={S.input} placeholder="Smith" value={lastName} onChange={e => setLastName(e.target.value)} /></div>

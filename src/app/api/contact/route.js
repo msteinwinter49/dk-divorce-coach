@@ -3,7 +3,11 @@ import { Resend } from "resend";
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
-  const { first_name, last_name, email, phone, process_stage, message, send_copy } = await request.json();
+  const { first_name, last_name, email, phone, process_stage, message, send_copy, _hp } = await request.json();
+
+  if (_hp) {
+    return NextResponse.json({ success: true }); // silently discard
+  }
 
   const formatPhone = (value) => {
     if (!value) return "Not provided";
