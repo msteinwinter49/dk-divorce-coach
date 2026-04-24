@@ -4,7 +4,7 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
@@ -96,6 +96,20 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       setPreferredEmail(user.email || "");
     }
   }, [profile, user, viewAsClient]);
+
+  const resetProfile = () => {
+    const src = viewAsClient || profile;
+    if (!src) return;
+    setFirstName(src.first_name || "");
+    setLastName(src.last_name || "");
+    setPhone(formatPhone(src.phone || ""));
+    setPreferredEmail(src.preferred_email || (viewAsClient ? viewAsClient.email : user?.email) || "");
+    setNotificationPref(src.notification_preference || "email");
+    setReminderPref(src.reminder_preference || "both");
+    setTimezone(src.timezone || detectTz());
+    setError(null);
+    setSuccess(false);
+  };
 
   const handleSave = async () => {
     if (!firstName.trim() || !lastName.trim()) {
@@ -219,9 +233,12 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
 
         {error && <p style={{ fontSize:13, color:"#c0392b", marginBottom:12 }}>{error}</p>}
         {success && <p style={{ fontSize:13, color:C.teal, marginBottom:12 }}>Profile saved.</p>}
-        <button style={S.btn} onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : "Save profile"}
-        </button>
+        <div style={{ display:"flex", gap:8 }}>
+          <button style={S.btn} onClick={handleSave} disabled={saving}>
+            {saving ? "Saving..." : "Save profile"}
+          </button>
+          <button style={S.btnSmOut} onClick={resetProfile} disabled={saving}>Discard changes</button>
+        </div>
       </div>
 
       {/* Change password — only show after profile is set up, not in admin view mode */}
@@ -265,7 +282,8 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
           />
           {pwError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{pwError}</p>}
           {pwSuccess && <p style={{ fontSize: 13, color: C.teal, marginBottom: 12 }}>Password updated.</p>}
-          <button style={S.btn} disabled={pwSaving} onClick={async () => {
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btn} disabled={pwSaving} onClick={async () => {
             if (!pwNew) { setPwError("Enter a new password."); return; }
             if (pwNew.length < 8) { setPwError("Password must be at least 8 characters."); return; }
             if (pwNew !== pwConfirm) { setPwError("Passwords do not match."); return; }
@@ -277,8 +295,10 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
             if (err) { setPwError(err.message || "Could not update password."); }
             else { setPwSuccess(true); setPwNew(""); setPwConfirm(""); }
           }}>
-            {pwSaving ? "Updating…" : "Update password"}
-          </button>
+              {pwSaving ? "Updating…" : "Update password"}
+            </button>
+            <button style={S.btnSmOut} disabled={pwSaving} onClick={() => { setPwNew(""); setPwConfirm(""); setPwError(null); setPwSuccess(false); }}>Cancel</button>
+          </div>
         </div>
       )}
 
@@ -302,7 +322,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
 
 function PaymentMethodSection({ hasCard, onSaved }) {
   const [cardInfo, setCardInfo] = useState(null);
-  const [showForm, setShowForm] = useState(!hasCard);
+  const [showForm, setShowForm] = useState(false);
   const [clientSecret, setClientSecret] = useState(null);
   const [loadingSecret, setLoadingSecret] = useState(false);
   const [initError, setInitError] = useState(null);
@@ -310,11 +330,7 @@ function PaymentMethodSection({ hasCard, onSaved }) {
   useEffect(() => {
     if (hasCard) {
       fetch("/api/stripe/card").then(r => r.json()).then(data => {
-        if (data.card) {
-          setCardInfo(data.card);
-        } else {
-          setShowForm(true);
-        }
+        if (data.card) setCardInfo(data.card);
       });
     }
   }, [hasCard]);
@@ -370,13 +386,17 @@ function PaymentMethodSection({ hasCard, onSaved }) {
         </div>
       )}
 
+      {!cardInfo && !showForm && (
+        <button style={S.btn} onClick={() => setShowForm(true)}>Add a card</button>
+      )}
+
       {showForm && (
         <>
           {initError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{initError}</p>}
           {!clientSecret && !initError && <p style={{ fontSize: 13, color: C.muted, marginBottom: 12 }}>Loading…</p>}
           {clientSecret && (
             <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe" } }}>
-              <PaymentForm hasCard={hasCard} onSaved={handleSaved} onCancel={handleCancel} />
+              <PaymentForm hasCard={hasCard} clientSecret={clientSecret} onSaved={handleSaved} onCancel={handleCancel} />
             </Elements>
           )}
         </>
@@ -385,9 +405,10 @@ function PaymentMethodSection({ hasCard, onSaved }) {
   );
 }
 
-function PaymentForm({ hasCard, onSaved, onCancel }) {
+function PaymentForm({ hasCard, clientSecret, onSaved, onCancel }) {
   const stripe = useStripe();
   const elements = useElements();
+  const [zip, setZip] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -396,10 +417,11 @@ function PaymentForm({ hasCard, onSaved, onCancel }) {
     setSaving(true);
     setError(null);
 
-    const { error: stripeError, setupIntent } = await stripe.confirmSetup({
-      elements,
-      confirmParams: { return_url: window.location.href },
-      redirect: "if_required",
+    const { error: stripeError, setupIntent } = await stripe.confirmCardSetup(clientSecret, {
+      payment_method: {
+        card: elements.getElement(CardNumberElement),
+        billing_details: { address: { postal_code: zip } },
+      },
     });
 
     setSaving(false);
@@ -412,17 +434,51 @@ function PaymentForm({ hasCard, onSaved, onCancel }) {
     }
   };
 
+  const stripeFieldStyle = {
+    padding: "10px 12px",
+    border: `0.5px solid ${C.border}`,
+    borderRadius: 8,
+    marginBottom: "0.75rem",
+    background: "#fff",
+  };
+
+  const stripeOptions = {
+    style: {
+      base: { fontSize: "16px", fontFamily: "system-ui, sans-serif", color: "#333", "::placeholder": { color: "#aab7c4" } },
+    },
+  };
+
   return (
     <>
-      <div style={{ padding: "10px 12px", border: `0.5px solid ${C.border}`, borderRadius: 8, marginBottom: "0.75rem", background: "#fff" }}>
-        <PaymentElement options={{ wallets: { link: "never" } }} />
+      <label style={S.label}>Card number</label>
+      <div style={stripeFieldStyle}>
+        <CardNumberElement options={{ ...stripeOptions, showIcon: true, disableLink: true }} />
+      </div>
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <label style={S.label}>Expiry</label>
+          <div style={stripeFieldStyle}><CardExpiryElement options={stripeOptions} /></div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={S.label}>CVC</label>
+          <div style={stripeFieldStyle}><CardCvcElement options={stripeOptions} /></div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={S.label}>ZIP code</label>
+          <input
+            style={{ ...S.input, marginBottom: "0.75rem" }}
+            placeholder="12345"
+            value={zip}
+            onChange={e => setZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
+          />
+        </div>
       </div>
       {error && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{error}</p>}
       <div style={{ display: "flex", gap: 8 }}>
         <button style={S.btn} onClick={handleSubmit} disabled={saving || !stripe}>
           {saving ? "Saving..." : hasCard ? "Update card" : "Save card"}
         </button>
-        {hasCard && <button style={S.btnSmOut} onClick={onCancel}>Cancel</button>}
+        <button style={S.btnSmOut} onClick={onCancel}>Cancel</button>
       </div>
     </>
   );

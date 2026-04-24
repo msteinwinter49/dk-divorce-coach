@@ -5,7 +5,6 @@ import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
-
 // Read Diana's stored Google OAuth refresh token. Returns null if not connected.
 async function getGoogleToken(adminClient) {
   const { data } = await adminClient
@@ -155,6 +154,18 @@ export async function POST(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
+  // Block client requests when balance is already negative
+  if (!isAdmin) {
+    const { data: ledger } = await adminClient
+      .from("balance_ledger")
+      .select("delta_minutes")
+      .eq("client_id", bookingUserId);
+    const currentBalance = (ledger || []).reduce((sum, r) => sum + r.delta_minutes, 0);
+    if (currentBalance < 0) {
+      return NextResponse.json({ error: "Your session balance is negative. Please purchase more sessions before requesting a session." }, { status: 402 });
+    }
+  }
+
   // Get session type details
   const { data: sessionType } = await adminClient
     .from("session_types")
@@ -275,8 +286,9 @@ export async function POST(request) {
          <p><strong>Date:</strong> ${formatSessionDate(date)}</p>
          <p><strong>Time:</strong> ${formatSessionTime(start_time).replace(" ET", "")} &ndash; ${formatSessionTime(endTimeStr)}</p>
          <p><strong>Duration:</strong> ${sessionType.duration} min</p>
+         ${lowBalance ? `<p style="color:#c0392b"><strong>⚠ Balance alert:</strong> This session puts ${clientName}&apos;s balance negative. They should purchase more sessions.</p>` : ""}
          <p>Log in to your admin calendar to accept or decline.</p>`,
-        `New session request from ${clientName}: ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min). Log in to accept or decline.`
+        `New session request from ${clientName}: ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min).${lowBalance ? " ⚠ Balance will be negative." : ""} Log in to accept or decline.`
       );
     } catch (e) {
       console.error("Notification error:", e);

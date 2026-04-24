@@ -33,7 +33,7 @@ function sameDay(a, b) { return dateStr(a) === dateStr(b); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function startOfWeek(d) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; }
 
-export default function Schedule({ setPage, viewAsClient }) {
+export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const { user, profile } = useAuth();
   const isAdminViewing = !!viewAsClient && profile?.role === "admin";
   const readOnly = !!viewAsClient && !isAdminViewing;
@@ -54,6 +54,7 @@ export default function Schedule({ setPage, viewAsClient }) {
   const [bookingError, setBookingError] = useState(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [lowBalance, setLowBalance] = useState(false);
+  const [bookingBalanceAfter, setBookingBalanceAfter] = useState(null);
   const [editingBooking, setEditingBooking] = useState(null);
   const [noChangeMessage, setNoChangeMessage] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
@@ -150,6 +151,7 @@ export default function Schedule({ setPage, viewAsClient }) {
     setEditingBooking(null);
     setNoChangeMessage(false);
     setLowBalance(false);
+    setBookingBalanceAfter(null);
     setShowCloseWarning(false);
   };
 
@@ -219,7 +221,10 @@ export default function Schedule({ setPage, viewAsClient }) {
 
     if (res.ok) {
       const responseData = await res.json();
-      if (!editingBooking) setLowBalance(!!responseData.low_balance);
+      if (!editingBooking) {
+        setLowBalance(!!responseData.low_balance);
+        if (responseData.balance_after != null) setBookingBalanceAfter(responseData.balance_after);
+      }
       const { start, end } = getRange();
       const [availRes, bookingsRes] = await Promise.all([
         fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
@@ -946,11 +951,21 @@ export default function Schedule({ setPage, viewAsClient }) {
                         : `Your request for ${dateLabel} at ${selectedTime} has been submitted. Diana will review and confirm.`)}
                 </p>
               )}
-              {lowBalance && (
-                <p style={{ fontSize: 13, color: "#c0392b", marginTop: 8, marginBottom: 4 }}>
-                  Your session balance is now negative. Please purchase more sessions to maintain a positive balance.
-                </p>
-              )}
+              {!noChangeMessage && !editingBooking && !isAdminViewing && bookingBalanceAfter != null && (() => {
+                const min = bookingBalanceAfter;
+                const abs = Math.abs(min);
+                const h = Math.floor(abs / 60);
+                const m = abs % 60;
+                const sign = min < 0 ? "-" : "";
+                const label = h === 0 ? `${sign}${m} minute${m !== 1 ? "s" : ""}`
+                  : m === 0 ? `${sign}${h} hour${h !== 1 ? "s" : ""}`
+                  : `${sign}${h} hr ${m} min`;
+                return (
+                  <p style={{ fontSize: 13, color: min < 0 ? "#c0392b" : C.muted, marginTop: 4, marginBottom: 4 }}>
+                    Your remaining balance is now {label}.
+                  </p>
+                );
+              })()}
               <button style={S.btn} onClick={closePopup}>Close</button>
             </div>
           ) : (
@@ -1085,7 +1100,14 @@ export default function Schedule({ setPage, viewAsClient }) {
                 </div>
               )}
 
-              {bookingError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{bookingError}</p>}
+              {bookingError && (
+                <div style={{ marginBottom: 12 }}>
+                  <p style={{ fontSize: 13, color: "#c0392b", marginBottom: bookingError.includes("payment method") ? 8 : 0 }}>{bookingError}</p>
+                  {bookingError.includes("payment method") && !viewAsClient && (
+                    <button style={S.btnSm} onClick={() => { setProfileFocus("payment"); setPage("Profile"); }}>Add a payment method</button>
+                  )}
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {selectedType && selectedTime && (
