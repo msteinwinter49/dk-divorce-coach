@@ -60,7 +60,7 @@ export async function notifyClient(profile, subject, html, smsBody) {
   }
 
   if ((pref === "text" || pref === "both") && profile.phone) {
-    results.sms = await sendSMS(profile.phone, smsBody);
+    results.sms = await sendSMS(profile.phone, `${smsBody}\nVisit your Profile to opt-out of future texts.`);
   }
 
   return results;
