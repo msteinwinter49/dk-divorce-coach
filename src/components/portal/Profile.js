@@ -207,6 +207,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
         <input style={S.input} placeholder="jane@example.com" type="email" value={preferredEmail} onChange={e => setPreferredEmail(e.target.value)} />
 
         <label style={S.label}>Notification preference</label>
+        <p style={{ fontSize: 12, color: C.muted, marginBottom: "0.5rem", marginTop: "-0.25rem", lineHeight: 1.5 }}>If you opt-in to receive notifications regarding your schedule by text (SMS), msg and data rates may apply. Msg frequency depends on your use of the website. You can opt-out any time by returning and selecting &ldquo;Email only&rdquo;.</p>
         <select style={{ ...S.input, cursor: "pointer" }} value={notificationPref} onChange={e => setNotificationPref(e.target.value)}>
           <option value="email">Email only</option>
           <option value="text">Text only</option>

@@ -76,7 +76,7 @@ export default function App() {
     if (page === "Profile") return <Profile onSaved={refreshProfile} viewAsClient={viewAsClient} scrollTo={profileFocus} onScrolled={() => setProfileFocus(null)} />;
     if (page === "Portal Home") return <PortalHome setPage={setPage} viewAsClient={viewAsClient} setProfileFocus={setProfileFocus} />;
     if (page === "Documents") return <Documents viewAsClient={viewAsClient} />;
-    if (page === "Schedule") return <Schedule setPage={setPage} viewAsClient={viewAsClient} />;
+    if (page === "Schedule") return <Schedule setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />;
     if (page === "Buy Sessions") return <BuySessions setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />;
     if (page === "Messages") return <Messages viewAsClient={viewAsClient} />;
     if (isAdmin && page === "Admin Schedule") return <AdminSchedule setPage={setPage} />;
