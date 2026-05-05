@@ -40,16 +40,28 @@ export async function getTokensFromCode(code) {
   return tokens;
 }
 
-// Get an authenticated calendar client using stored refresh token
-export function getCalendarClient(refreshToken) {
+// Get an authenticated calendar client using stored refresh token.
+// onNewToken(newRefreshToken) is called if Google rotates the refresh token
+// during an access-token refresh so the caller can persist the new value.
+export function getCalendarClient(refreshToken, onNewToken) {
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({ refresh_token: refreshToken });
+  if (onNewToken) {
+    oauth2Client.on("tokens", (tokens) => {
+      if (tokens.refresh_token) {
+        console.log("[gcal] Refresh token rotated, persisting new value");
+        onNewToken(tokens.refresh_token).catch(e =>
+          console.error("[gcal] Failed to persist rotated refresh token:", e)
+        );
+      }
+    });
+  }
   return google.calendar({ version: "v3", auth: oauth2Client });
 }
 
 // List all calendars visible to the authenticated user (for debugging)
-export async function listCalendars(refreshToken) {
-  const calendar = getCalendarClient(refreshToken);
+export async function listCalendars(refreshToken, onNewToken) {
+  const calendar = getCalendarClient(refreshToken, onNewToken);
   const { data } = await withTimeout(calendar.calendarList.list(), "calendarList.list");
   return data.items || [];
 }
@@ -57,8 +69,8 @@ export async function listCalendars(refreshToken) {
 // List events in a date range across every calendar the account can see,
 // except holiday calendars. Each event is tagged with its source calendar so
 // the frontend can classify/color them correctly.
-export async function listEvents(refreshToken, timeMin, timeMax) {
-  const calendar = getCalendarClient(refreshToken);
+export async function listEvents(refreshToken, timeMin, timeMax, onNewToken) {
+  const calendar = getCalendarClient(refreshToken, onNewToken);
 
   // 1. Discover all visible calendars (skip holidays)
   const { data: calList } = await withTimeout(calendar.calendarList.list(), "listEvents/calendarList");
@@ -101,8 +113,8 @@ export async function listEvents(refreshToken, timeMin, timeMax) {
 }
 
 // Create an event (tentative for requests, confirmed for booked)
-export async function createEvent(refreshToken, { summary, start, end, status }) {
-  const calendar = getCalendarClient(refreshToken);
+export async function createEvent(refreshToken, { summary, start, end, status }, onNewToken) {
+  const calendar = getCalendarClient(refreshToken, onNewToken);
   const { data } = await withTimeout(
     calendar.events.insert({
       calendarId: process.env.GOOGLE_CALENDAR_ID,
@@ -119,8 +131,8 @@ export async function createEvent(refreshToken, { summary, start, end, status })
 }
 
 // Update an event (e.g. tentative → confirmed, or change details)
-export async function updateEvent(refreshToken, eventId, updates) {
-  const calendar = getCalendarClient(refreshToken);
+export async function updateEvent(refreshToken, eventId, updates, onNewToken) {
+  const calendar = getCalendarClient(refreshToken, onNewToken);
   const { data } = await withTimeout(
     calendar.events.patch({
       calendarId: process.env.GOOGLE_CALENDAR_ID,
@@ -133,8 +145,8 @@ export async function updateEvent(refreshToken, eventId, updates) {
 }
 
 // Delete an event (on cancel/decline/expire)
-export async function deleteEvent(refreshToken, eventId) {
-  const calendar = getCalendarClient(refreshToken);
+export async function deleteEvent(refreshToken, eventId, onNewToken) {
+  const calendar = getCalendarClient(refreshToken, onNewToken);
   await withTimeout(
     calendar.events.delete({
       calendarId: process.env.GOOGLE_CALENDAR_ID,
@@ -171,9 +183,9 @@ function buildBookingSummary(clientProfile) {
 // status: "tentative" (requested) or "confirmed" (booked)
 // sessionType may be passed separately (e.g. joined via session_types(...)),
 // or as booking.session_types from the join.
-export async function syncBookingToGoogle(refreshToken, booking, clientProfile, status, sessionType) {
+export async function syncBookingToGoogle(refreshToken, booking, clientProfile, status, sessionType, onNewToken) {
   if (!refreshToken) throw new Error("No Google refresh token");
-  const calendar = getCalendarClient(refreshToken);
+  const calendar = getCalendarClient(refreshToken, onNewToken);
   const st = sessionType || booking.session_types || null;
 
   const requestBody = {

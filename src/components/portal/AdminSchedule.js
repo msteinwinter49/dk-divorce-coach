@@ -266,13 +266,14 @@ function detectAllOverlaps(bookings, googleEvents) {
   return clusterOverlapsByDate(buildChips(bookings, googleEvents));
 }
 
-export default function AdminSchedule() {
+export default function AdminSchedule({ setPage }) {
   const mobile = useIsMobile();
   const [view, setView] = useState("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bookings, setBookings] = useState([]);
   const [availability, setAvailability] = useState({});
   const [googleEvents, setGoogleEvents] = useState([]);
+  const [googleDisconnected, setGoogleDisconnected] = useState(false);
   const [clients, setClients] = useState([]);
   const [sessionTypes, setSessionTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -420,7 +421,10 @@ export default function AdminSchedule() {
     const { __increment, ...slotsByDate } = availOk;
     setAvailability(slotsByDate);
     if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
-    setGoogleEvents(Array.isArray(eventsRes) ? eventsRes : []);
+    // events response is now { events: [...], _googleDisconnected?: true }
+    const eventsArr = Array.isArray(eventsRes) ? eventsRes : (eventsRes?.events || []);
+    setGoogleEvents(eventsArr);
+    setGoogleDisconnected(!!eventsRes?._googleDisconnected);
     setClients(clientsRes.clients || []);
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
     setLoading(false);
@@ -443,7 +447,7 @@ export default function AdminSchedule() {
         ]);
         if (cancelled) return;
         setSearchBookings(Array.isArray(bRes) ? bRes : []);
-        setSearchEvents(Array.isArray(eRes) ? eRes : []);
+        setSearchEvents(Array.isArray(eRes) ? eRes : (eRes?.events || []));
       } finally {
         if (!cancelled) setSearchLoading(false);
       }
@@ -2668,6 +2672,19 @@ export default function AdminSchedule() {
       </div>
 
       {renderConflictBanner()}
+      {googleDisconnected && (
+        <div style={{ background: "#fff3cd", border: "1px solid #ffc107", borderRadius: 6, padding: "10px 14px", marginBottom: 12, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span>⚠ Google Calendar disconnected — SimplePractice sessions won't appear.</span>
+          {setPage && (
+            <button
+              style={{ background: "none", border: "none", cursor: "pointer", color: C.teal, fontWeight: 600, fontSize: 13, padding: 0, textDecoration: "underline" }}
+              onClick={() => setPage("Admin Settings")}
+            >
+              Reconnect in Settings
+            </button>
+          )}
+        </div>
+      )}
       {renderColorKey()}
 
       <p style={{ ...S.p, fontSize: 13 }}>

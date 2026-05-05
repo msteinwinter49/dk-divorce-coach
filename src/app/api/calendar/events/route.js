@@ -42,6 +42,28 @@ async function getGoogleToken(adminClient) {
   return data?.value || null;
 }
 
+// Build a token-rotation saver to pass into gcal library functions.
+// When googleapis refreshes an access token, Google sometimes issues a new
+// refresh token too. This persists it so the old one isn't used on the next call.
+function makeSaveToken(adminClient) {
+  return async (newRefreshToken) => {
+    await adminClient.from("settings").upsert({
+      key: "google_refresh_token",
+      value: newRefreshToken,
+      updated_at: new Date().toISOString(),
+    });
+  };
+}
+
+function isAuthError(e) {
+  const status = e?.response?.status || e?.status || e?.code;
+  const msg = e?.message || "";
+  return status === 401 || status === 403 ||
+    msg.includes("invalid_grant") ||
+    msg.includes("Token has been expired") ||
+    msg.includes("Invalid Credentials");
+}
+
 // GET — fetch local events + Google Calendar events (if connected)
 export async function GET(request) {
   const ctx = await getAdminContext();
@@ -75,14 +97,24 @@ export async function GET(request) {
 
   // 2. Google Calendar events (if connected)
   let googleEvents = [];
+  let googleDisconnected = false;
   const token = await getGoogleToken(ctx.adminClient);
   if (token) {
     try {
       const { listEvents } = await import("@/lib/google-calendar");
-      googleEvents = await listEvents(token, start, end);
+      googleEvents = await listEvents(token, start, end, makeSaveToken(ctx.adminClient));
     } catch (e) {
       console.error("Google Calendar fetch error:", e?.message || e);
-      // Continue without Google events
+      if (isAuthError(e)) {
+        // Clear the stored token so Settings shows "Disconnected" and the admin
+        // knows to reconnect rather than seeing silently empty SP sessions.
+        await ctx.adminClient.from("settings").upsert({
+          key: "google_refresh_token",
+          value: null,
+          updated_at: new Date().toISOString(),
+        });
+        googleDisconnected = true;
+      }
     }
   }
 
@@ -107,7 +139,10 @@ export async function GET(request) {
   }
   const filteredGoogle = googleEvents.filter(e => !syncedGoogleIds.has(e.id));
 
-  return NextResponse.json([...normalized, ...filteredGoogle]);
+  return NextResponse.json({
+    events: [...normalized, ...filteredGoogle],
+    ...(googleDisconnected && { _googleDisconnected: true }),
+  });
 }
 
 // POST — create event locally, sync to Google if available
@@ -143,7 +178,7 @@ export async function POST(request) {
         start: startISO,
         end: endISO,
         status: "confirmed",
-      });
+      }, makeSaveToken(ctx.adminClient));
       // Store the Google event ID for dedup
       await ctx.adminClient
         .from("events")
@@ -199,7 +234,7 @@ export async function PATCH(request) {
         if (summary) gUpdates.summary = summary;
         if (updates.start_time) gUpdates.start = { dateTime: updates.start_time };
         if (updates.end_time) gUpdates.end = { dateTime: updates.end_time };
-        await updateEvent(token, event.google_calendar_event_id, gUpdates);
+        await updateEvent(token, event.google_calendar_event_id, gUpdates, makeSaveToken(ctx.adminClient));
       } catch (e) {
         console.error("Google Calendar update sync error:", e);
       }
@@ -244,7 +279,7 @@ export async function DELETE(request) {
     if (token) {
       try {
         const { deleteEvent } = await import("@/lib/google-calendar");
-        await deleteEvent(token, event.google_calendar_event_id);
+        await deleteEvent(token, event.google_calendar_event_id, makeSaveToken(ctx.adminClient));
       } catch (e) {
         console.error("Google Calendar delete sync error:", e);
       }
