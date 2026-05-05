@@ -39,6 +39,12 @@ function getSupabase() {
   );
 }
 
+async function isSmsEnabled(supabase) {
+  const client = supabase || getSupabase();
+  const { data } = await client.from("settings").select("value").eq("key", "sms_enabled").single();
+  return data?.value === "true";
+}
+
 // Send email via Resend
 async function sendEmail(to, subject, html) {
   return resend.emails.send({
@@ -60,7 +66,9 @@ export async function notifyClient(profile, subject, html, smsBody) {
   }
 
   if ((pref === "text" || pref === "both") && profile.phone) {
-    results.sms = await sendSMS(profile.phone, `${smsBody}\nVisit your Profile to opt-out of future texts.`);
+    if (await isSmsEnabled()) {
+      results.sms = await sendSMS(profile.phone, `${smsBody}\nVisit your Profile to opt-out of future texts.`);
+    }
   }
 
   return results;
@@ -90,7 +98,7 @@ export async function notifyAdmin(subject, html, smsBody) {
     .limit(1)
     .single();
 
-  if (admin?.phone && smsBody) {
+  if (admin?.phone && smsBody && await isSmsEnabled(supabase)) {
     results.sms = await sendSMS(admin.phone, smsBody);
   }
 

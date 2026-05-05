@@ -266,15 +266,18 @@ async function notifyAdminWithChannel(supabase, channel, subject, html, smsBody)
   }
 
   if (channel === "text" || channel === "both") {
-    const { data: admin } = await supabase
-      .from("profiles")
-      .select("phone")
-      .eq("role", "admin")
-      .limit(1)
-      .single();
+    const { data: smsSetting } = await supabase.from("settings").select("value").eq("key", "sms_enabled").single();
+    if (smsSetting?.value === "true") {
+      const { data: admin } = await supabase
+        .from("profiles")
+        .select("phone")
+        .eq("role", "admin")
+        .limit(1)
+        .single();
 
-    if (admin?.phone && smsBody) {
-      results.sms = await sendSMS(admin.phone, smsBody);
+      if (admin?.phone && smsBody) {
+        results.sms = await sendSMS(admin.phone, smsBody);
+      }
     }
   }
 

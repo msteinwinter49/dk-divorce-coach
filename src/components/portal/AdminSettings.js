@@ -54,6 +54,9 @@ export default function AdminSettings({ setPage }) {
   const [reminderChannel, setReminderChannel] = useState("both");
   const [reminderMinutes, setReminderMinutes] = useState("30");
 
+  // SMS
+  const [smsEnabled, setSmsEnabled] = useState(false);
+
   // Google Calendar
   const [googleConnected, setGoogleConnected] = useState(false);
 
@@ -73,7 +76,8 @@ export default function AdminSettings({ setPage }) {
     const [settingsRes, typesRes, rulesRes, pricingRes] = await Promise.all([
       supabase.from("settings").select("key, value").in("key", [
         "contact_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token",
-        "admin_reminder_channel", "admin_reminder_minutes", "package_sizes", "default_expires_months"
+        "admin_reminder_channel", "admin_reminder_minutes", "package_sizes", "default_expires_months",
+        "sms_enabled"
       ]),
       fetch("/api/session-types").then(r => r.json()),
       supabase.from("availability_rules").select("*").order("day_of_week").order("start_time"),
@@ -89,6 +93,7 @@ export default function AdminSettings({ setPage }) {
     setReminderChannel(settings.admin_reminder_channel || "both");
     setReminderMinutes(settings.admin_reminder_minutes || "30");
     setGoogleConnected(!!settings.google_refresh_token);
+    setSmsEnabled(settings.sms_enabled === "true");
     setPackageSizes(parsePackageSizes(settings.package_sizes));
     setDefaultExpiresMonths(settings.default_expires_months || "12");
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
@@ -125,6 +130,7 @@ export default function AdminSettings({ setPage }) {
     await saveSetting("booking_horizon_days", horizon);
     await saveSetting("admin_reminder_channel", reminderChannel);
     await saveSetting("admin_reminder_minutes", reminderMinutes);
+    await saveSetting("sms_enabled", smsEnabled ? "true" : "false");
   };
 
   // --- Session types ---
@@ -347,6 +353,19 @@ export default function AdminSettings({ setPage }) {
               <option value="60">60 minutes</option>
             </select>
           </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "0.75rem" }}>
+          <input
+            id="sms-enabled"
+            type="checkbox"
+            checked={smsEnabled}
+            onChange={e => setSmsEnabled(e.target.checked)}
+            style={{ width: 16, height: 16, cursor: "pointer" }}
+          />
+          <label htmlFor="sms-enabled" style={{ ...S.label, marginBottom: 0, cursor: "pointer" }}>
+            SMS notifications enabled
+          </label>
         </div>
 
         <button style={S.btn} onClick={handleSaveGeneral} disabled={saving}>
