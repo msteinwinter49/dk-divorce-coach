@@ -202,6 +202,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
           date: bookingDate,
           start_time: selectedTime,
           session_type_id: selectedType.id,
+          tz_offset: new Date().getTimezoneOffset(),
         }),
       });
     } else {
@@ -209,6 +210,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
         session_type_id: selectedType.id,
         date: bookingDate,
         start_time: selectedTime,
+        tz_offset: new Date().getTimezoneOffset(),
       };
       if (isAdminViewing) body.user_id = viewAsClient.id;
 
@@ -563,6 +565,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
         action: "update",
         date: newDate,
         start_time: newTime,
+        tz_offset: new Date().getTimezoneOffset(),
       }),
     });
     clearTimeout(spinnerTimer);

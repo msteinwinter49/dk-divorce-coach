@@ -741,6 +741,7 @@ export default function AdminSchedule() {
         session_type_id: bookType,
         date: bookDate,
         start_time: bookTime,
+        tz_offset: new Date().getTimezoneOffset(),
         ...(force && { force: true }),
       }),
     });
@@ -768,6 +769,7 @@ export default function AdminSchedule() {
         date: bookDate,
         start_time: bookTime,
         session_type_id: bookType || undefined,
+        tz_offset: new Date().getTimezoneOffset(),
       }),
     });
     if (res.ok) {

@@ -5,6 +5,15 @@ import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
+
+// Convert browser's getTimezoneOffset() value to ISO offset string like "-04:00"
+function buildTzOffset(tz_offset) {
+  const off = typeof tz_offset === "number" ? tz_offset : 0;
+  const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, "0");
+  const m = String(Math.abs(off) % 60).padStart(2, "0");
+  return (off <= 0 ? "+" : "-") + h + ":" + m;
+}
+
 // Read Diana's stored Google OAuth refresh token. Returns null if not connected.
 async function getGoogleToken(adminClient) {
   const { data } = await adminClient
@@ -140,7 +149,7 @@ export async function POST(request) {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { session_type_id, date, start_time, user_id: targetUserId, force } = await request.json();
+  const { session_type_id, date, start_time, user_id: targetUserId, force, tz_offset } = await request.json();
   if (!session_type_id || !date || !start_time) {
     return NextResponse.json({ error: "session_type_id, date, and start_time are required" }, { status: 400 });
   }
@@ -200,8 +209,9 @@ export async function POST(request) {
   const endM = endMinutes % 60;
   const endTimeStr = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
 
-  const startTimestamp = new Date(`${date}T${start_time}:00`).toISOString();
-  const endTimestamp = new Date(`${date}T${endTimeStr}:00`).toISOString();
+  const offStr = buildTzOffset(tz_offset);
+  const startTimestamp = new Date(`${date}T${start_time}:00${offStr}`).toISOString();
+  const endTimestamp = new Date(`${date}T${endTimeStr}:00${offStr}`).toISOString();
 
   // Create the booking
   // Admin booking on behalf of client goes straight to "booked"
@@ -304,7 +314,7 @@ export async function PATCH(request) {
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const body = await request.json();
-  const { id, action } = body;
+  const { id, action, tz_offset } = body;
   if (!id || !["accept", "decline", "update"].includes(action)) {
     return NextResponse.json({ error: "id and action (accept/decline/update) required" }, { status: 400 });
   }
@@ -448,8 +458,9 @@ export async function PATCH(request) {
 
       updates.date = newDate;
       updates.time_slot = newStartTime;
-      updates.start_time = new Date(`${newDate}T${newStartTime}:00`).toISOString();
-      updates.end_time = new Date(`${newDate}T${endTimeStr}:00`).toISOString();
+      const offStr = buildTzOffset(tz_offset);
+      updates.start_time = new Date(`${newDate}T${newStartTime}:00${offStr}`).toISOString();
+      updates.end_time = new Date(`${newDate}T${endTimeStr}:00${offStr}`).toISOString();
     }
 
     // Client edits: block only on overlap with another booking. Availability
