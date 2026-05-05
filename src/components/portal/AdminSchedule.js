@@ -293,6 +293,8 @@ export default function AdminSchedule() {
 
   // Drag-to-move state (existing bookings + events)
   const dragRef = useRef(null);
+  const weekHeaderRef = useRef(null);
+  const weekBodyRef = useRef(null);
   const [dragOver, setDragOver] = useState(null); // { date, hour, snapTime, snapMinutes, blocked, x, y, itemId, durationMin, status, dragType }
   const [pendingMove, setPendingMove] = useState(null); // awaiting confirmation
 
@@ -1457,70 +1459,87 @@ export default function AdminSchedule() {
     const weekStart = startOfWeek(currentDate);
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
     const totalH = HOURS.length * WEEK_ROW_H;
+    const minW = mobile ? 770 : "auto";
     return (
-      <div style={{ overflowX: "auto", userSelect: "none" }}>
-        <div style={{ display: "flex", minWidth: mobile ? 770 : "auto" }}>
-          <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>
-            <div style={{ height: 36, padding: "4px 0", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, background: "#fafafa" }} />
-            {HOURS.map(h => (
-              <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {formatHour(h)}
+      <div>
+        {/* Header row is outside the overflow-x container so position:sticky works vertically */}
+        <div ref={weekHeaderRef} style={{ position: "sticky", top: 0, zIndex: 20, overflowX: "hidden", background: "#fafafa" }}>
+          <div style={{ display: "flex", minWidth: minW }}>
+            <div style={{ width: 70, flexShrink: 0, height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}` }} />
+            {days.map((d, i) => (
+              <div
+                key={i}
+                onClick={() => { setCurrentDate(new Date(d)); setView("day"); }}
+                style={{
+                  flex: 1, minWidth: 0, height: 36, textAlign: "center", padding: "4px 0",
+                  borderBottom: `0.5px solid ${C.gridLine}`,
+                  borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none",
+                  fontWeight: sameDay(d, new Date()) ? 600 : 400,
+                  color: sameDay(d, new Date()) ? C.teal : C.text,
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
+                <div style={{ fontSize: 14 }}>{d.getDate()}</div>
               </div>
             ))}
           </div>
-          {days.map((d, i) => {
-            const date = dateStr(d);
-            const overlayItems = getItemsForDate(date, WEEK_ROW_H);
-            return (
-              <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none" }}>
-                <div
-                  onClick={() => { setCurrentDate(new Date(d)); setView("day"); }}
-                  style={{
-                    height: 36, textAlign: "center", padding: "4px 0",
-                    borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa",
-                    fontWeight: sameDay(d, new Date()) ? 600 : 400,
-                    color: sameDay(d, new Date()) ? C.teal : C.text,
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
-                  <div style={{ fontSize: 14 }}>{d.getDate()}</div>
+        </div>
+        {/* Body scrolls horizontally; header is synced to match */}
+        <div
+          ref={weekBodyRef}
+          style={{ overflowX: "auto", userSelect: "none" }}
+          onScroll={(e) => { if (weekHeaderRef.current) weekHeaderRef.current.scrollLeft = e.target.scrollLeft; }}
+        >
+          <div style={{ display: "flex", minWidth: minW }}>
+            <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>
+              {HOURS.map(h => (
+                <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {formatHour(h)}
                 </div>
-                <div style={{ position: "relative", height: totalH }}>
-                  {HOURS.map(h => (
-                    <div key={h} style={{
-                      height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
-                      background: "#fafafa",
-                      cursor: "crosshair",
-                      boxSizing: "border-box",
-                    }}
-                      onMouseDown={(e) => handleCellMouseDown(e, date, h)}
-                      onMouseMove={(e) => handleCellMouseMove(e, date, h)}
-                      onDragOver={(e) => handleDragOver(e, date, h)}
-                      onDragLeave={handleDragLeave}
-                      onDrop={(e) => handleDrop(e, date, h)}
-                    />
-                  ))}
-                  {getAvailableOverlay(date, WEEK_ROW_H).map((r, idx) => (
-                    <div key={`avail-${idx}`} style={{
-                      position: "absolute", left: 0, right: 0,
-                      top: r.top, height: r.height,
-                      background: SRC.available, pointerEvents: "none", zIndex: 0,
-                      borderBottom: r.isLast ? "none" : `0.5px solid ${C.gridLine}`,
-                      boxSizing: "border-box",
-                    }} />
-                  ))}
-                  {overlayItems.map(item =>
-                    item.kind === "booking"
-                      ? renderOverlayBooking(item.data, item.top, item.height, true)
-                      : renderOverlayEvent(item.data, item.top, item.height, true)
-                  )}
-                  {renderSelectionOverlay(date, WEEK_ROW_H)}
-                  {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
+              ))}
+            </div>
+            {days.map((d, i) => {
+              const date = dateStr(d);
+              const overlayItems = getItemsForDate(date, WEEK_ROW_H);
+              return (
+                <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none" }}>
+                  <div style={{ position: "relative", height: totalH }}>
+                    {HOURS.map(h => (
+                      <div key={h} style={{
+                        height: WEEK_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`,
+                        background: "#fafafa",
+                        cursor: "crosshair",
+                        boxSizing: "border-box",
+                      }}
+                        onMouseDown={(e) => handleCellMouseDown(e, date, h)}
+                        onMouseMove={(e) => handleCellMouseMove(e, date, h)}
+                        onDragOver={(e) => handleDragOver(e, date, h)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, date, h)}
+                      />
+                    ))}
+                    {getAvailableOverlay(date, WEEK_ROW_H).map((r, idx) => (
+                      <div key={`avail-${idx}`} style={{
+                        position: "absolute", left: 0, right: 0,
+                        top: r.top, height: r.height,
+                        background: SRC.available, pointerEvents: "none", zIndex: 0,
+                        borderBottom: r.isLast ? "none" : `0.5px solid ${C.gridLine}`,
+                        boxSizing: "border-box",
+                      }} />
+                    ))}
+                    {overlayItems.map(item =>
+                      item.kind === "booking"
+                        ? renderOverlayBooking(item.data, item.top, item.height, true)
+                        : renderOverlayEvent(item.data, item.top, item.height, true)
+                    )}
+                    {renderSelectionOverlay(date, WEEK_ROW_H)}
+                    {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
     );
