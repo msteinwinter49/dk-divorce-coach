@@ -51,7 +51,7 @@ export default function ContactPage() {
       {sent ? (
         <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, textAlign:"center", padding:"2.5rem" }}>
           <div style={{ fontSize:16, fontWeight:500, color:C.teal, marginBottom:8 }}>Email sent. Thank you for reaching out.</div>
-          <p style={{...S.p, color:C.teal, marginBottom:0}}>Diana will be in touch within one business day. You&#39;re taking a courageous step — for yourself and for your children.</p>
+          <p style={{...S.p, color:C.teal, marginBottom:0}}>Diana will be in touch within one business day.</p>
         </div>
       ) : (
         <div style={S.card}>
