@@ -36,7 +36,7 @@ export async function GET(request) {
     return NextResponse.json({ error: "start and end query params required" }, { status: 400 });
   }
 
-  const { slots, _debugEvents, _debugGoogleBusy } = await getAvailableSlots(startDate, endDate);
+  const slots = await getAvailableSlots(startDate, endDate);
   // Include the scheduling increment so the client doesn't have to derive it
   // from slot spacing (which breaks on sparse days like a single [09:30, 12:30]).
   const { data: settingsData } = await ctx.supabase
@@ -45,7 +45,7 @@ export async function GET(request) {
     .eq("key", "scheduling_increment")
     .maybeSingle();
   const increment = settingsData?.value ? parseInt(settingsData.value) : 30;
-  return NextResponse.json({ ...slots, __increment: increment, _debugEvents, _debugGoogleBusy });
+  return NextResponse.json({ ...slots, __increment: increment });
 }
 
 // POST — admin creates/updates availability rules or overrides

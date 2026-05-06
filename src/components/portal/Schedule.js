@@ -1258,7 +1258,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
         <div>
-          <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>ScheduleX</h1>
+          <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Schedule</h1>
           {balanceMinutes != null && (() => {
             const h = Math.floor(Math.abs(balanceMinutes) / 60);
             const m = Math.abs(balanceMinutes) % 60;
