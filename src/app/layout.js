@@ -8,6 +8,9 @@ export const viewport = {
 export const metadata = {
   title: "DK Divorce Coach | Diana Kierein, CDC",
   description: "Certified Divorce Coaching helping separating parents navigate with clarity, cooperation, and a focus on protecting their kids.",
+  verification: {
+    google: "iBiyLbzDbvnhkG4JKYy5XhkyeR5eKFlSsxJwbglYfXc",
+  },
 };
 
 export default function RootLayout({ children }) {
