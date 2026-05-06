@@ -100,6 +100,8 @@ async function getGoogleBusyByDate(supabase, startDate, endDate) {
       });
     };
     const events = await listEvents(token, startDate, endDate, onNewToken);
+    console.log(`[avail-debug] listEvents returned ${events.length} events for ${startDate}–${endDate}`);
+    events.forEach(ev => console.log(`[avail-debug] ev: summary="${ev.summary}" type=${ev._type} transparency=${ev.transparency} status=${ev.status} cal="${ev._sourceCalendarName}" start=${ev.start?.dateTime || ev.start?.date}`));
 
     const busy = {};
     const push = (dateKey, startMin, endMin) => {
