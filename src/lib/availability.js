@@ -109,7 +109,7 @@ async function getGoogleBusyByDate(supabase, startDate, endDate) {
 
     for (const ev of events) {
       if (!ev || ev.status === "cancelled") continue;
-      if (ev.transparency === "transparent") continue;
+      if (ev.transparency === "transparent" && ev._type !== "sp") continue;
 
       // All-day event: block the whole day(s)
       if (ev.start?.date && !ev.start?.dateTime) {
