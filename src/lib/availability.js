@@ -81,7 +81,7 @@ async function getLocalEventsBusyByDate(supabase, startDate, endDate) {
 // Filtering is idempotent — blocking the same slot twice is identical to
 // blocking it once. Some events will be present in both sources (a personal
 // event in the local events table AND in Google after sync) and that's fine.
-async function getGoogleBusyByDate(supabase, startDate, endDate) {
+async function getGoogleBusyByDate(supabase, startDate, endDate, _debug = []) {
   try {
     const { data: tokenRow } = await supabase
       .from("settings")
@@ -89,7 +89,7 @@ async function getGoogleBusyByDate(supabase, startDate, endDate) {
       .eq("key", "google_refresh_token")
       .single();
     const token = tokenRow?.value;
-    if (!token) return {};
+    if (!token) { _debug.push("no_token"); return {}; }
 
     const { listEvents } = await import("./google-calendar.js");
     const onNewToken = async (newToken) => {
@@ -100,8 +100,14 @@ async function getGoogleBusyByDate(supabase, startDate, endDate) {
       });
     };
     const events = await listEvents(token, startDate, endDate, onNewToken);
-    console.log(`[avail-debug] listEvents returned ${events.length} events for ${startDate}–${endDate}`);
-    events.forEach(ev => console.log(`[avail-debug] ev: summary="${ev.summary}" type=${ev._type} transparency=${ev.transparency} status=${ev.status} cal="${ev._sourceCalendarName}" start=${ev.start?.dateTime || ev.start?.date}`));
+    _debug.push(...events.map(ev => ({
+      summary: ev.summary,
+      type: ev._type,
+      transparency: ev.transparency,
+      status: ev.status,
+      cal: ev._sourceCalendarName,
+      start: ev.start?.dateTime || ev.start?.date,
+    })));
 
     const busy = {};
     const push = (dateKey, startMin, endMin) => {
@@ -190,9 +196,10 @@ export async function getAvailableSlots(startDate, endDate, incrementMinutes = 3
   // Calendar (SP appointments + any Google-only events). Merging these two
   // independent sources means the grid stays accurate even if Google fails —
   // anything Diana added through the app still blocks availability.
+  const _debugEvents = [];
   const [localBusy, googleBusy] = await Promise.all([
     getLocalEventsBusyByDate(supabase, startDate, endDate),
-    getGoogleBusyByDate(supabase, startDate, endDate),
+    getGoogleBusyByDate(supabase, startDate, endDate, _debugEvents),
   ]);
   const busyByDate = {};
   for (const source of [localBusy, googleBusy]) {
@@ -288,7 +295,7 @@ export async function getAvailableSlots(startDate, endDate, incrementMinutes = 3
     current.setDate(current.getDate() + 1);
   }
 
-  return slots;
+  return { slots, _debugEvents, _debugGoogleBusy: googleBusy };
 }
 
 // Check if a contiguous block is available for a given duration
