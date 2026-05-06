@@ -559,12 +559,7 @@ export default function AdminCalendar({ setPage }) {
 
   // --- Data helpers ---
 
-  const classifyEvent = (event) => {
-    const summary = (event.summary || "").toLowerCase();
-    if (summary.includes("coaching:") || summary.includes("clt-")) return "coaching";
-    if (event.organizer?.email?.includes("simplepractice") || summary.includes("simplepractice") || summary.includes("therapy") || summary.includes("session")) return "sp";
-    return "personal";
-  };
+  const classifyEvent = (event) => event._type || "personal";
 
   const getBookingsForDate = (date) =>
     bookings.filter(b => dateStr(new Date(b.start_time)) === date);

@@ -92,6 +92,7 @@ export async function GET(request) {
     start: { dateTime: e.start_time },
     end: { dateTime: e.end_time },
     _local: true,
+    _type: "personal",
     _synced: !!e.google_calendar_event_id,
   }));
 

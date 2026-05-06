@@ -97,11 +97,13 @@ export async function listEvents(refreshToken, timeMin, timeMax, onNewToken) {
         }),
         `listEvents/${cal.id}`
       );
+      const isSP = (cal.summary || "").toLowerCase().includes("simplepractice");
       return (data.items || []).map(ev => ({
         ...ev,
         _sourceCalendarId: cal.id,
         _sourceCalendarName: cal.summary,
         _sourceCalendarPrimary: !!cal.primary,
+        _type: isSP ? "sp" : "personal",
       }));
     } catch (e) {
       console.error(`[gcal] listEvents failed for calendar ${cal.id}:`, e?.message || e);
