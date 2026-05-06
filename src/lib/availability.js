@@ -92,7 +92,14 @@ async function getGoogleBusyByDate(supabase, startDate, endDate) {
     if (!token) return {};
 
     const { listEvents } = await import("./google-calendar.js");
-    const events = await listEvents(token, startDate, endDate);
+    const onNewToken = async (newToken) => {
+      await supabase.from("settings").upsert({
+        key: "google_refresh_token",
+        value: newToken,
+        updated_at: new Date().toISOString(),
+      });
+    };
+    const events = await listEvents(token, startDate, endDate, onNewToken);
 
     const busy = {};
     const push = (dateKey, startMin, endMin) => {
