@@ -15,9 +15,22 @@ export default function ContactPage() {
   const [sendCopy, setSendCopy] = useState(true);
   const [honeypot, setHoneypot] = useState("");
 
+  const handlePhoneChange = (e) => {
+    const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+    let masked = "";
+    if (digits.length <= 3) masked = digits.length ? `(${digits}` : "";
+    else if (digits.length <= 6) masked = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+    else masked = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+    setPhone(masked);
+  };
+
   const handleSubmit = async () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
       setError("Please fill in your name and email.");
+      return;
+    }
+    if (phone.replace(/\D/g, "").length < 10) {
+      setError("Please enter a valid 10-digit phone number.");
       return;
     }
     setSubmitting(true);
@@ -29,7 +42,7 @@ export default function ContactPage() {
         first_name: firstName,
         last_name: lastName,
         email,
-        phone: phone || null,
+        phone,
         process_stage: processStage,
         message: message || null,
         send_copy: sendCopy,
@@ -72,8 +85,8 @@ export default function ContactPage() {
           </div>
           <label style={S.label}>Email address</label>
           <input style={S.input} placeholder="jane@example.com" type="email" value={email} onChange={e => setEmail(e.target.value)} />
-          <label style={S.label}>Phone (optional)</label>
-          <input style={S.input} placeholder="(555) 012-3456" type="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+          <label style={S.label}>Phone</label>
+          <input style={S.input} placeholder="(555) 012-3456" type="tel" value={phone} onChange={handlePhoneChange} />
           <label style={S.label}>Where are you in the process?</label>
           <select style={{...S.input}} value={processStage} onChange={e => setProcessStage(e.target.value)}>
             <option>Just starting to consider separation</option>
