@@ -1104,6 +1104,21 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
               })()}
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
+              {editingBooking && (() => {
+                const others = (editingBooking.participant_profiles || []).filter(p => p.id !== user?.id);
+                if (others.length === 0) return null;
+                return (
+                  <div style={{ marginBottom: 12, padding: "8px 12px", background: C.warm, borderRadius: 8, border: `0.5px solid ${C.warmBorder}` }}>
+                    <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginBottom: 4 }}>Also attending</div>
+                    {others.map(p => (
+                      <div key={p.id} style={{ fontSize: 13, color: C.text }}>
+                        {`${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member"}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {showCloseWarning && (
                 <div style={{
                   background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8,
