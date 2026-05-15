@@ -114,8 +114,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
       editLast !== (detail.last_name || "") ||
       phoneDigits !== (detail.phone || "").replace(/\D/g, "") ||
       editContactEmail !== (detail.preferred_email || detail.email || "") ||
-      editTimezone !== (detail.timezone || "America/New_York") ||
-      editHourlyRate.trim() !== String(detail.group_hourly_rate ?? "");
+      editTimezone !== (detail.timezone || "America/New_York");
     if (dirty) { setConfirmClose(true); } else { closeDetail(); }
   };
 
@@ -581,6 +580,17 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
                 <div style={{ fontSize: 12, color: C.hint, marginTop: 2 }}>
                   {detail.role} · joined {new Date(detail.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </div>
+                {detail.group_name && (
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+                    Group:{" "}
+                    <button
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.teal, fontSize: 12, fontFamily: "inherit", textDecoration: "underline", textUnderlineOffset: 2 }}
+                      onClick={() => onOpenGroup?.(detail.group_id)}
+                    >
+                      {detail.group_name}
+                    </button>
+                  </div>
+                )}
               </div>
               <h3 style={{ ...S.h3, fontSize: 21, margin: 0, position: "absolute", left: "50%", transform: "translateX(-50%)" }}>Client Actions</h3>
               <button style={S.btnSmOut} onClick={requestClose}>Close</button>
@@ -662,66 +672,14 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
 
             {detail.role !== "admin" && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 4 }}>
-                  Group Rate
-                  {editHourlyRate.trim() !== String(detail.group_hourly_rate ?? "") && (
-                    <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span>
-                  )}
-                </h3>
-                {detail.group_name && (
-                  <p style={{ fontSize: 13, color: C.muted, marginBottom: 8 }}>
-                    Group: <strong>{detail.group_name}</strong> — rate applies to all members
-                  </p>
-                )}
-                {!detail.group_id ? (
-                  <p style={{ fontSize: 16, color: C.muted, marginBottom: 0 }}>No group assigned.</p>
-                ) : (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 160, overflow: "hidden" }}>
-                      <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
-                      <input
-                        style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        value={editHourlyRate}
-                        onChange={e => {
-                          let val = e.target.value.replace(/[^0-9.]/g, "");
-                          const parts = val.split(".");
-                          if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
-                          setEditHourlyRate(val);
-                          setHourlyRateResult(null);
-                        }}
-                      />
-                      <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
-                    </div>
-                    <button
-                      style={{ ...S.btn, opacity: hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0 ? 0.6 : 1 }}
-                      disabled={hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0}
-                      onClick={saveHourlyRate}
-                    >
-                      {hourlyRateSaving ? "Saving..." : "Save"}
-                    </button>
-                  </div>
-                )}
-                {hourlyRateResult && (
-                  <p style={{ fontSize: 16, marginTop: 8, marginBottom: 0, color: hourlyRateResult.ok ? C.teal : "#c0392b" }}>
-                    {hourlyRateResult.ok ? "Saved." : hourlyRateResult.error}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {detail.role !== "admin" && (
-              <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Purchase Package on Behalf of Client{purchaseDirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null}</h3>
+                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Purchase Package{purchaseDirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null}</h3>
                 <AdminPurchasePackage client={detail} onDirtyChange={setPurchaseDirty} />
               </div>
             )}
 
             {detail.role !== "admin" && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Adjust Purchased Time Balance{(adjustMinutes || adjustNote) ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null}</h3>
+                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Adjust Group Balance{(adjustMinutes || adjustNote) ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null}</h3>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div>
                     <label style={{ ...S.label, marginBottom: 4, fontSize: 16 }}>Minutes</label>
