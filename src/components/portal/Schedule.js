@@ -54,6 +54,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const [bookingError, setBookingError] = useState(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [lowBalance, setLowBalance] = useState(false);
+  const [groupMembers, setGroupMembers] = useState([]);
+  const [selectedParticipants, setSelectedParticipants] = useState([]);
   const [bookingBalanceAfter, setBookingBalanceAfter] = useState(null);
   const [editingBooking, setEditingBooking] = useState(null);
   const [noChangeMessage, setNoChangeMessage] = useState(false);
@@ -118,6 +120,14 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   }, [getRange]);
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
+
+  // Load group members once for participant selection (clients only, not admin-viewing)
+  useEffect(() => {
+    if (!user || isAdminViewing || profile?.role === "admin") return;
+    fetch("/api/groups/members").then(r => r.json()).then(d => {
+      setGroupMembers(d.members || []);
+    }).catch(() => {});
+  }, [user, isAdminViewing, profile?.role]);
 
   const refreshBalance = useCallback(() => {
     if (!user) return;
@@ -239,7 +249,11 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
         start_time: selectedTime,
         tz_offset: new Date().getTimezoneOffset(),
       };
-      if (isAdminViewing) body.user_id = viewAsClient.id;
+      if (isAdminViewing) {
+        body.user_id = viewAsClient.id;
+      } else if (selectedParticipants.length > 1) {
+        body.participant_ids = selectedParticipants;
+      }
 
       res = await fetch("/api/bookings", {
         method: "POST",
@@ -978,6 +992,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     setBookingError(null);
     setBookingSuccess(false);
     setPopupPos(null);
+    setSelectedParticipants(user ? [user.id] : []);
   };
 
   const renderBookingPopup = () => {
@@ -1135,6 +1150,48 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                   </div>
                 ))}
               </div>
+
+              {/* Participant selection — only for clients with other active group members */}
+              {!editingBooking && !isAdminViewing && (() => {
+                const otherMembers = groupMembers.filter(m => m.is_active && m.client_id !== user?.id);
+                if (otherMembers.length === 0) return null;
+                const allMembers = groupMembers.filter(m => m.is_active);
+                const allSelected = allMembers.every(m => selectedParticipants.includes(m.client_id));
+                const someSelected = allMembers.some(m => selectedParticipants.includes(m.client_id) && m.client_id !== user?.id);
+                const toggleParticipant = (id) => {
+                  if (id === user?.id) return;
+                  setSelectedParticipants(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+                };
+                const toggleAll = () => {
+                  if (allSelected) setSelectedParticipants(user ? [user.id] : []);
+                  else setSelectedParticipants(allMembers.map(m => m.client_id));
+                };
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ ...S.label, marginBottom: 8 }}>Who's attending?</label>
+                    <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+                      {allMembers.length > 1 && (
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", background: "#fafafa", fontSize: 13, fontWeight: 500 }}>
+                          <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                            ref={el => { if (el) el.indeterminate = !allSelected && someSelected; }}
+                            style={{ accentColor: C.teal }} />
+                          All
+                        </label>
+                      )}
+                      {allMembers.map(m => (
+                        <label key={m.client_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: m.client_id === user?.id ? "default" : "pointer", fontSize: 13 }}>
+                          <input type="checkbox" checked={selectedParticipants.includes(m.client_id)}
+                            onChange={() => toggleParticipant(m.client_id)}
+                            disabled={m.client_id === user?.id}
+                            style={{ accentColor: C.teal }} />
+                          {m.profile ? `${m.profile.first_name || ""} ${m.profile.last_name || ""}`.trim() || "Member" : "Member"}
+                          {m.client_id === user?.id && <span style={{ color: C.muted, fontSize: 11, marginLeft: 4 }}>you</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Availability warning */}
               {selectedType && selectedTime && (() => {

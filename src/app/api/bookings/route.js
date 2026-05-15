@@ -117,9 +117,9 @@ export async function GET(request) {
     .in("status", ["requested", "booked"])
     .order("start_time");
 
-  // Clients only see their own bookings
+  // Clients see their own bookings plus group bookings they participate in
   if (!isAdmin) {
-    query = query.eq("user_id", ctx.user.id);
+    query = query.or(`user_id.eq.${ctx.user.id},participant_ids.cs.{${ctx.user.id}}`);
   }
 
   if (start) query = query.gte("start_time", new Date(start).toISOString());
@@ -128,17 +128,29 @@ export async function GET(request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // For admin, attach profile info to each booking
-  if (isAdmin && data?.length > 0) {
-    const userIds = [...new Set(data.map(b => b.user_id))];
+  // Attach profile info — all user_ids plus all participant_ids
+  if (data?.length > 0) {
+    const allIds = new Set();
+    data.forEach(b => {
+      if (b.user_id) allIds.add(b.user_id);
+      (b.participant_ids || []).forEach(id => allIds.add(id));
+    });
+
     const { data: profiles } = await adminClient
       .from("profiles")
-      .select("id, first_name, last_name, full_name, client_code, preferred_email, phone, notification_preference, stripe_customer_id")
-      .in("id", userIds);
+      .select(isAdmin
+        ? "id, first_name, last_name, full_name, client_code, preferred_email, phone, notification_preference, stripe_customer_id"
+        : "id, first_name, last_name, full_name")
+      .in("id", [...allIds]);
 
     const profileMap = {};
     (profiles || []).forEach(p => { profileMap[p.id] = p; });
-    data.forEach(b => { b.profiles = profileMap[b.user_id] || null; });
+    data.forEach(b => {
+      b.profiles = profileMap[b.user_id] || null;
+      if (b.participant_ids?.length > 0) {
+        b.participant_profiles = b.participant_ids.map(id => profileMap[id]).filter(Boolean);
+      }
+    });
   }
 
   return NextResponse.json(data);
@@ -149,14 +161,24 @@ export async function POST(request) {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { session_type_id, date, start_time, user_id: targetUserId, force, tz_offset } = await request.json();
+  const { session_type_id, date, start_time, user_id: targetUserId, participant_ids: rawParticipantIds, force, tz_offset } = await request.json();
   if (!session_type_id || !date || !start_time) {
     return NextResponse.json({ error: "session_type_id, date, and start_time are required" }, { status: 400 });
   }
 
-  // Admin can book on behalf of a client (view-as-client)
   const isAdmin = ctx.profile?.role === "admin";
-  const bookingUserId = (isAdmin && targetUserId) ? targetUserId : ctx.user.id;
+  const isGroupBooking = Array.isArray(rawParticipantIds) && rawParticipantIds.length > 1;
+  const storedParticipantIds = isGroupBooking ? rawParticipantIds : null;
+
+  let bookingUserId;
+  if (isAdmin) {
+    bookingUserId = isGroupBooking ? rawParticipantIds[0] : (targetUserId || ctx.user.id);
+  } else {
+    bookingUserId = ctx.user.id;
+    if (isGroupBooking && !rawParticipantIds.includes(ctx.user.id)) {
+      return NextResponse.json({ error: "You must be included in the booking." }, { status: 400 });
+    }
+  }
 
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -227,7 +249,7 @@ export async function POST(request) {
 
   // Create the booking
   // Admin booking on behalf of client goes straight to "booked"
-  const bookingStatus = (isAdmin && targetUserId) ? "booked" : "requested";
+  const bookingStatus = (isAdmin && (targetUserId || isGroupBooking)) ? "booked" : "requested";
 
   const { data: booking, error } = await adminClient
     .from("bookings")
@@ -240,6 +262,7 @@ export async function POST(request) {
       end_time: endTimestamp,
       session_type_id,
       session_duration: sessionType.duration,
+      ...(storedParticipantIds ? { participant_ids: storedParticipantIds } : {}),
     })
     .select()
     .single();
@@ -261,11 +284,12 @@ export async function POST(request) {
   // Google Calendar sync — admin-on-behalf is confirmed; client request is tentative.
   // Look up the client profile once so we can pass it to both sync and notification.
   let clientProfileForSync;
-  if (isAdmin && targetUserId) {
+  if (isAdmin && (targetUserId || isGroupBooking)) {
+    const lookupId = isGroupBooking ? rawParticipantIds[0] : targetUserId;
     const { data } = await adminClient
       .from("profiles")
       .select("first_name, last_name, full_name, preferred_email, phone, notification_preference")
-      .eq("id", targetUserId)
+      .eq("id", lookupId)
       .single();
     clientProfileForSync = data;
   } else {
@@ -278,7 +302,7 @@ export async function POST(request) {
   const gcalStatus = bookingStatus === "booked" ? "confirmed" : "tentative";
   await syncBookingGoogle(adminClient, booking, clientProfileForSync, gcalStatus, "upsert", sessionType);
 
-  if (isAdmin && targetUserId) {
+  if (isAdmin && (targetUserId || isGroupBooking)) {
     // Admin booked on behalf — notify the client (reuse profile loaded above)
     const clientProfile = clientProfileForSync;
 

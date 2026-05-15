@@ -95,6 +95,17 @@ function clientFirstName(p) {
   return "Client";
 }
 
+function bookingDisplayName(b, compact = false) {
+  if (b.participant_profiles?.length > 0) {
+    return b.participant_profiles.map(p => {
+      const fn = (p.first_name || "").trim();
+      const li = (p.last_name || "").trim().slice(0, 1);
+      return compact ? fn || "?" : (li ? `${fn} ${li}.` : fn || "Client");
+    }).join(", ");
+  }
+  return compact ? clientFirstName(b.profiles) : clientName(b.profiles);
+}
+
 function classifyEvent(event) {
   return event._type || "personal";
 }
@@ -130,7 +141,7 @@ function bookingToChip(b) {
     date: b.date,
     startMin,
     endMin,
-    title: `Coaching: ${clientName(b.profiles)} (${b.status})`,
+    title: `Coaching: ${bookingDisplayName(b)} (${b.status})`,
     raw: b,
   };
 }
@@ -273,7 +284,8 @@ export default function AdminSchedule({ setPage }) {
 
   // Modal state: mode = "choose"|"accept"|"edit"|"book"|"event"|"editEvent"
   const [modal, setModal] = useState(null);
-  const [bookClient, setBookClient] = useState("");
+  const [bookClientIds, setBookClientIds] = useState([]);
+  const [bookGroup, setBookGroup] = useState("");
   const [bookType, setBookType] = useState("");
   const [bookDate, setBookDate] = useState("");
   const [bookTime, setBookTime] = useState("");
@@ -682,7 +694,8 @@ export default function AdminSchedule({ setPage }) {
   };
 
   const openBookModal = () => {
-    setBookClient("");
+    setBookClientIds([]);
+    setBookGroup("");
     setBookType("");
     setModalError(null);
     setModal({ mode: "book" });
@@ -751,23 +764,28 @@ export default function AdminSchedule({ setPage }) {
   };
 
   const handleBookSession = async (force = false) => {
-    if (!bookClient || !bookType || !bookDate || !bookTime) {
-      setModalError("All fields are required.");
-      return;
-    }
+    if (!bookType || !bookDate || !bookTime) { setModalError("All fields are required."); return; }
+    if (bookClientIds.length === 0) { setModalError("Select at least one client."); return; }
     setModalSaving(true);
     setModalError(null);
+
+    const body = {
+      session_type_id: bookType,
+      date: bookDate,
+      start_time: bookTime,
+      tz_offset: new Date().getTimezoneOffset(),
+      ...(force && { force: true }),
+    };
+    if (bookClientIds.length > 1) {
+      body.participant_ids = bookClientIds;
+    } else {
+      body.user_id = bookClientIds[0];
+    }
+
     const res = await fetch("/api/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: bookClient,
-        session_type_id: bookType,
-        date: bookDate,
-        start_time: bookTime,
-        tz_offset: new Date().getTimezoneOffset(),
-        ...(force && { force: true }),
-      }),
+      body: JSON.stringify(body),
     });
     if (res.ok) {
       await loadData();
@@ -1354,12 +1372,12 @@ export default function AdminSchedule({ setPage }) {
       >
         {compact ? (
           <span style={{ color: isRequested ? SRC.requested : SRC.coaching, fontWeight: 500, whiteSpace: "nowrap" }}>
-            {clientFirstName(b.profiles)} {b.session_duration}m
+            {bookingDisplayName(b, true)} {b.session_duration}m
           </span>
         ) : (
           <>
             <div style={{ fontWeight: 500, color: isRequested ? SRC.requested : SRC.coaching, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {clientName(b.profiles)}
+              {bookingDisplayName(b)}
             </div>
             {chipH > 36 && (
               <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -2108,7 +2126,7 @@ export default function AdminSchedule({ setPage }) {
         const origEnd = endD ? `${String(endD.getHours()).padStart(2, "0")}:${String(endD.getMinutes()).padStart(2, "0")}` : "";
         return eventTitle !== (ev.summary || "") || bookDate !== origDate || bookTime !== origStart || eventEndTime !== origEnd;
       }
-      if (modal.mode === "book") return !!(bookClient || bookType);
+      if (modal.mode === "book") return !!(bookClientIds.length > 0 || bookType);
       if (modal.mode === "event") return !!eventTitle;
       return false;
     })();
@@ -2295,7 +2313,16 @@ export default function AdminSchedule({ setPage }) {
   };
 
   const renderBookContent = () => {
-    const clientList = clients.filter(c => c.role === "client");
+    const allClients = clients.filter(c => c.role === "client");
+    const bookGroups = Array.from(
+      new Map(allClients.filter(c => c.group_id && c.group_name).map(c => [c.group_id, { id: c.group_id, name: c.group_name }])).values()
+    ).sort((a, b) => a.name.localeCompare(b.name));
+    const filteredClients = bookGroup ? allClients.filter(c => c.group_id === bookGroup) : allClients;
+    const allSelected = filteredClients.length > 0 && filteredClients.every(c => bookClientIds.includes(c.id));
+    const someSelected = filteredClients.some(c => bookClientIds.includes(c.id));
+    const toggleClient = (id) => setBookClientIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    const toggleAll = () => setBookClientIds(allSelected ? [] : filteredClients.map(c => c.id));
+
     return (
       <>
         <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>Book a Session</h3>
@@ -2303,21 +2330,13 @@ export default function AdminSchedule({ setPage }) {
           <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
             <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
             <div style={{ display: "flex", gap: 8 }}>
-              <button style={S.btn} disabled={modalSaving || !bookClient || !bookType} onClick={() => { setShowAdminCloseWarning(false); handleBookSession(); }}>
+              <button style={S.btn} disabled={modalSaving || bookClientIds.length === 0 || !bookType} onClick={() => { setShowAdminCloseWarning(false); handleBookSession(); }}>
                 {modalSaving ? "Saving..." : "Save"}
               </button>
               <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }} onClick={closeModal}>Discard</button>
             </div>
           </div>
         )}
-
-        <label style={S.label}>Client</label>
-        <select style={{ ...S.input, cursor: "pointer" }} value={bookClient} onChange={e => setBookClient(e.target.value)}>
-          <option value="">Select a client...</option>
-          {clientList.map(c => (
-            <option key={c.id} value={c.id}>{clientName(c)}</option>
-          ))}
-        </select>
 
         <label style={S.label}>Session type</label>
         <select style={{ ...S.input, cursor: "pointer" }} value={bookType} onChange={e => setBookType(e.target.value)}>
@@ -2326,6 +2345,41 @@ export default function AdminSchedule({ setPage }) {
             <option key={t.id} value={t.id}>{t.label} ({t.duration}min)</option>
           ))}
         </select>
+
+        <label style={S.label}>Group</label>
+        <select
+          style={{ ...S.input, cursor: "pointer" }}
+          value={bookGroup}
+          onChange={e => { setBookGroup(e.target.value); setBookClientIds([]); }}
+        >
+          <option value="">All groups</option>
+          {bookGroups.map(g => (
+            <option key={g.id} value={g.id}>{g.name}</option>
+          ))}
+        </select>
+
+        <label style={S.label}>
+          Clients{bookClientIds.length > 0 ? ` (${bookClientIds.length} selected)` : ""}
+        </label>
+        <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden", maxHeight: 200, overflowY: "auto", marginBottom: 4 }}>
+          {filteredClients.length > 1 && (
+            <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", background: "#fafafa", fontSize: 13, fontWeight: 500 }}>
+              <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                ref={el => { if (el) el.indeterminate = !allSelected && someSelected; }}
+                style={{ accentColor: C.teal }} />
+              All
+            </label>
+          )}
+          {filteredClients.map(c => (
+            <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", fontSize: 13 }}>
+              <input type="checkbox" checked={bookClientIds.includes(c.id)} onChange={() => toggleClient(c.id)} style={{ accentColor: C.teal }} />
+              {clientName(c)}
+            </label>
+          ))}
+          {filteredClients.length === 0 && (
+            <p style={{ padding: "8px 12px", margin: 0, color: C.hint, fontSize: 13 }}>No clients found.</p>
+          )}
+        </div>
 
         <div style={{ display: "flex", gap: "1rem" }}>
           <div style={{ flex: 1 }}>

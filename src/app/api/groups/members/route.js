@@ -28,16 +28,33 @@ async function requireAdmin() {
   return { user };
 }
 
-// GET — list members of a group with profile info
+// GET — list members of a group.
+// Admin: requires group_id param. Client: returns their own group's members.
 export async function GET(request) {
-  const auth = await requireAdmin();
-  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { cookies: { getAll() { return cookieStore.getAll(); } } }
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const { data: callerProfile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  const isAdmin = callerProfile?.role === "admin";
 
   const { searchParams } = new URL(request.url);
-  const group_id = searchParams.get("group_id");
-  if (!group_id) return NextResponse.json({ error: "group_id is required" }, { status: 400 });
+  let group_id = searchParams.get("group_id");
 
   const admin = adminSupabase();
+
+  if (!isAdmin) {
+    const { data: membership } = await admin.from("group_members").select("group_id").eq("client_id", user.id).maybeSingle();
+    if (!membership?.group_id) return NextResponse.json({ members: [] });
+    group_id = membership.group_id;
+  }
+
+  if (!group_id) return NextResponse.json({ error: "group_id is required" }, { status: 400 });
   const { data, error } = await admin
     .from("group_members")
     .select("client_id, group_id, is_active, joined_at")

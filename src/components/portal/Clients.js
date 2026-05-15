@@ -61,6 +61,9 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
   const [editHourlyRate, setEditHourlyRate] = useState("");
   const [hourlyRateSaving, setHourlyRateSaving] = useState(false);
   const [hourlyRateResult, setHourlyRateResult] = useState(null);
+  const [editGroupId, setEditGroupId] = useState("");
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [groupResult, setGroupResult] = useState(null);
 
   const TIMEZONES = [
     { value: "America/New_York", label: "Eastern Time (New York)" },
@@ -80,6 +83,8 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
     setEditContactEmail(c.preferred_email || c.email || "");
     setEditTimezone(c.timezone || "America/New_York");
     setEditHourlyRate(c.group_hourly_rate != null ? String(c.group_hourly_rate) : "");
+    setEditGroupId(c.group_id || "");
+    setGroupResult(null);
     setDetailError(null);
     setDetailSuccess(null);
     setMagicResult(null);
@@ -104,6 +109,8 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
     setEmailBlurred(false);
     setEditHourlyRate("");
     setHourlyRateResult(null);
+    setEditGroupId("");
+    setGroupResult(null);
   };
 
   const requestClose = () => {
@@ -201,6 +208,28 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
     setClients(prev => prev.map(c => c.group_id === detail.group_id ? { ...c, group_hourly_rate: rate } : c));
     setGroups(prev => prev.map(g => g.id === detail.group_id ? { ...g, hourly_rate: rate } : g));
     setDetail(d => d ? { ...d, group_hourly_rate: rate } : d);
+  };
+
+  const saveGroup = async () => {
+    if (!detail || !editGroupId) return;
+    setGroupSaving(true);
+    setGroupResult(null);
+    const res = await fetch("/api/groups/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: detail.id, group_id: editGroupId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setGroupSaving(false);
+    if (!res.ok) {
+      setGroupResult({ ok: false, error: data.error || "Could not save." });
+      return;
+    }
+    const g = groups.find(gr => gr.id === editGroupId);
+    const updates = { group_id: editGroupId, group_name: g?.name || "", group_hourly_rate: g?.hourly_rate ?? null };
+    setGroupResult({ ok: true });
+    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, ...updates } : c));
+    setDetail(d => d ? { ...d, ...updates } : d);
   };
 
   const saveDetail = async () => {
@@ -668,6 +697,39 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
                   {detailSaving ? "Saving..." : "Save"}
                 </button>
               </div>
+            </div>
+
+            <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
+              <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Group Assignment</h3>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={{ ...S.label, fontSize: 16 }}>Group</label>
+                  <select
+                    style={{ ...S.input, marginBottom: 0, cursor: "pointer" }}
+                    value={editGroupId}
+                    onChange={e => { setEditGroupId(e.target.value); setGroupResult(null); }}
+                  >
+                    <option value="">No group</option>
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}{g.hourly_rate ? ` ($${g.hourly_rate}/hr)` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  style={{ ...S.btn, alignSelf: "flex-end" }}
+                  onClick={saveGroup}
+                  disabled={groupSaving || !editGroupId || editGroupId === (detail.group_id || "")}
+                >
+                  {groupSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+              {groupResult && (
+                <p style={{ fontSize: 16, marginTop: 8, marginBottom: 0, color: groupResult.ok ? C.teal : "#c0392b" }}>
+                  {groupResult.ok ? "Group assignment saved." : groupResult.error}
+                </p>
+              )}
             </div>
 
             {detail.role !== "admin" && (
