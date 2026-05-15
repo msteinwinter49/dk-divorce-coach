@@ -41,7 +41,7 @@ export async function GET() {
 
   const { data: clients, error } = await adminClient
     .from("profiles")
-    .select("id, first_name, last_name, full_name, phone, preferred_email, notification_preference, reminder_preference, timezone, role, created_at")
+    .select("id, first_name, last_name, full_name, phone, preferred_email, notification_preference, reminder_preference, timezone, hourly_rate, role, created_at")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -83,7 +83,7 @@ export async function PATCH(request) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  const { id, first_name, last_name, phone, preferred_email, notification_preference, reminder_preference, timezone } = await request.json();
+  const { id, first_name, last_name, phone, preferred_email, notification_preference, reminder_preference, timezone, hourly_rate } = await request.json();
   if (!id) return NextResponse.json({ error: "Client id is required" }, { status: 400 });
 
   const adminClient = createClient(
@@ -102,6 +102,7 @@ export async function PATCH(request) {
       notification_preference,
       reminder_preference,
       timezone,
+      ...(hourly_rate !== undefined && { hourly_rate: Number(hourly_rate) }),
     })
     .eq("id", id)
     .select()

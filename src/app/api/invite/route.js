@@ -4,9 +4,12 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
-  const { email, makeAdmin } = await request.json();
+  const { email, makeAdmin, hourly_rate } = await request.json();
   const origin = new URL(request.url).origin;
 
+  if (!hourly_rate || isNaN(Number(hourly_rate)) || Number(hourly_rate) <= 0) {
+    return NextResponse.json({ error: "A valid hourly rate is required" }, { status: 400 });
+  }
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
   }
@@ -54,11 +57,13 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  // If makeAdmin, update their profile role
-  if (makeAdmin && data?.user?.id) {
+  // Update profile with hourly_rate (and optionally role)
+  if (data?.user?.id) {
+    const profileUpdate = { hourly_rate: Number(hourly_rate) };
+    if (makeAdmin) profileUpdate.role = "admin";
     await adminClient
       .from("profiles")
-      .update({ role: "admin" })
+      .update(profileUpdate)
       .eq("id", data.user.id);
   }
 

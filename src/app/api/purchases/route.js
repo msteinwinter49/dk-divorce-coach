@@ -83,7 +83,7 @@ export async function POST(request) {
 
   const { data: profile } = await admin
     .from("profiles")
-    .select("stripe_customer_id, first_name, last_name, preferred_email, phone, notification_preference")
+    .select("stripe_customer_id, first_name, last_name, preferred_email, phone, notification_preference, hourly_rate")
     .eq("id", targetClientId)
     .single();
   if (!profile?.stripe_customer_id) {
@@ -94,11 +94,15 @@ export async function POST(request) {
   const expiresAt = new Date();
   expiresAt.setMonth(expiresAt.getMonth() + matrix.expires_months);
 
+  const effectivePriceCents = profile.hourly_rate
+    ? Math.round(matrix.duration_min * matrix.package_size / 60 * profile.hourly_rate * 100)
+    : matrix.price_cents;
+
   let paymentIntentId;
   try {
     const payment = await chargeClient(
       profile.stripe_customer_id,
-      matrix.price_cents,
+      effectivePriceCents,
       `Coaching package: ${matrix.package_size} × ${matrix.duration_min}min`
     );
     paymentIntentId = payment.id;
@@ -115,7 +119,7 @@ export async function POST(request) {
       duration_min: matrix.duration_min,
       package_size: matrix.package_size,
       total_minutes: totalMinutes,
-      amount_cents: matrix.price_cents,
+      amount_cents: effectivePriceCents,
       expires_months: matrix.expires_months,
       expires_at: expiresAt.toISOString(),
       stripe_payment_intent_id: paymentIntentId,
@@ -137,7 +141,7 @@ export async function POST(request) {
     p_delta_minutes: totalMinutes,
     p_source_type: "purchase",
     p_source_id: purchase.id,
-    p_amount_cents: matrix.price_cents,
+    p_amount_cents: effectivePriceCents,
     p_stripe_payment_intent_id: paymentIntentId,
     p_created_by: user.id,
   });
@@ -154,7 +158,7 @@ export async function POST(request) {
 
   // Email the client. Best-effort — do not fail the response if the email errors.
   try {
-    const totalDollars = (matrix.price_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const totalDollars = (effectivePriceCents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const expiresLabel = expiresAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const sessionWord = matrix.package_size === 1 ? "session" : "sessions";
     await notifyClient(

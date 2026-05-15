@@ -37,6 +37,14 @@ export default function AdminPurchasePackage({ client, onDirtyChange }) {
   const sessionLabel = (d) => sessionTypes.find(st => st.duration === Number(d))?.label || `${d} min`;
   const chosenPackage = pricing.find(p => p.id === chosenMatrixId);
 
+  const effectivePriceCents = (p) => {
+    const rate = client?.hourly_rate;
+    return (rate && rate > 0)
+      ? Math.round(p.duration_min * p.package_size / 60 * rate * 100)
+      : p.price_cents;
+  };
+  const fmtDollars = (cents) => (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   const expiryPreview = (months) => {
     const dt = new Date();
     dt.setMonth(dt.getMonth() + months);
@@ -58,7 +66,7 @@ export default function AdminPurchasePackage({ client, onDirtyChange }) {
         setResult({
           ok: true,
           balance_after: data.balance_after,
-          charged_dollars: (chosenPackage.price_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          charged_dollars: fmtDollars(effectivePriceCents(chosenPackage)),
         });
         setChosenDuration("");
         setChosenMatrixId("");
@@ -117,7 +125,7 @@ export default function AdminPurchasePackage({ client, onDirtyChange }) {
           >
             <option value="">Select…</option>
             {chosenDuration && packagesForDuration(chosenDuration).map(p => {
-              const total = (p.price_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              const total = fmtDollars(effectivePriceCents(p));
               return (
                 <option key={p.id} value={p.id}>
                   {p.package_size} session{p.package_size > 1 ? "s" : ""} — ${total}
@@ -130,7 +138,7 @@ export default function AdminPurchasePackage({ client, onDirtyChange }) {
 
       {chosenPackage && (
         <div style={{ background: C.warm, border: `0.5px solid ${C.warmBorder}`, borderRadius: 8, padding: "10px 12px", fontSize: 16, color: C.text }}>
-          <div>Will charge <strong>{cardLine}</strong>: <strong>${(chosenPackage.price_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
+          <div>Will charge <strong>{cardLine}</strong>: <strong>${fmtDollars(effectivePriceCents(chosenPackage))}</strong></div>
           <div style={{ color: C.muted, marginTop: 2 }}>
             Adds {chosenPackage.duration_min * chosenPackage.package_size} min · expires {expiryPreview(chosenPackage.expires_months)}
           </div>

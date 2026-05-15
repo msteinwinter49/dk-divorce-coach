@@ -16,6 +16,7 @@ export default function Clients({ setPage, onViewAsClient }) {
   const mobile = useIsMobile();
   // Invite form state
   const [email, setEmail] = useState("");
+  const [inviteHourlyRate, setInviteHourlyRate] = useState("");
   const [makeAdmin, setMakeAdmin] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState(null);
@@ -54,6 +55,9 @@ export default function Clients({ setPage, onViewAsClient }) {
   const [chargeSaving, setChargeSaving] = useState(false);
   const [chargeResult, setChargeResult] = useState(null); // { ok, charged_dollars } | { ok, refunded_dollars } | { ok: false, error }
   const [purchaseDirty, setPurchaseDirty] = useState(false);
+  const [editHourlyRate, setEditHourlyRate] = useState("");
+  const [hourlyRateSaving, setHourlyRateSaving] = useState(false);
+  const [hourlyRateResult, setHourlyRateResult] = useState(null);
 
   const TIMEZONES = [
     { value: "America/New_York", label: "Eastern Time (New York)" },
@@ -72,6 +76,7 @@ export default function Clients({ setPage, onViewAsClient }) {
     setEditPhone(formatPhoneInput(c.phone || ""));
     setEditContactEmail(c.preferred_email || c.email || "");
     setEditTimezone(c.timezone || "America/New_York");
+    setEditHourlyRate(c.hourly_rate != null ? String(c.hourly_rate) : "");
     setDetailError(null);
     setDetailSuccess(null);
     setMagicResult(null);
@@ -94,6 +99,8 @@ export default function Clients({ setPage, onViewAsClient }) {
     setConfirmClose(false);
     setPhoneBlurred(false);
     setEmailBlurred(false);
+    setEditHourlyRate("");
+    setHourlyRateResult(null);
   };
 
   const requestClose = () => {
@@ -104,7 +111,8 @@ export default function Clients({ setPage, onViewAsClient }) {
       editLast !== (detail.last_name || "") ||
       phoneDigits !== (detail.phone || "").replace(/\D/g, "") ||
       editContactEmail !== (detail.preferred_email || detail.email || "") ||
-      editTimezone !== (detail.timezone || "America/New_York");
+      editTimezone !== (detail.timezone || "America/New_York") ||
+      editHourlyRate.trim() !== String(detail.hourly_rate ?? "");
     if (dirty) { setConfirmClose(true); } else { closeDetail(); }
   };
 
@@ -168,6 +176,27 @@ export default function Clients({ setPage, onViewAsClient }) {
     } else {
       setChargeResult({ ok: false, error: data.error || "Refund failed." });
     }
+  };
+
+  const saveHourlyRate = async () => {
+    const rate = parseFloat(editHourlyRate);
+    if (!detail || isNaN(rate) || rate <= 0) return;
+    setHourlyRateSaving(true);
+    setHourlyRateResult(null);
+    const res = await fetch("/api/clients", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: detail.id, hourly_rate: rate }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setHourlyRateSaving(false);
+    if (!res.ok) {
+      setHourlyRateResult({ ok: false, error: data.error || "Could not save." });
+      return;
+    }
+    setHourlyRateResult({ ok: true });
+    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, hourly_rate: rate } : c));
+    setDetail(d => d ? { ...d, hourly_rate: rate } : d);
   };
 
   const saveDetail = async () => {
@@ -243,6 +272,11 @@ export default function Clients({ setPage, onViewAsClient }) {
   useEffect(() => { fetchClients(); }, []);
 
   const handleInvite = async () => {
+    const parsedRate = parseFloat(inviteHourlyRate);
+    if (!inviteHourlyRate || isNaN(parsedRate) || parsedRate <= 0) {
+      setInviteError("Please enter a valid hourly rate.");
+      return;
+    }
     if (!email.trim()) {
       setInviteError("Please enter an email address.");
       return;
@@ -254,7 +288,7 @@ export default function Clients({ setPage, onViewAsClient }) {
     const res = await fetch("/api/invite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, makeAdmin }),
+      body: JSON.stringify({ email, makeAdmin, hourly_rate: parsedRate }),
     });
 
     const data = await res.json();
@@ -265,6 +299,7 @@ export default function Clients({ setPage, onViewAsClient }) {
     } else {
       setInviteSuccess(`Invitation sent to ${email}`);
       setEmail("");
+      setInviteHourlyRate("");
       setMakeAdmin(false);
       fetchClients();
     }
@@ -332,6 +367,26 @@ export default function Clients({ setPage, onViewAsClient }) {
       {/* Invite section */}
       <div style={{ ...S.card, marginBottom: "1.5rem" }}>
         <h3 style={S.h3}>Invite a new client</h3>
+        <div style={{ marginBottom: 10 }}>
+          <label style={S.label}>Hourly rate</label>
+          <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 160, overflow: "hidden" }}>
+            <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
+            <input
+              style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
+              type="text"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={inviteHourlyRate}
+              onChange={e => {
+                let val = e.target.value.replace(/[^0-9.]/g, "");
+                const parts = val.split(".");
+                if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
+                setInviteHourlyRate(val);
+              }}
+            />
+            <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 200 }}>
             <label style={S.label}>Email address</label>
@@ -531,6 +586,49 @@ export default function Clients({ setPage, onViewAsClient }) {
                 </button>
               </div>
             </div>
+
+            {detail.role !== "admin" && (
+              <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
+                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>
+                  Hourly Rate
+                  {editHourlyRate.trim() !== String(detail.hourly_rate ?? "") && (
+                    <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span>
+                  )}
+                </h3>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 160, overflow: "hidden" }}>
+                    <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
+                    <input
+                      style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      value={editHourlyRate}
+                      onChange={e => {
+                        let val = e.target.value.replace(/[^0-9.]/g, "");
+                        const parts = val.split(".");
+                        if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
+                        setEditHourlyRate(val);
+                        setHourlyRateResult(null);
+                      }}
+                    />
+                    <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+                  </div>
+                  <button
+                    style={{ ...S.btn, opacity: hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0 ? 0.6 : 1 }}
+                    disabled={hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0}
+                    onClick={saveHourlyRate}
+                  >
+                    {hourlyRateSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+                {hourlyRateResult && (
+                  <p style={{ fontSize: 16, marginTop: 8, marginBottom: 0, color: hourlyRateResult.ok ? C.teal : "#c0392b" }}>
+                    {hourlyRateResult.ok ? "Saved." : hourlyRateResult.error}
+                  </p>
+                )}
+              </div>
+            )}
 
             {detail.role !== "admin" && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>

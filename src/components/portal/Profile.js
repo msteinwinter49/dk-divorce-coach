@@ -303,6 +303,18 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
         </div>
       )}
 
+      {/* Hourly rate — read-only display for clients */}
+      {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (
+        <div style={{ ...S.card, marginTop: "1rem" }}>
+          <h3 style={{ ...S.h3, fontWeight: 700 }}>Your Rate</h3>
+          <p style={{ fontSize: 16, color: profile?.hourly_rate != null ? C.text : C.muted, marginBottom: 0 }}>
+            {profile?.hourly_rate != null
+              ? `$${Number(profile.hourly_rate).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / hour`
+              : "Not yet set. Contact your coach."}
+          </p>
+        </div>
+      )}
+
       {/* Payment method — only show for clients after initial profile setup, not in admin view */}
       {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (
         <div ref={paymentRef} style={{ ...S.card, marginTop: "1rem" }}>

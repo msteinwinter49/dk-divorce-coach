@@ -58,6 +58,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const [editingBooking, setEditingBooking] = useState(null);
   const [noChangeMessage, setNoChangeMessage] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
+  const [popupPos, setPopupPos] = useState(null); // { x, y } px when dragged; null = centered
 
   const [showSpinner, setShowSpinner] = useState(false);
 
@@ -68,6 +69,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const lastOwnActionAt = useRef(0);
   const weekHeaderRef = useRef(null);
   const weekBodyRef = useRef(null);
+  const popupRef = useRef(null);
+  const dragStateRef = useRef(null);
 
   // Drag-and-drop state (move existing bookings)
   const dragRef = useRef(null);
@@ -122,6 +125,21 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   useEffect(() => { refreshBalance(); }, [refreshBalance]);
 
   useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!dragStateRef.current) return;
+      const { startX, startY, origX, origY } = dragStateRef.current;
+      setPopupPos({ x: origX + (e.clientX - startX), y: origY + (e.clientY - startY) });
+    };
+    const onMouseUp = () => { dragStateRef.current = null; };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     const watchId = viewAsClient?.id || user.id;
     const supabase = createClient();
@@ -155,6 +173,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     setLowBalance(false);
     setBookingBalanceAfter(null);
     setShowCloseWarning(false);
+    setPopupPos(null);
   };
 
   const openEditPopup = (b) => {
@@ -173,6 +192,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     setBookingError(null);
     setBookingSuccess(false);
     setShowCloseWarning(false);
+    setPopupPos(null);
   };
 
   const handleBook = async () => {
@@ -921,11 +941,13 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   // to open the popup in "pick a time" mode (e.g. from month view).
   const openBookingPopup = (date, time) => {
     if (readOnly) return;
+    if (balanceMinutes !== null && balanceMinutes < 0) return;
     setBookingDate(date);
     setSelectedType(null);
     setSelectedTime(time || null);
     setBookingError(null);
     setBookingSuccess(false);
+    setPopupPos(null);
   };
 
   const renderBookingPopup = () => {
@@ -945,12 +967,22 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     const tryClose = () => { if (hasUnsavedChanges) setShowCloseWarning(true); else closePopup(); };
 
     return (
+      <>
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-        background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }} onClick={tryClose}>
-        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto", overscrollBehavior: "contain", position: "relative" }} onClick={e => e.stopPropagation()}>
-          <button onClick={tryClose} aria-label="Close" style={{
+        background: "rgba(0,0,0,0.4)", zIndex: 100,
+      }} onClick={tryClose} />
+        <div ref={popupRef} style={{
+          ...S.card,
+          position: "fixed",
+          left: popupPos ? popupPos.x : "50%",
+          top: popupPos ? popupPos.y : "50%",
+          transform: popupPos ? "none" : "translate(-50%, -50%)",
+          maxWidth: 480, width: "90%", margin: 0,
+          maxHeight: "80vh", overflowY: "auto", overscrollBehavior: "contain",
+          zIndex: 101,
+        }} onClick={e => e.stopPropagation()}>
+          <button onClick={tryClose} onMouseDown={e => e.stopPropagation()} aria-label="Close" style={{
             position: "absolute", top: 10, right: 10, background: "none", border: "none",
             cursor: "pointer", fontSize: 18, color: C.muted, lineHeight: 1, padding: "4px 8px", zIndex: 1,
           }}>✕</button>
@@ -992,11 +1024,33 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
             </div>
           ) : (
             <>
-              <h3 style={{ ...S.h3, paddingRight: 32 }}>
-                {editingBooking
-                  ? (editingBooking.status === "requested" ? "Edit Request" : "Edit Session")
-                  : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session")}
-              </h3>
+              <div
+                onMouseDown={(e) => {
+                  if (!popupRef.current) return;
+                  const rect = popupRef.current.getBoundingClientRect();
+                  dragStateRef.current = { startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top };
+                  e.preventDefault();
+                }}
+                style={{ cursor: "grab", userSelect: "none", margin: "-1.25rem -1.5rem 0", padding: "1.25rem 1.5rem 0" }}
+              >
+                <h3 style={{ ...S.h3, paddingRight: 32 }}>
+                  {editingBooking
+                    ? (editingBooking.status === "requested" ? "Edit Request" : "Edit Session")
+                    : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session")}
+                </h3>
+              </div>
+              {!editingBooking && !isAdminViewing && balanceMinutes !== null && (() => {
+                const abs = Math.abs(balanceMinutes);
+                const h = Math.floor(abs / 60);
+                const m = abs % 60;
+                const sign = balanceMinutes < 0 ? "-" : "";
+                const label = h === 0 ? `${sign}${m} min` : m === 0 ? `${sign}${h} hr` : `${sign}${h} hr ${m} min`;
+                return (
+                  <p style={{ fontSize: 13, color: balanceMinutes < 0 ? "#c0392b" : C.muted, marginTop: -4, marginBottom: 8 }}>
+                    Available to schedule: {label}
+                  </p>
+                );
+              })()}
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
               {showCloseWarning && (
@@ -1154,7 +1208,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
             </>
           )}
         </div>
-      </div>
+      </>
     );
   };
 
@@ -1271,9 +1325,9 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
         </div>
       </div>
 
-      {!readOnly && !isAdminViewing && balanceMinutes !== null && sessionTypes.length > 0 && balanceMinutes < Math.min(...sessionTypes.map(t => t.duration)) && (
+      {!readOnly && !isAdminViewing && balanceMinutes !== null && balanceMinutes < 0 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 14px", marginBottom: 12, background: "#fdecea", borderRadius: 8, fontSize: 13, color: "#c0392b" }}>
-          Your session balance is too low to book a session.
+          Your balance is negative — add time to your account before requesting a session.
           <button style={{ ...S.btnSm, padding: "4px 12px", fontSize: 13, background: "#c0392b" }} onClick={() => setPage("Buy Sessions")}>
             Buy Sessions
           </button>
@@ -1294,7 +1348,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
           ? "Read-only view — showing this client\u2019s bookings and available slots."
           : isAdminViewing
           ? `Managing ${viewAsClient.first_name}\u2019s schedule. Click to book or cancel sessions.`
-          : "Green slots are available. Click an empty slot to request a session. Click or drag your existing sessions to edit them — changing an approved session will send it back to Diana for re-approval."}
+          : "Available times are shown in green. Click one to request a session. Click or drag your existing sessions to edit them — changing an approved session will send it back to Diana for re-approval."}
       </p>
 
       {loading ? (
