@@ -303,24 +303,25 @@ export async function POST(request) {
   await syncBookingGoogle(adminClient, booking, clientProfileForSync, gcalStatus, "upsert", sessionType);
 
   if (isAdmin && (targetUserId || isGroupBooking)) {
-    // Admin booked on behalf — notify the client (reuse profile loaded above)
-    const clientProfile = clientProfileForSync;
-
-    if (clientProfile) {
-      try {
-        await notifyClient(
-          clientProfile,
-          "Your coaching session is confirmed!",
-          `<h2>Session Confirmed</h2>
-           <p>A coaching session has been scheduled for you:</p>
-           <p><strong>Date:</strong> ${formatSessionDate(date)}</p>
-           <p><strong>Time:</strong> ${formatSessionTime(start_time).replace(" ET", "")} &ndash; ${formatSessionTime(endTimeStr)}</p>
-           <p><strong>Duration:</strong> ${sessionType.duration} min</p>`,
-          `Your coaching session on ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min) is confirmed.`
-        );
-      } catch (e) {
-        console.error("Notification error:", e);
-      }
+    // Admin booked on behalf — notify all participants
+    const notifyIds = isGroupBooking ? rawParticipantIds : [targetUserId];
+    let participantProfiles = [clientProfileForSync].filter(Boolean);
+    if (isGroupBooking && rawParticipantIds.length > 1) {
+      const { data: extraProfiles } = await adminClient
+        .from("profiles")
+        .select("first_name, last_name, full_name, preferred_email, phone, notification_preference")
+        .in("id", notifyIds);
+      participantProfiles = extraProfiles || [];
+    }
+    const subject = "Your coaching session is confirmed!";
+    const html = `<h2>Session Confirmed</h2>
+       <p>A coaching session has been scheduled for you:</p>
+       <p><strong>Date:</strong> ${formatSessionDate(date)}</p>
+       <p><strong>Time:</strong> ${formatSessionTime(start_time).replace(" ET", "")} &ndash; ${formatSessionTime(endTimeStr)}</p>
+       <p><strong>Duration:</strong> ${sessionType.duration} min</p>`;
+    const text = `Your coaching session on ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min) is confirmed.`;
+    for (const p of participantProfiles) {
+      try { await notifyClient(p, subject, html, text); } catch (e) { console.error("Notification error:", e); }
     }
   } else {
     // Client booked — notify Diana
