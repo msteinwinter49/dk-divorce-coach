@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { C, S } from "@/lib/constants";
 
-export default function AdminPurchasePackage({ client, onDirtyChange }) {
+export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess }) {
   const [pricing, setPricing] = useState([]);
   const [sessionTypes, setSessionTypes] = useState([]);
   const [card, setCard] = useState(null);
@@ -73,6 +73,7 @@ export default function AdminPurchasePackage({ client, onDirtyChange }) {
         setChosenDuration("");
         setChosenMatrixId("");
         onDirtyChange?.(false);
+        onSuccess?.(data.balance_after);
       } else {
         setResult({ ok: false, error: data.error || "Charge failed." });
       }

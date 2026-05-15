@@ -22,6 +22,7 @@ import Clients from "@/components/portal/Clients";
 import AdminCalendar from "@/components/portal/AdminCalendar";
 import AdminSchedule from "@/components/portal/AdminSchedule";
 import AdminSettings from "@/components/portal/AdminSettings";
+import Groups from "@/components/portal/Groups";
 
 export default function App() {
   const { user, profile, loading, refreshProfile } = useAuth();
@@ -84,6 +85,7 @@ export default function App() {
     if (isAdmin && !viewAsClient) {
       if (page === "Admin") return <Admin setPage={setPage} />;
       if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} />;
+      if (page === "Admin Groups") return <Groups setPage={setPage} />;
       if (page === "Admin Settings") return <AdminSettings setPage={setPage} />;
     }
     return <PortalHome setPage={setPage} viewAsClient={viewAsClient} />;

@@ -12,6 +12,11 @@ export default function Admin({ setPage }) {
       desc: "View, search, and invite clients",
     },
     {
+      page: "Admin Groups",
+      title: "Groups",
+      desc: "Manage groups, balances, and rates",
+    },
+    {
       page: "Admin Settings",
       title: "Settings",
       desc: "Configure site and account settings",

@@ -231,13 +231,14 @@ export async function PATCH(request) {
   }
 
   const body = await request.json();
-  const { action, client_id } = body;
-  if (!client_id) return NextResponse.json({ error: "client_id is required" }, { status: 400 });
+  const { action, client_id, group_id: directGroupId } = body;
+  if (!client_id && !directGroupId) return NextResponse.json({ error: "client_id or group_id is required" }, { status: 400 });
 
-  // Look up the client's group_id — all ledger writes are group-scoped
-  const groupId = await getGroupId(adminSupabase(), client_id);
-  if (!groupId) {
-    return NextResponse.json({ error: "Client has no group assigned" }, { status: 400 });
+  // Look up the group_id — all ledger writes are group-scoped
+  let groupId = directGroupId || null;
+  if (!groupId && client_id) {
+    groupId = await getGroupId(adminSupabase(), client_id);
+    if (!groupId) return NextResponse.json({ error: "Client has no group assigned" }, { status: 400 });
   }
 
   // --- admin_adjust: minutes only, no Stripe ---
