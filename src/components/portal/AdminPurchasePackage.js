@@ -40,7 +40,7 @@ export default function AdminPurchasePackage({ client, onDirtyChange }) {
   const chosenPackage = pricing.find(p => p.id === chosenMatrixId);
 
   const effectivePriceCents = (p) => {
-    const rate = client?.hourly_rate;
+    const rate = client?.group_hourly_rate;
     return (rate && rate > 0)
       ? Math.round(p.duration_min * p.package_size / 60 * rate * 100)
       : p.price_cents;

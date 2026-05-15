@@ -163,13 +163,25 @@ export async function POST(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
+  // Look up the client's group for all balance operations
+  const { data: bookingMembership } = await adminClient
+    .from("group_members")
+    .select("group_id")
+    .eq("client_id", bookingUserId)
+    .maybeSingle();
+  const bookingGroupId = bookingMembership?.group_id ?? null;
+
   // Block client requests when balance is already negative
   if (!isAdmin) {
-    const { data: ledger } = await adminClient
-      .from("balance_ledger")
-      .select("delta_minutes")
-      .eq("client_id", bookingUserId);
-    const currentBalance = (ledger || []).reduce((sum, r) => sum + r.delta_minutes, 0);
+    if (!bookingGroupId) {
+      return NextResponse.json({ error: "No group assigned. Please contact your coach." }, { status: 402 });
+    }
+    const { data: groupBalance } = await adminClient
+      .from("group_balances")
+      .select("balance_minutes")
+      .eq("group_id", bookingGroupId)
+      .maybeSingle();
+    const currentBalance = groupBalance?.balance_minutes ?? 0;
     if (currentBalance < 0) {
       return NextResponse.json({ error: "Your session balance is negative. Please purchase more sessions before requesting a session." }, { status: 402 });
     }
@@ -236,11 +248,12 @@ export async function POST(request) {
 
   // Debit the client's minute balance. Allowed to go negative — warn but don't block.
   const { data: ledgerRows } = await adminClient.rpc("apply_balance_delta", {
-    p_client_id: bookingUserId,
+    p_group_id: bookingGroupId,
     p_delta_minutes: -sessionType.duration,
     p_source_type: "request",
     p_source_id: booking.id,
     p_created_by: ctx.user.id,
+    p_actor_client_id: bookingUserId,
   });
   const balanceAfter = ledgerRows?.[0]?.balance_after ?? null;
   const lowBalance = balanceAfter != null && balanceAfter < 0;
@@ -357,6 +370,14 @@ export async function PATCH(request) {
 
   booking.profiles = clientProfile;
 
+  // Look up the booking client's group for balance operations (decline/update branches)
+  const { data: patchMembership } = await adminClient
+    .from("group_members")
+    .select("group_id")
+    .eq("client_id", booking.user_id)
+    .maybeSingle();
+  const patchGroupId = patchMembership?.group_id ?? null;
+
   if (action === "accept") {
     const { data, error } = await adminClient
       .from("bookings")
@@ -399,11 +420,12 @@ export async function PATCH(request) {
 
     // Refund the debited minutes back to the client's balance
     await adminClient.rpc("apply_balance_delta", {
-      p_client_id: booking.user_id,
+      p_group_id: patchGroupId,
       p_delta_minutes: booking.session_duration,
       p_source_type: "decline",
       p_source_id: booking.id,
       p_created_by: ctx.user.id,
+      p_actor_client_id: booking.user_id,
     });
 
     // Google sync: remove the tentative event
@@ -512,11 +534,12 @@ export async function PATCH(request) {
     const durationDelta = booking.session_duration - duration;
     if (durationDelta !== 0) {
       await adminClient.rpc("apply_balance_delta", {
-        p_client_id: booking.user_id,
+        p_group_id: patchGroupId,
         p_delta_minutes: durationDelta,
         p_source_type: "edit_delta",
         p_source_id: booking.id,
         p_created_by: ctx.user.id,
+        p_actor_client_id: booking.user_id,
       });
     }
 
@@ -621,13 +644,21 @@ export async function DELETE(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Look up the client's group for the refund ledger entry
+  const { data: cancelMembership } = await adminClient
+    .from("group_members")
+    .select("group_id")
+    .eq("client_id", booking.user_id)
+    .maybeSingle();
+
   // Refund the debited minutes back to the client's balance
   await adminClient.rpc("apply_balance_delta", {
-    p_client_id: booking.user_id,
+    p_group_id: cancelMembership?.group_id ?? null,
     p_delta_minutes: booking.session_duration,
     p_source_type: "cancel",
     p_source_id: booking.id,
     p_created_by: ctx.user.id,
+    p_actor_client_id: booking.user_id,
   });
 
   // Google sync: remove the event

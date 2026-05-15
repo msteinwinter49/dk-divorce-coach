@@ -4,14 +4,21 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
-  const { email, makeAdmin, hourly_rate } = await request.json();
+  const { email, makeAdmin, group_id, group_name, hourly_rate } = await request.json();
   const origin = new URL(request.url).origin;
 
-  if (!hourly_rate || isNaN(Number(hourly_rate)) || Number(hourly_rate) <= 0) {
-    return NextResponse.json({ error: "A valid hourly rate is required" }, { status: 400 });
-  }
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
+  }
+
+  const hasExistingGroup = !!group_id;
+  const hasNewGroup = !!group_name?.trim();
+
+  if (!hasExistingGroup && !hasNewGroup) {
+    return NextResponse.json({ error: "Either group_id or group_name is required" }, { status: 400 });
+  }
+  if (hasNewGroup && (!hourly_rate || isNaN(Number(hourly_rate)) || Number(hourly_rate) <= 0)) {
+    return NextResponse.json({ error: "A valid hourly rate is required when creating a new group" }, { status: 400 });
   }
 
   // Verify the caller is an admin using their session
@@ -57,14 +64,34 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  // Update profile with hourly_rate (and optionally role)
   if (data?.user?.id) {
-    const profileUpdate = { hourly_rate: Number(hourly_rate) };
-    if (makeAdmin) profileUpdate.role = "admin";
+    // Resolve or create the group
+    let resolvedGroupId = group_id;
+
+    if (hasNewGroup) {
+      const { data: newGroup, error: groupErr } = await adminClient
+        .from("groups")
+        .insert({ name: group_name.trim(), hourly_rate: Number(hourly_rate) })
+        .select()
+        .single();
+      if (groupErr) {
+        return NextResponse.json({ error: groupErr.message }, { status: 500 });
+      }
+      resolvedGroupId = newGroup.id;
+    }
+
+    // Assign client to the group (upsert in case they're somehow already a member)
     await adminClient
-      .from("profiles")
-      .update(profileUpdate)
-      .eq("id", data.user.id);
+      .from("group_members")
+      .upsert({ client_id: data.user.id, group_id: resolvedGroupId, is_active: true }, { onConflict: "client_id" });
+
+    // Update role if making admin
+    if (makeAdmin) {
+      await adminClient
+        .from("profiles")
+        .update({ role: "admin" })
+        .eq("id", data.user.id);
+    }
   }
 
   return NextResponse.json({ success: true });

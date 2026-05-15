@@ -17,6 +17,9 @@ export default function Clients({ setPage, onViewAsClient }) {
   // Invite form state
   const [email, setEmail] = useState("");
   const [inviteHourlyRate, setInviteHourlyRate] = useState("");
+  const [inviteGroupId, setInviteGroupId] = useState(""); // "" = create new group
+  const [inviteGroupName, setInviteGroupName] = useState("");
+  const [groups, setGroups] = useState([]);
   const [makeAdmin, setMakeAdmin] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState(null);
@@ -76,7 +79,7 @@ export default function Clients({ setPage, onViewAsClient }) {
     setEditPhone(formatPhoneInput(c.phone || ""));
     setEditContactEmail(c.preferred_email || c.email || "");
     setEditTimezone(c.timezone || "America/New_York");
-    setEditHourlyRate(c.hourly_rate != null ? String(c.hourly_rate) : "");
+    setEditHourlyRate(c.group_hourly_rate != null ? String(c.group_hourly_rate) : "");
     setDetailError(null);
     setDetailSuccess(null);
     setMagicResult(null);
@@ -112,7 +115,7 @@ export default function Clients({ setPage, onViewAsClient }) {
       phoneDigits !== (detail.phone || "").replace(/\D/g, "") ||
       editContactEmail !== (detail.preferred_email || detail.email || "") ||
       editTimezone !== (detail.timezone || "America/New_York") ||
-      editHourlyRate.trim() !== String(detail.hourly_rate ?? "");
+      editHourlyRate.trim() !== String(detail.group_hourly_rate ?? "");
     if (dirty) { setConfirmClose(true); } else { closeDetail(); }
   };
 
@@ -180,13 +183,13 @@ export default function Clients({ setPage, onViewAsClient }) {
 
   const saveHourlyRate = async () => {
     const rate = parseFloat(editHourlyRate);
-    if (!detail || isNaN(rate) || rate <= 0) return;
+    if (!detail || !detail.group_id || isNaN(rate) || rate <= 0) return;
     setHourlyRateSaving(true);
     setHourlyRateResult(null);
-    const res = await fetch("/api/clients", {
+    const res = await fetch("/api/groups", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: detail.id, hourly_rate: rate }),
+      body: JSON.stringify({ id: detail.group_id, hourly_rate: rate }),
     });
     const data = await res.json().catch(() => ({}));
     setHourlyRateSaving(false);
@@ -195,8 +198,10 @@ export default function Clients({ setPage, onViewAsClient }) {
       return;
     }
     setHourlyRateResult({ ok: true });
-    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, hourly_rate: rate } : c));
-    setDetail(d => d ? { ...d, hourly_rate: rate } : d);
+    // Update all clients in this group and the cached groups list
+    setClients(prev => prev.map(c => c.group_id === detail.group_id ? { ...c, group_hourly_rate: rate } : c));
+    setGroups(prev => prev.map(g => g.id === detail.group_id ? { ...g, hourly_rate: rate } : g));
+    setDetail(d => d ? { ...d, group_hourly_rate: rate } : d);
   };
 
   const saveDetail = async () => {
@@ -269,26 +274,47 @@ export default function Clients({ setPage, onViewAsClient }) {
     setListLoading(false);
   };
 
-  useEffect(() => { fetchClients(); }, []);
+  const fetchGroups = async () => {
+    const res = await fetch("/api/groups");
+    const data = await res.json();
+    if (res.ok) setGroups(data.groups || []);
+  };
+
+  useEffect(() => { fetchClients(); fetchGroups(); }, []);
 
   const handleInvite = async () => {
-    const parsedRate = parseFloat(inviteHourlyRate);
-    if (!inviteHourlyRate || isNaN(parsedRate) || parsedRate <= 0) {
-      setInviteError("Please enter a valid hourly rate.");
-      return;
-    }
     if (!email.trim()) {
       setInviteError("Please enter an email address.");
       return;
+    }
+    const isNewGroup = inviteGroupId === "";
+    if (isNewGroup) {
+      if (!inviteGroupName.trim()) {
+        setInviteError("Please enter a group name.");
+        return;
+      }
+      const parsedRate = parseFloat(inviteHourlyRate);
+      if (!inviteHourlyRate || isNaN(parsedRate) || parsedRate <= 0) {
+        setInviteError("Please enter a valid hourly rate for the new group.");
+        return;
+      }
     }
     setInviteLoading(true);
     setInviteError(null);
     setInviteSuccess(null);
 
+    const payload = { email, makeAdmin };
+    if (isNewGroup) {
+      payload.group_name = inviteGroupName.trim();
+      payload.hourly_rate = parseFloat(inviteHourlyRate);
+    } else {
+      payload.group_id = inviteGroupId;
+    }
+
     const res = await fetch("/api/invite", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, makeAdmin, hourly_rate: parsedRate }),
+      body: JSON.stringify(payload),
     });
 
     const data = await res.json();
@@ -300,8 +326,11 @@ export default function Clients({ setPage, onViewAsClient }) {
       setInviteSuccess(`Invitation sent to ${email}`);
       setEmail("");
       setInviteHourlyRate("");
+      setInviteGroupId("");
+      setInviteGroupName("");
       setMakeAdmin(false);
       fetchClients();
+      fetchGroups();
     }
   };
 
@@ -367,51 +396,81 @@ export default function Clients({ setPage, onViewAsClient }) {
       {/* Invite section */}
       <div style={{ ...S.card, marginBottom: "1.5rem" }}>
         <h3 style={S.h3}>Invite a new client</h3>
-        <div style={{ marginBottom: 10 }}>
-          <label style={S.label}>Hourly rate</label>
-          <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 160, overflow: "hidden" }}>
-            <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
-            <input
-              style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
-              type="text"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={inviteHourlyRate}
-              onChange={e => {
-                let val = e.target.value.replace(/[^0-9.]/g, "");
-                const parts = val.split(".");
-                if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
-                setInviteHourlyRate(val);
-              }}
-            />
-            <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+        <div style={{ display: "grid", gap: 10 }}>
+          <div>
+            <label style={S.label}>Group</label>
+            <select
+              style={{ ...S.input, marginBottom: 0, cursor: "pointer" }}
+              value={inviteGroupId}
+              onChange={e => setInviteGroupId(e.target.value)}
+            >
+              <option value="">Create new group…</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>
+                  {g.name}{g.hourly_rate ? ` ($${g.hourly_rate}/hr)` : ""}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <label style={S.label}>Email address</label>
-            <input
-              style={{ ...S.input, marginBottom: 0 }}
-              placeholder="client@example.com"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleInvite()}
-            />
+          {inviteGroupId === "" && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <label style={S.label}>Group name</label>
+                <input
+                  style={{ ...S.input, marginBottom: 0 }}
+                  placeholder="e.g. Smith Family"
+                  value={inviteGroupName}
+                  onChange={e => setInviteGroupName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={S.label}>Hourly rate</label>
+                <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 140, overflow: "hidden" }}>
+                  <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
+                  <input
+                    style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={inviteHourlyRate}
+                    onChange={e => {
+                      let val = e.target.value.replace(/[^0-9.]/g, "");
+                      const parts = val.split(".");
+                      if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
+                      setInviteHourlyRate(val);
+                    }}
+                  />
+                  <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={S.label}>Email address</label>
+              <input
+                style={{ ...S.input, marginBottom: 0 }}
+                placeholder="client@example.com"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleInvite()}
+              />
+            </div>
+            <button style={S.btn} onClick={handleInvite} disabled={inviteLoading}>
+              {inviteLoading ? "Sending..." : "Send invite"}
+            </button>
           </div>
-          <button style={S.btn} onClick={handleInvite} disabled={inviteLoading}>
-            {inviteLoading ? "Sending..." : "Send invite"}
-          </button>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.muted, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={makeAdmin}
+              onChange={e => setMakeAdmin(e.target.checked)}
+              style={{ accentColor: C.teal }}
+            />
+            Grant admin access
+          </label>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.muted, cursor: "pointer", marginTop: 10 }}>
-          <input
-            type="checkbox"
-            checked={makeAdmin}
-            onChange={e => setMakeAdmin(e.target.checked)}
-            style={{ accentColor: C.teal }}
-          />
-          Grant admin access
-        </label>
         {inviteError && <p style={{ fontSize: 13, color: "#c0392b", marginTop: 8, marginBottom: 0 }}>{inviteError}</p>}
         {inviteSuccess && <p style={{ fontSize: 13, color: C.teal, marginTop: 8, marginBottom: 0 }}>{inviteSuccess}</p>}
       </div>
@@ -589,39 +648,48 @@ export default function Clients({ setPage, onViewAsClient }) {
 
             {detail.role !== "admin" && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>
-                  Hourly Rate
-                  {editHourlyRate.trim() !== String(detail.hourly_rate ?? "") && (
+                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 4 }}>
+                  Group Rate
+                  {editHourlyRate.trim() !== String(detail.group_hourly_rate ?? "") && (
                     <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span>
                   )}
                 </h3>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 160, overflow: "hidden" }}>
-                    <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
-                    <input
-                      style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                      value={editHourlyRate}
-                      onChange={e => {
-                        let val = e.target.value.replace(/[^0-9.]/g, "");
-                        const parts = val.split(".");
-                        if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
-                        setEditHourlyRate(val);
-                        setHourlyRateResult(null);
-                      }}
-                    />
-                    <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+                {detail.group_name && (
+                  <p style={{ fontSize: 13, color: C.muted, marginBottom: 8 }}>
+                    Group: <strong>{detail.group_name}</strong> — rate applies to all members
+                  </p>
+                )}
+                {!detail.group_id ? (
+                  <p style={{ fontSize: 16, color: C.muted, marginBottom: 0 }}>No group assigned.</p>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 160, overflow: "hidden" }}>
+                      <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
+                      <input
+                        style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        value={editHourlyRate}
+                        onChange={e => {
+                          let val = e.target.value.replace(/[^0-9.]/g, "");
+                          const parts = val.split(".");
+                          if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
+                          setEditHourlyRate(val);
+                          setHourlyRateResult(null);
+                        }}
+                      />
+                      <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+                    </div>
+                    <button
+                      style={{ ...S.btn, opacity: hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0 ? 0.6 : 1 }}
+                      disabled={hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0}
+                      onClick={saveHourlyRate}
+                    >
+                      {hourlyRateSaving ? "Saving..." : "Save"}
+                    </button>
                   </div>
-                  <button
-                    style={{ ...S.btn, opacity: hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0 ? 0.6 : 1 }}
-                    disabled={hourlyRateSaving || !editHourlyRate || parseFloat(editHourlyRate) <= 0}
-                    onClick={saveHourlyRate}
-                  >
-                    {hourlyRateSaving ? "Saving..." : "Save"}
-                  </button>
-                </div>
+                )}
                 {hourlyRateResult && (
                   <p style={{ fontSize: 16, marginTop: 8, marginBottom: 0, color: hourlyRateResult.ok ? C.teal : "#c0392b" }}>
                     {hourlyRateResult.ok ? "Saved." : hourlyRateResult.error}

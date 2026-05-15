@@ -12,6 +12,15 @@ function adminSupabase() {
   );
 }
 
+async function getGroupId(admin, clientId) {
+  const { data } = await admin
+    .from("group_members")
+    .select("group_id")
+    .eq("client_id", clientId)
+    .maybeSingle();
+  return data?.group_id ?? null;
+}
+
 // GET — return the authenticated client's current minute balance.
 export async function GET(request) {
   const cookieStore = await cookies();
@@ -28,10 +37,14 @@ export async function GET(request) {
 
   const admin = adminSupabase();
   const targetId = clientId || user.id;
+
+  const groupId = await getGroupId(admin, targetId);
+  if (!groupId) return NextResponse.json({ balance_minutes: 0 });
+
   const { data } = await admin
-    .from("client_balances")
+    .from("group_balances")
     .select("balance_minutes")
-    .eq("client_id", targetId)
+    .eq("group_id", groupId)
     .maybeSingle();
 
   return NextResponse.json({ balance_minutes: data?.balance_minutes ?? 0 });
@@ -81,9 +94,23 @@ export async function POST(request) {
   if (matrixErr || !matrix) return NextResponse.json({ error: "Package not found" }, { status: 404 });
   if (!matrix.is_active) return NextResponse.json({ error: "Package no longer available" }, { status: 410 });
 
+  // Look up client's group for hourly_rate
+  const { data: membership } = await admin
+    .from("group_members")
+    .select("group_id, groups(hourly_rate)")
+    .eq("client_id", targetClientId)
+    .maybeSingle();
+
+  if (!membership?.group_id) {
+    return NextResponse.json({ error: "Client has no group assigned. Please contact your coach." }, { status: 400 });
+  }
+
+  const groupId = membership.group_id;
+  const groupHourlyRate = membership.groups?.hourly_rate ?? null;
+
   const { data: profile } = await admin
     .from("profiles")
-    .select("stripe_customer_id, first_name, last_name, preferred_email, phone, notification_preference, hourly_rate")
+    .select("stripe_customer_id, first_name, last_name, preferred_email, phone, notification_preference")
     .eq("id", targetClientId)
     .single();
   if (!profile?.stripe_customer_id) {
@@ -94,8 +121,8 @@ export async function POST(request) {
   const expiresAt = new Date();
   expiresAt.setMonth(expiresAt.getMonth() + matrix.expires_months);
 
-  const effectivePriceCents = profile.hourly_rate
-    ? Math.round(matrix.duration_min * matrix.package_size / 60 * profile.hourly_rate * 100)
+  const effectivePriceCents = groupHourlyRate
+    ? Math.round(matrix.duration_min * matrix.package_size / 60 * groupHourlyRate * 100)
     : matrix.price_cents;
 
   let paymentIntentId;
@@ -114,7 +141,8 @@ export async function POST(request) {
   const { data: purchase, error: purchaseErr } = await admin
     .from("purchases")
     .insert({
-      client_id: targetClientId,
+      group_id: groupId,
+      purchaser_client_id: targetClientId,
       matrix_id: matrix.id,
       duration_min: matrix.duration_min,
       package_size: matrix.package_size,
@@ -137,13 +165,14 @@ export async function POST(request) {
   }
 
   const { data: ledgerRows, error: ledgerErr } = await admin.rpc("apply_balance_delta", {
-    p_client_id: targetClientId,
+    p_group_id: groupId,
     p_delta_minutes: totalMinutes,
     p_source_type: "purchase",
     p_source_id: purchase.id,
     p_amount_cents: effectivePriceCents,
     p_stripe_payment_intent_id: paymentIntentId,
     p_created_by: user.id,
+    p_actor_client_id: targetClientId,
   });
 
   if (ledgerErr) {
@@ -184,7 +213,7 @@ export async function POST(request) {
   return NextResponse.json({ purchase, balance_after: balanceAfter });
 }
 
-// PATCH — admin manual actions. action = 'admin_adjust' | 'admin_charge'
+// PATCH — admin manual actions. action = 'admin_adjust' | 'admin_charge' | 'admin_refund'
 export async function PATCH(request) {
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -205,6 +234,12 @@ export async function PATCH(request) {
   const { action, client_id } = body;
   if (!client_id) return NextResponse.json({ error: "client_id is required" }, { status: 400 });
 
+  // Look up the client's group_id — all ledger writes are group-scoped
+  const groupId = await getGroupId(adminSupabase(), client_id);
+  if (!groupId) {
+    return NextResponse.json({ error: "Client has no group assigned" }, { status: 400 });
+  }
+
   // --- admin_adjust: minutes only, no Stripe ---
   if (action === "admin_adjust" || !action) {
     const { delta_minutes, note } = body;
@@ -212,7 +247,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Non-zero delta_minutes is required" }, { status: 400 });
     }
     const { data: ledgerRows, error } = await adminSupabase().rpc("apply_balance_delta", {
-      p_client_id: client_id,
+      p_group_id: groupId,
       p_delta_minutes: delta_minutes,
       p_source_type: "admin_adjust",
       p_note: note || null,
@@ -250,7 +285,7 @@ export async function PATCH(request) {
     }
 
     const { error } = await adminSupabase().rpc("apply_balance_delta", {
-      p_client_id: client_id,
+      p_group_id: groupId,
       p_delta_minutes: 0,
       p_source_type: "admin_charge",
       p_amount_cents: amount_cents,
@@ -265,7 +300,7 @@ export async function PATCH(request) {
     return NextResponse.json({ charged_dollars: dollars, payment_intent_id: paymentIntentId });
   }
 
-  // --- admin_refund: Stripe refund only, capped at prior charges for this client ---
+  // --- admin_refund: Stripe refund only, capped at prior charges for this group ---
   if (action === "admin_refund") {
     const { amount_dollars, note } = body;
     const dollars = parseFloat(amount_dollars);
@@ -274,11 +309,11 @@ export async function PATCH(request) {
     }
     const amount_cents = Math.round(dollars * 100);
 
-    // Find prior succeeded PaymentIntents for this client, most recent first
+    // Find prior succeeded PaymentIntents for this group, most recent first
     const { data: priorCharges } = await adminSupabase()
       .from("balance_ledger")
       .select("stripe_payment_intent_id, amount_cents")
-      .eq("client_id", client_id)
+      .eq("group_id", groupId)
       .in("source_type", ["purchase", "admin_charge"])
       .not("stripe_payment_intent_id", "is", null)
       .order("created_at", { ascending: false })
@@ -288,7 +323,6 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "No prior charges found for this client." }, { status: 400 });
     }
 
-    // Use the most recent PaymentIntent as the refund target
     const target = priorCharges[0];
 
     let refund;
@@ -299,7 +333,7 @@ export async function PATCH(request) {
     }
 
     const { error } = await adminSupabase().rpc("apply_balance_delta", {
-      p_client_id: client_id,
+      p_group_id: groupId,
       p_delta_minutes: 0,
       p_source_type: "admin_refund",
       p_amount_cents: -amount_cents,

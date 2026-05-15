@@ -39,24 +39,42 @@ export async function GET() {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  const { data: clients, error } = await adminClient
-    .from("profiles")
-    .select("id, first_name, last_name, full_name, phone, preferred_email, notification_preference, reminder_preference, timezone, hourly_rate, role, created_at")
-    .order("created_at", { ascending: false });
+  const [
+    { data: clients, error },
+    { data: { users } },
+    { data: memberships },
+  ] = await Promise.all([
+    adminClient
+      .from("profiles")
+      .select("id, first_name, last_name, full_name, phone, preferred_email, notification_preference, reminder_preference, timezone, role, created_at")
+      .order("created_at", { ascending: false }),
+    adminClient.auth.admin.listUsers(),
+    adminClient
+      .from("group_members")
+      .select("client_id, group_id, is_active, groups(id, name, hourly_rate)"),
+  ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Also fetch auth user emails
-  const { data: { users } } = await adminClient.auth.admin.listUsers();
   const emailMap = {};
   (users || []).forEach(u => { emailMap[u.id] = u.email; });
 
-  const enriched = (clients || []).map(c => ({
-    ...c,
-    email: emailMap[c.id] || c.preferred_email || "",
-  }));
+  const membershipMap = {};
+  (memberships || []).forEach(m => { membershipMap[m.client_id] = m; });
+
+  const enriched = (clients || []).map(c => {
+    const membership = membershipMap[c.id];
+    return {
+      ...c,
+      email: emailMap[c.id] || c.preferred_email || "",
+      group_id: membership?.group_id ?? null,
+      group_name: membership?.groups?.name ?? null,
+      group_hourly_rate: membership?.groups?.hourly_rate ?? null,
+      group_is_active: membership?.is_active ?? null,
+    };
+  });
 
   return NextResponse.json({ clients: enriched });
 }
@@ -83,7 +101,7 @@ export async function PATCH(request) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  const { id, first_name, last_name, phone, preferred_email, notification_preference, reminder_preference, timezone, hourly_rate } = await request.json();
+  const { id, first_name, last_name, phone, preferred_email, notification_preference, reminder_preference, timezone } = await request.json();
   if (!id) return NextResponse.json({ error: "Client id is required" }, { status: 400 });
 
   const adminClient = createClient(
@@ -102,7 +120,6 @@ export async function PATCH(request) {
       notification_preference,
       reminder_preference,
       timezone,
-      ...(hourly_rate !== undefined && { hourly_rate: Number(hourly_rate) }),
     })
     .eq("id", id)
     .select()
