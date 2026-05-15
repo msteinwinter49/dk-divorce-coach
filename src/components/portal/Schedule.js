@@ -779,6 +779,20 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                 {formatTime(b.start_time)} - {formatTime(b.end_time)} | {b.session_duration}min
               </div>
             )}
+            {(() => {
+              const others = (b.participant_profiles || []).filter(p => p.id !== user?.id);
+              if (others.length === 0) return null;
+              const names = others.map(p => {
+                const fn = (p.first_name || "").trim();
+                const li = (p.last_name || "").trim().slice(0, 1);
+                return li ? `${fn} ${li}.` : fn || "Member";
+              }).join(", ");
+              return (
+                <div style={{ fontSize: 11, color: isRequested ? "#c0392b" : C.teal, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: 0.85 }}>
+                  Also attending: {names}
+                </div>
+              );
+            })()}
           </>
         )}
       </div>
