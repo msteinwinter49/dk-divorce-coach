@@ -16,6 +16,7 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
     ["Documents","Docs"],
     ["Schedule","Schedule"],
     ["Messages","Messages"],
+    ["Statement","Statement"],
   ];
 
   const portalLinks = viewAsClient ? [

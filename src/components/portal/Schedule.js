@@ -66,6 +66,11 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
 
   const [showSpinner, setShowSpinner] = useState(false);
 
+  // Client change policy
+  const [minNoticeHours, setMinNoticeHours] = useState(24);
+  const [adminPhone, setAdminPhone] = useState("");
+  const [blockedAlertOpen, setBlockedAlertOpen] = useState(false);
+
   // Cancel state
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelSuccess, setCancelSuccess] = useState(false);
@@ -129,6 +134,15 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     }).catch(() => {});
   }, [user, isAdminViewing, profile?.role]);
 
+  // Load client change policy (min notice hours + admin phone)
+  useEffect(() => {
+    if (!user || profile?.role === "admin") return;
+    fetch("/api/admin-contact").then(r => r.json()).then(d => {
+      if (typeof d.min_notice_hours === "number") setMinNoticeHours(d.min_notice_hours);
+      if (d.admin_phone) setAdminPhone(d.admin_phone);
+    }).catch(() => {});
+  }, [user, profile?.role]);
+
   const refreshBalance = useCallback(() => {
     if (!user) return;
     const clientId = viewAsClient?.id;
@@ -191,8 +205,18 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     setPopupPos(null);
   };
 
+  const isChangeBlocked = (b) => {
+    if (readOnly) return false;
+    const hasOthers = (b.participant_ids || []).length > 1;
+    const tooClose = new Date(b.start_time).getTime() - Date.now() < minNoticeHours * 60 * 60 * 1000;
+    return hasOthers || tooClose;
+  };
+
+  const showBlockedAlert = () => setBlockedAlertOpen(true);
+
   const openEditPopup = (b) => {
     if (readOnly) return;
+    if (isChangeBlocked(b)) { showBlockedAlert(); return; }
     const dateOnly = b.date || localDateStr(new Date(b.start_time));
     const timeOnly = b.time_slot || (() => {
       const d = new Date(b.start_time);
@@ -505,6 +529,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   // --- Drag and drop ---
 
   const handleDragStart = (e, b) => {
+    if (isChangeBlocked(b)) { e.preventDefault(); showBlockedAlert(); return; }
     const durationMin = b.session_duration || 60;
     dragRef.current = { ...b, _durationMin: durationMin };
     e.dataTransfer.effectAllowed = "move";
@@ -596,6 +621,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const confirmPendingMove = async () => {
     if (!pendingMove) return;
     const { booking, newDate, newTime } = pendingMove;
+    if (isChangeBlocked(booking)) { setPendingMove(null); showBlockedAlert(); return; }
     setConfirming(true);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
     const res = await fetch("/api/bookings", {
@@ -1306,7 +1332,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                 {editingBooking && ["requested", "booked"].includes(editingBooking.status) && (
                   <button
                     style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
-                    onClick={() => { const b = editingBooking; closePopup(); setCancelTarget(b); }}
+                    onClick={() => { const b = editingBooking; if (isChangeBlocked(b)) { showBlockedAlert(); return; } closePopup(); setCancelTarget(b); }}
                     disabled={confirming}
                   >
                     {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
@@ -1574,6 +1600,19 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
       {renderMoveConfirmModal()}
       {renderHoverTooltip()}
       {renderDragTooltip()}
+      {blockedAlertOpen && (
+        <>
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.1)", zIndex: 200 }} onClick={() => setBlockedAlertOpen(false)} />
+          <div style={{ ...S.card, maxWidth: 380, width: "90%", margin: 0, position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 201 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ ...S.h3, marginBottom: 10 }}>Change Not Allowed</h3>
+            <p style={{ ...S.p, marginBottom: 4 }}>You cannot make this change — too little notice or multiple attendees.</p>
+            {adminPhone && (
+              <p style={{ ...S.p, marginBottom: 16 }}>Text Diana at <strong>{adminPhone}</strong> for assistance.</p>
+            )}
+            <button style={S.btn} onClick={() => setBlockedAlertOpen(false)}>OK</button>
+          </div>
+        </>
+      )}
       {showSpinner && (
         <div style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,

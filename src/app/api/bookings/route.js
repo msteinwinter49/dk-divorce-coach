@@ -474,8 +474,11 @@ export async function PATCH(request) {
   }
 
   if (action === "update") {
-    const { date, start_time, session_type_id } = body;
+    const { date, start_time, session_type_id, participant_ids } = body;
     const updates = {};
+    if (participant_ids !== undefined) {
+      updates.participant_ids = participant_ids;
+    }
 
     // If session type changed, look it up
     let duration = booking.session_duration;
@@ -587,20 +590,63 @@ export async function PATCH(request) {
     const whenStr = formatSessionDateTime(data.date, data.time_slot);
 
     if (isAdmin) {
-      // Admin edited — notify client
-      try {
-        await notifyClient(
-          booking.profiles,
-          "Your coaching session has been updated",
-          `<h2>Session Updated</h2>
-           <p>Your coaching session has been updated to:</p>
-           <p><strong>Date:</strong> ${formatSessionDate(data.date)}</p>
-           <p><strong>Time:</strong> ${formatSessionTime(data.time_slot)}</p>
-           <p><strong>Duration:</strong> ${data.session_duration} min</p>`,
-          `Your coaching session has been moved to ${whenStr} (${data.session_duration}min).`
-        );
-      } catch (e) {
-        console.error("Notification error:", e);
+      const origIds = booking.participant_ids || [booking.user_id];
+      const newIds = updates.participant_ids !== undefined
+        ? (updates.participant_ids != null ? updates.participant_ids : [booking.user_id])
+        : origIds;
+      const addedIds = updates.participant_ids !== undefined ? newIds.filter(id => !origIds.includes(id)) : [];
+      const removedIds = updates.participant_ids !== undefined ? origIds.filter(id => !newIds.includes(id)) : [];
+      const continuingIds = newIds.filter(id => !addedIds.includes(id));
+      const timeOrTypeChanged = dateOrTimeChanged || updates.session_type_id !== undefined;
+
+      const notifyIds = [...new Set([
+        ...(timeOrTypeChanged ? continuingIds : []),
+        ...addedIds,
+        ...removedIds,
+      ])];
+
+      if (notifyIds.length) {
+        const { data: notifyProfiles } = await adminClient
+          .from("profiles")
+          .select("id, first_name, last_name, full_name, preferred_email, phone, notification_preference")
+          .in("id", notifyIds);
+        for (const p of (notifyProfiles || [])) {
+          try {
+            if (removedIds.includes(p.id)) {
+              await notifyClient(
+                p,
+                "You've been removed from a coaching session",
+                `<h2>Session Removed</h2>
+                 <p>You've been removed from a coaching session scheduled for ${whenStr} (${data.session_duration}min).</p>`,
+                `You've been removed from a coaching session on ${whenStr} (${data.session_duration}min).`
+              );
+            } else if (addedIds.includes(p.id)) {
+              await notifyClient(
+                p,
+                "You've been added to a coaching session",
+                `<h2>Session Added</h2>
+                 <p>You've been added to a coaching session:</p>
+                 <p><strong>Date:</strong> ${formatSessionDate(data.date)}</p>
+                 <p><strong>Time:</strong> ${formatSessionTime(data.time_slot)}</p>
+                 <p><strong>Duration:</strong> ${data.session_duration} min</p>`,
+                `You've been added to a coaching session on ${whenStr} (${data.session_duration}min).`
+              );
+            } else if (timeOrTypeChanged) {
+              await notifyClient(
+                p,
+                "Your coaching session has been updated",
+                `<h2>Session Updated</h2>
+                 <p>Your coaching session has been updated to:</p>
+                 <p><strong>Date:</strong> ${formatSessionDate(data.date)}</p>
+                 <p><strong>Time:</strong> ${formatSessionTime(data.time_slot)}</p>
+                 <p><strong>Duration:</strong> ${data.session_duration} min</p>`,
+                `Your coaching session has been moved to ${whenStr} (${data.session_duration}min).`
+              );
+            }
+          } catch (e) {
+            console.error("Notification error:", e);
+          }
+        }
       }
     } else {
       // Client edited — notify Diana for re-approval

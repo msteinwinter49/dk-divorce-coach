@@ -54,6 +54,9 @@ export default function AdminSettings({ setPage }) {
   const [reminderChannel, setReminderChannel] = useState("both");
   const [reminderMinutes, setReminderMinutes] = useState("30");
 
+  // Client change notice
+  const [minNoticeHours, setMinNoticeHours] = useState("24");
+
   // SMS
   const [smsEnabled, setSmsEnabled] = useState(false);
 
@@ -77,7 +80,7 @@ export default function AdminSettings({ setPage }) {
       supabase.from("settings").select("key, value").in("key", [
         "contact_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token",
         "admin_reminder_channel", "admin_reminder_minutes", "package_sizes", "default_expires_months",
-        "sms_enabled"
+        "sms_enabled", "min_client_change_notice_hours"
       ]),
       fetch("/api/session-types").then(r => r.json()),
       supabase.from("availability_rules").select("*").order("day_of_week").order("start_time"),
@@ -94,6 +97,7 @@ export default function AdminSettings({ setPage }) {
     setReminderMinutes(settings.admin_reminder_minutes || "30");
     setGoogleConnected(!!settings.google_refresh_token);
     setSmsEnabled(settings.sms_enabled === "true");
+    setMinNoticeHours(settings.min_client_change_notice_hours || "24");
     setPackageSizes(parsePackageSizes(settings.package_sizes));
     setDefaultExpiresMonths(settings.default_expires_months || "12");
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
@@ -131,6 +135,7 @@ export default function AdminSettings({ setPage }) {
     await saveSetting("admin_reminder_channel", reminderChannel);
     await saveSetting("admin_reminder_minutes", reminderMinutes);
     await saveSetting("sms_enabled", smsEnabled ? "true" : "false");
+    await saveSetting("min_client_change_notice_hours", minNoticeHours);
   };
 
   // --- Session types ---
@@ -366,6 +371,14 @@ export default function AdminSettings({ setPage }) {
           <label htmlFor="sms-enabled" style={{ ...S.label, marginBottom: 0, cursor: "pointer" }}>
             SMS notifications enabled
           </label>
+        </div>
+
+        <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
+          <div style={{ flex: 1 }}>
+            <label style={S.label}>Minimum notice for client changes (hours)</label>
+            <input style={S.input} type="number" min="0" max="168" value={minNoticeHours} onChange={e => setMinNoticeHours(e.target.value)} />
+          </div>
+          <div style={{ flex: 1 }} />
         </div>
 
         <button style={S.btn} onClick={handleSaveGeneral} disabled={saving}>

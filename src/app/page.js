@@ -23,6 +23,7 @@ import AdminCalendar from "@/components/portal/AdminCalendar";
 import AdminSchedule from "@/components/portal/AdminSchedule";
 import AdminSettings from "@/components/portal/AdminSettings";
 import Groups from "@/components/portal/Groups";
+import Statement from "@/components/portal/Statement";
 
 export default function App() {
   const { user, profile, loading, refreshProfile } = useAuth();
@@ -86,6 +87,13 @@ export default function App() {
     if (page === "Schedule") return <Schedule setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />;
     if (page === "Buy Sessions") return <BuySessions setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />;
     if (page === "Messages") return <Messages viewAsClient={viewAsClient} />;
+    if (page === "Statement") return (
+      <div style={{ minHeight: "calc(100vh - 64px)", padding: "2rem 1rem 5rem", maxWidth: 800, margin: "0 auto" }}>
+        <h1 style={{ fontSize: 26, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>Statement</h1>
+        <p style={{ fontSize: 15, color: "#5F5E5A", marginBottom: 24 }}>Your session and purchase history.</p>
+        <Statement clientName={viewAsClient ? `${viewAsClient.first_name} ${viewAsClient.last_name || ""}`.trim() : `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim()} />
+      </div>
+    );
     if (isAdmin && page === "Admin Schedule") return <AdminSchedule setPage={setPage} />;
     if (isAdmin && page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
     if (isAdmin && !viewAsClient) {

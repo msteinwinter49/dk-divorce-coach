@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
+import Statement from "./Statement";
 
 function formatPhoneInput(value) {
   const digits = (value || "").replace(/\D/g, "").slice(0, 10);
@@ -847,6 +848,17 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
                       : chargeResult.error}
                   </p>
                 )}
+              </div>
+            )}
+
+            {detail.role !== "admin" && detail.group_id && (
+              <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
+                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Statement</h3>
+                <Statement
+                  groupId={detail.group_id}
+                  clientName={`${detail.first_name || ""} ${detail.last_name || ""}`.trim()}
+                  isAdmin={true}
+                />
               </div>
             )}
 

@@ -286,6 +286,7 @@ export default function AdminSchedule({ setPage }) {
   const [modal, setModal] = useState(null);
   const [bookClientIds, setBookClientIds] = useState([]);
   const [bookGroup, setBookGroup] = useState("");
+  const [editParticipantIds, setEditParticipantIds] = useState([]);
   const [bookType, setBookType] = useState("");
   const [bookDate, setBookDate] = useState("");
   const [bookTime, setBookTime] = useState("");
@@ -711,6 +712,7 @@ export default function AdminSchedule({ setPage }) {
     setBookType(booking.session_type_id || "");
     setBookDate(booking.date);
     setBookTime(booking.time_slot);
+    setEditParticipantIds(booking.participant_ids || [booking.user_id]);
     setModalError(null);
     setModal({ mode: "edit", booking });
   };
@@ -800,8 +802,13 @@ export default function AdminSchedule({ setPage }) {
 
   const handleUpdateBooking = async () => {
     if (!modal?.booking || !bookDate || !bookTime) return;
+    if (editParticipantIds.length === 0) {
+      setModalError("At least one client must be selected.");
+      return;
+    }
     setModalSaving(true);
     setModalError(null);
+    const ownerOnly = editParticipantIds.length === 1 && editParticipantIds[0] === modal.booking.user_id;
     const res = await fetch("/api/bookings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -812,10 +819,24 @@ export default function AdminSchedule({ setPage }) {
         start_time: bookTime,
         session_type_id: bookType || undefined,
         tz_offset: new Date().getTimezoneOffset(),
+        participant_ids: ownerOnly ? null : editParticipantIds,
       }),
     });
     if (res.ok) {
+      const saved = await res.json().catch(() => null);
       await loadData();
+      // Apply participant update after loadData so GET stale data can't overwrite it.
+      // Use server-confirmed participant_ids from the PATCH response.
+      if (saved) {
+        const savedIds = saved.participant_ids;
+        setBookings(prev => prev.map(b => {
+          if (b.id !== modal.booking.id) return b;
+          const pp = savedIds?.length > 0
+            ? savedIds.map(id => clients.find(c => c.id === id)).filter(Boolean)
+            : undefined;
+          return { ...b, participant_ids: savedIds, participant_profiles: pp };
+        }));
+      }
       setModalSaving(false);
       closeModal();
     } else {
@@ -1169,7 +1190,7 @@ export default function AdminSchedule({ setPage }) {
       res = await fetch("/api/bookings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, action: "update", date: newDate, start_time: newTime }),
+        body: JSON.stringify({ id: item.id, action: "update", date: newDate, start_time: newTime, tz_offset: new Date().getTimezoneOffset() }),
       });
     } else {
       // Calculate new end time preserving duration
@@ -2115,7 +2136,9 @@ export default function AdminSchedule({ setPage }) {
     const hasAdminUnsavedChanges = (() => {
       if (modal.mode === "edit") {
         const b = modal.booking;
-        return bookType !== (b.session_type_id || "") || bookDate !== (b.date || "") || bookTime !== (b.time_slot || "");
+        const origIds = (b.participant_ids || [b.user_id]).slice().sort().join(",");
+        const currIds = editParticipantIds.slice().sort().join(",");
+        return bookType !== (b.session_type_id || "") || bookDate !== (b.date || "") || bookTime !== (b.time_slot || "") || origIds !== currIds;
       }
       if (modal.mode === "editEvent") {
         const ev = modal.event;
@@ -2242,12 +2265,22 @@ export default function AdminSchedule({ setPage }) {
 
   const renderEditContent = () => {
     const b = modal.booking;
+    const primaryClient = clients.find(c => c.id === b.user_id);
+    const groupId = primaryClient?.group_id;
+    const groupClients = groupId ? clients.filter(c => c.role === "client" && c.group_id === groupId) : [];
+    const isGroup = groupClients.length > 1;
+    const toggleEditParticipant = (id) =>
+      setEditParticipantIds(prev =>
+        prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+      );
+    const editAllSelected = isGroup && groupClients.every(c => editParticipantIds.includes(c.id));
+    const editSomeSelected = isGroup && groupClients.some(c => editParticipantIds.includes(c.id));
+    const toggleEditAll = () =>
+      setEditParticipantIds(editAllSelected ? [] : groupClients.map(c => c.id));
+
     return (
       <>
         <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>Edit Session</h3>
-        <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
-          <strong>Client:</strong> {clientName(b.profiles)}
-        </p>
         {showAdminCloseWarning && (
           <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
             <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
@@ -2258,6 +2291,37 @@ export default function AdminSchedule({ setPage }) {
               <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }} onClick={closeModal}>Discard</button>
             </div>
           </div>
+        )}
+        {isGroup ? (
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ ...S.p, fontSize: 13, marginBottom: 8 }}>
+              <strong>Group:</strong> {primaryClient?.group_name || "Group"}
+            </p>
+            <div style={{ border: "1px solid rgba(0,0,0,0.15)", borderRadius: 8, overflow: "hidden" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid rgba(0,0,0,0.07)", cursor: "pointer", fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={editAllSelected}
+                  onChange={toggleEditAll}
+                />
+                All
+              </label>
+              {groupClients.map(c => (
+                <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid rgba(0,0,0,0.07)", cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={editParticipantIds.includes(c.id)}
+                    onChange={() => toggleEditParticipant(c.id)}
+                  />
+                  {`${c.first_name || ""} ${c.last_name || ""}`.trim() || c.full_name || "Client"}
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
+            <strong>Client:</strong> {clientName(b.profiles)}
+          </p>
         )}
 
         <label style={S.label}>Session type</label>
@@ -2365,7 +2429,6 @@ export default function AdminSchedule({ setPage }) {
           {filteredClients.length > 1 && (
             <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", background: "#fafafa", fontSize: 13, fontWeight: 500 }}>
               <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                ref={el => { if (el) el.indeterminate = !allSelected && someSelected; }}
                 style={{ accentColor: C.teal }} />
               All
             </label>
