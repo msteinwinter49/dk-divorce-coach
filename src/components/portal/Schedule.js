@@ -772,27 +772,19 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
         ) : (
           <>
             <div style={{ fontWeight: 500, color: isRequested ? "#c0392b" : C.teal, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {b.session_types?.label || "Session"} — {b.status}
+              {(() => {
+                const others = (b.participant_profiles || []).filter(p => p.id !== user?.id);
+                const base = `${b.session_types?.label || "Session"} — ${b.status}`;
+                if (others.length === 0) return base;
+                const names = others.map(p => `${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member").join(", ");
+                return `${base} · Plus ${others.length} other${others.length === 1 ? "" : "s"} (${names})`;
+              })()}
             </div>
             {height > 36 && (
               <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {formatTime(b.start_time)} - {formatTime(b.end_time)} | {b.session_duration}min
               </div>
             )}
-            {(() => {
-              const others = (b.participant_profiles || []).filter(p => p.id !== user?.id);
-              if (others.length === 0) return null;
-              const names = others.map(p => {
-                const fn = (p.first_name || "").trim();
-                const li = (p.last_name || "").trim().slice(0, 1);
-                return li ? `${fn} ${li}.` : fn || "Member";
-              }).join(", ");
-              return (
-                <div style={{ fontSize: 11, color: isRequested ? "#c0392b" : C.teal, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: 0.85 }}>
-                  Also attending: {names}
-                </div>
-              );
-            })()}
           </>
         )}
       </div>
