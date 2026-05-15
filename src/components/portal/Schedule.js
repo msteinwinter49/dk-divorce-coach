@@ -776,7 +776,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                 const others = (b.participant_profiles || []).filter(p => p.id !== user?.id);
                 const base = `${b.session_types?.label || "Session"} — ${b.status}`;
                 if (others.length === 0) return base;
-                const names = others.map(p => `${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member").join(", ");
+                const names = others.map(p => { const fn = (p.first_name || "").trim(); const li = (p.last_name || "").trim().slice(0, 1); return li ? `${fn} ${li}.` : fn || "Member"; }).join(", ");
                 return `${base} · Plus ${others.length} other${others.length === 1 ? "" : "s"} (${names})`;
               })()}
             </div>
