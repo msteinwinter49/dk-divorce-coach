@@ -26,13 +26,15 @@ export default function AdminPurchasePackage({ client, onDirtyChange }) {
       fetch(`/api/stripe/card?client_id=${encodeURIComponent(client.id)}`).then(r => r.json()).catch(() => ({ card: null })),
     ]).then(([p, t, c]) => {
       setPricing(Array.isArray(p) ? p.filter(x => x.is_active) : []);
-      setSessionTypes(Array.isArray(t) ? t : []);
+      setSessionTypes(Array.isArray(t) ? t.filter(x => x.is_active) : []);
       setCard(c?.card || null);
       setLoading(false);
     });
   }, [client?.id]);
 
-  const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min))).sort((a, b) => a - b);
+  const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min)))
+    .filter(d => sessionTypes.some(st => st.duration === d))
+    .sort((a, b) => a - b);
   const packagesForDuration = (d) => pricing.filter(p => p.duration_min === Number(d)).sort((a, b) => a.package_size - b.package_size);
   const sessionLabel = (d) => sessionTypes.find(st => st.duration === Number(d))?.label || `${d} min`;
   const chosenPackage = pricing.find(p => p.id === chosenMatrixId);

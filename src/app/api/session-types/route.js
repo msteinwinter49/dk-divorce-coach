@@ -32,10 +32,10 @@ export async function GET() {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  const query = adminClient.from("session_types").select("*").order("duration");
+  let query = adminClient.from("session_types").select("*").order("duration");
   // Non-admin only sees active types
   if (ctx.profile?.role !== "admin") {
-    query.eq("is_active", true);
+    query = query.eq("is_active", true);
   }
 
   const { data, error } = await query;

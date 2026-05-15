@@ -59,6 +59,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const [noChangeMessage, setNoChangeMessage] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
   const [popupPos, setPopupPos] = useState(null); // { x, y } px when dragged; null = centered
+  const [cancelModalPos, setCancelModalPos] = useState(null);
+  const [moveModalPos, setMoveModalPos] = useState(null);
 
   const [showSpinner, setShowSpinner] = useState(false);
 
@@ -70,6 +72,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const weekHeaderRef = useRef(null);
   const weekBodyRef = useRef(null);
   const popupRef = useRef(null);
+  const cancelModalRef = useRef(null);
+  const moveModalRef = useRef(null);
   const dragStateRef = useRef(null);
 
   // Drag-and-drop state (move existing bookings)
@@ -127,8 +131,9 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   useEffect(() => {
     const onMouseMove = (e) => {
       if (!dragStateRef.current) return;
-      const { startX, startY, origX, origY } = dragStateRef.current;
-      setPopupPos({ x: origX + (e.clientX - startX), y: origY + (e.clientY - startY) });
+      const { startX, startY, origX, origY, setter } = dragStateRef.current;
+      const pos = { x: origX + (e.clientX - startX), y: origY + (e.clientY - startY) };
+      (setter || setPopupPos)(pos);
     };
     const onMouseUp = () => { dragStateRef.current = null; };
     window.addEventListener("mousemove", onMouseMove);
@@ -605,7 +610,30 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     }
   };
 
-  const cancelPendingMove = () => setPendingMove(null);
+  const cancelPendingMove = () => { setPendingMove(null); setMoveModalPos(null); };
+
+  const renderBookingPreview = (date, rowH) => {
+    if (!bookingDate || !selectedTime || !selectedType || bookingSuccess) return null;
+    if (bookingDate !== date) return null;
+    const [h, m] = selectedTime.split(":").map(Number);
+    const startMin = h * 60 + m;
+    const top = ((startMin - HOURS[0] * 60) / 60) * rowH;
+    const height = (selectedType.duration / 60) * rowH;
+    const gridH = HOURS.length * rowH;
+    if (top >= gridH || top + height <= 0) return null;
+    return (
+      <div style={{
+        position: "absolute", left: 2, right: 2, zIndex: 5,
+        top: Math.max(top, 0),
+        height: Math.max(Math.min(height, gridH - Math.max(top, 0)), rowH * 0.4),
+        border: `2.5px dashed ${C.teal}`,
+        borderRadius: 6,
+        background: "rgba(15,110,86,0.1)",
+        pointerEvents: "none",
+        boxSizing: "border-box",
+      }} />
+    );
+  };
 
   const renderDragGhost = (rowH) => {
     if (!dragOver) return null;
@@ -771,6 +799,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
             ))}
             {getBookableOverlay(date, DAY_ROW_H).map(item => renderBookableBar(date, item, DAY_ROW_H))}
             {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, false))}
+            {renderBookingPreview(date, DAY_ROW_H)}
             {dragOver?.date === date && renderDragGhost(DAY_ROW_H)}
           </div>
         </div>
@@ -841,6 +870,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                     ))}
                     {getBookableOverlay(date, WEEK_ROW_H).map(item => renderBookableBar(date, item, WEEK_ROW_H))}
                     {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, true))}
+                    {renderBookingPreview(date, WEEK_ROW_H)}
                     {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
                   </div>
                 </div>
@@ -970,7 +1000,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
       <>
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-        background: "rgba(0,0,0,0.4)", zIndex: 100,
+        background: "rgba(0,0,0,0.1)", zIndex: 100,
       }} onClick={tryClose} />
         <div ref={popupRef} style={{
           ...S.card,
@@ -1216,16 +1246,18 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const closeCancelModal = () => {
     setCancelTarget(null);
     setCancelSuccess(false);
+    setCancelModalPos(null);
   };
 
   const renderCancelModal = () => {
     if (!cancelTarget) return null;
     return (
-      <div style={{
-        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-        background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }} onClick={closeCancelModal}>
-        <div style={{ ...S.card, maxWidth: 400, width: "90%", margin: 0 }} onClick={e => e.stopPropagation()}>
+      <>
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.1)", zIndex: 100,
+        }} onClick={closeCancelModal} />
+        <div ref={cancelModalRef} style={{ ...S.card, maxWidth: 400, width: "90%", margin: 0, position: "fixed", left: cancelModalPos ? cancelModalPos.x : "50%", top: cancelModalPos ? cancelModalPos.y : "50%", transform: cancelModalPos ? "none" : "translate(-50%, -50%)", zIndex: 101 }} onClick={e => e.stopPropagation()}>
           {cancelSuccess ? (
             <div style={{ textAlign: "center", padding: "1rem" }}>
               <div style={{ fontSize: 16, fontWeight: 500, color: C.teal, marginBottom: 8 }}>
@@ -1240,7 +1272,15 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
             </div>
           ) : (
             <>
-              <h3 style={S.h3}>{cancelTarget.status === "booked" ? "Cancel Session" : "Cancel Request"}</h3>
+              <div onMouseDown={e => {
+                if (e.target.closest("button")) return;
+                if (!cancelModalRef.current) return;
+                const rect = cancelModalRef.current.getBoundingClientRect();
+                dragStateRef.current = { startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top, setter: setCancelModalPos };
+                e.preventDefault();
+              }} style={{ cursor: "grab", userSelect: "none", margin: "-1.25rem -1.5rem 0", padding: "1.25rem 1.5rem 0" }}>
+                <h3 style={S.h3}>{cancelTarget.status === "booked" ? "Cancel Session" : "Cancel Request"}</h3>
+              </div>
               <p style={S.p}>
                 Are you sure you want to cancel {isAdminViewing ? `${viewAsClient.first_name}'s` : "your"} {cancelTarget.status === "booked" ? "session" : "session request"} for{" "}
                 <strong>{formatTime(cancelTarget.start_time)}</strong> on{" "}
@@ -1255,7 +1295,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
             </>
           )}
         </div>
-      </div>
+      </>
     );
   };
 
@@ -1269,12 +1309,21 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     const newTimeLabel = formatTimeStr(newTime);
     const wasBooked = booking.status === "booked";
     return (
-      <div style={{
-        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-        background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }} onClick={cancelPendingMove}>
-        <div style={{ ...S.card, maxWidth: 440, width: "90%", margin: 0 }} onClick={e => e.stopPropagation()}>
+      <>
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.1)", zIndex: 100,
+        }} onClick={cancelPendingMove} />
+        <div ref={moveModalRef} style={{ ...S.card, maxWidth: 440, width: "90%", margin: 0, position: "fixed", left: moveModalPos ? moveModalPos.x : "50%", top: moveModalPos ? moveModalPos.y : "50%", transform: moveModalPos ? "none" : "translate(-50%, -50%)", zIndex: 101 }} onClick={e => e.stopPropagation()}>
+          <div onMouseDown={e => {
+            if (e.target.closest("button")) return;
+            if (!moveModalRef.current) return;
+            const rect = moveModalRef.current.getBoundingClientRect();
+            dragStateRef.current = { startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top, setter: setMoveModalPos };
+            e.preventDefault();
+          }} style={{ cursor: "grab", userSelect: "none", margin: "-1.25rem -1.5rem 0", padding: "1.25rem 1.5rem 0" }}>
           <h3 style={S.h3}>{wasBooked ? "Change Session?" : "Move Request?"}</h3>
+          </div>
           <p style={S.p}>
             Move {wasBooked ? "your session" : "your request"} from{" "}
             <strong>{oldDateLabel} at {oldTimeLabel}</strong>
@@ -1303,7 +1352,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
             </button>
           </div>
         </div>
-      </div>
+      </>
     );
   };
 

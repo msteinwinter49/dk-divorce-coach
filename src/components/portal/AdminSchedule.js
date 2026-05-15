@@ -283,6 +283,8 @@ export default function AdminSchedule({ setPage }) {
   const [modalError, setModalError] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showAdminCloseWarning, setShowAdminCloseWarning] = useState(false);
+  const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
+  const [modalDragState, setModalDragState] = useState(null);
 
   // Drag-to-move state (existing bookings + events)
   const dragRef = useRef(null);
@@ -585,6 +587,28 @@ export default function AdminSchedule({ setPage }) {
     };
   }, [miniDragState]);
 
+  // Drag-to-move the main scheduling modal (book/edit/accept/event/editEvent).
+  useEffect(() => {
+    if (!modalDragState) return;
+    const onMove = (e) => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const rawX = modalDragState.posX + (e.clientX - modalDragState.startX);
+      const rawY = modalDragState.posY + (e.clientY - modalDragState.startY);
+      setModalPos({
+        x: Math.max(-(vw / 2 - 40), Math.min(vw / 2 - 40, rawX)),
+        y: Math.max(-(vh / 2 - 40), Math.min(vh / 2 - 40, rawY)),
+      });
+    };
+    const onUp = () => setModalDragState(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [modalDragState]);
+
   const onSearchHeaderMouseDown = (e) => {
     if (mobile) return;
     // Don't start a drag when clicking the Close button inside the header.
@@ -700,6 +724,8 @@ export default function AdminSchedule({ setPage }) {
     setModalSaving(false);
     setConfirmCancel(false);
     setShowAdminCloseWarning(false);
+    setModalPos({ x: 0, y: 0 });
+    setModalDragState(null);
   };
 
   // --- Action handlers ---
@@ -954,8 +980,7 @@ export default function AdminSchedule({ setPage }) {
       anchorMin = free.start;
       endMin = free.end;
     } else {
-      const snapped = Math.floor(rawMin / increment) * increment;
-      anchorMin = Math.max(free.start, snapped);
+      anchorMin = Math.max(free.start, hour * 60);
       endMin = Math.min(free.end, anchorMin + increment);
     }
     selectRef.current = { date, anchorMin, freeStart: free.start, freeEnd: free.end };
@@ -1443,6 +1468,7 @@ export default function AdminSchedule({ setPage }) {
                 ? renderOverlayBooking(item.data, item.top, item.height, false, item.layout)
                 : renderOverlayEvent(item.data, item.top, item.height, false, item.layout)
             )}
+            {renderBookingPreview(date, DAY_ROW_H)}
             {renderSelectionOverlay(date, DAY_ROW_H)}
             {dragOver?.date === date && renderDragGhost(DAY_ROW_H)}
           </div>
@@ -1529,6 +1555,7 @@ export default function AdminSchedule({ setPage }) {
                         ? renderOverlayBooking(item.data, item.top, item.height, true)
                         : renderOverlayEvent(item.data, item.top, item.height, true)
                     )}
+                    {renderBookingPreview(date, WEEK_ROW_H)}
                     {renderSelectionOverlay(date, WEEK_ROW_H)}
                     {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
                   </div>
@@ -1685,6 +1712,31 @@ export default function AdminSchedule({ setPage }) {
         background: "rgba(15,110,86,0.18)",
         border: `2px dashed ${C.teal}`,
         borderRadius: 6,
+        pointerEvents: "none",
+        boxSizing: "border-box",
+      }} />
+    );
+  };
+
+  const renderBookingPreview = (date, rowH) => {
+    if (modal?.mode !== "book") return null;
+    if (!bookDate || !bookTime || !bookType || bookDate !== date) return null;
+    const selType = sessionTypes.find(t => t.id === bookType);
+    if (!selType) return null;
+    const [h, m] = bookTime.split(":").map(Number);
+    const startMin = h * 60 + m;
+    const top = ((startMin - HOURS[0] * 60) / 60) * rowH;
+    const height = (selType.duration / 60) * rowH;
+    const gridH = HOURS.length * rowH;
+    if (top >= gridH || top + height <= 0) return null;
+    return (
+      <div style={{
+        position: "absolute", left: 2, right: 2, zIndex: 5,
+        top: Math.max(top, 0),
+        height: Math.max(Math.min(height, gridH - Math.max(top, 0)), rowH * 0.4),
+        border: `2.5px dashed ${C.teal}`,
+        borderRadius: 6,
+        background: "rgba(15,110,86,0.1)",
         pointerEvents: "none",
         boxSizing: "border-box",
       }} />
@@ -2067,11 +2119,29 @@ export default function AdminSchedule({ setPage }) {
     };
 
     return (
-      <div style={{
-        position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-        background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-      }} onClick={tryCloseAdmin}>
-        <div style={{ ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh", overflowY: "auto", overscrollBehavior: "contain", position: "relative" }} onClick={e => e.stopPropagation()}>
+      <>
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.1)", zIndex: 100,
+        }} onClick={tryCloseAdmin} />
+        <div
+          style={{
+            ...S.card, maxWidth: 480, width: "90%", margin: 0, maxHeight: "80vh",
+            overflowY: "auto", overscrollBehavior: "contain",
+            position: "fixed", top: "50%", left: "50%",
+            transform: `translate(calc(-50% + ${modalPos.x}px), calc(-50% + ${modalPos.y}px))`,
+            zIndex: 101,
+          }}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => {
+            if (mobile) return;
+            if (e.target.closest("button, input, select, textarea, a")) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            if (e.clientY - rect.top > 56) return;
+            e.preventDefault();
+            setModalDragState({ startX: e.clientX, startY: e.clientY, posX: modalPos.x, posY: modalPos.y });
+          }}
+        >
           <button onClick={tryCloseAdmin} aria-label="Close" style={{
             position: "absolute", top: 10, right: 10, background: "none", border: "none",
             cursor: "pointer", fontSize: 18, color: C.muted, lineHeight: 1, padding: "4px 8px", zIndex: 1,
@@ -2093,7 +2163,7 @@ export default function AdminSchedule({ setPage }) {
             </div>
           )}
         </div>
-      </div>
+      </>
     );
   };
 
@@ -2106,7 +2176,7 @@ export default function AdminSchedule({ setPage }) {
       : bookTime ? `at ${formatTimeStr(bookTime)}` : "";
     return (
       <>
-        <h3 style={{ ...S.h3, paddingRight: 32 }}>New Entry</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>New Entry</h3>
         {dateLabel && <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}{timeRange ? ` \u00b7 ${timeRange}` : ""}</p>}
         <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
           <div onClick={openBookModal}
@@ -2128,7 +2198,7 @@ export default function AdminSchedule({ setPage }) {
     const b = modal.booking;
     return (
       <>
-        <h3 style={{ ...S.h3, paddingRight: 32 }}>Session Request</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>Session Request</h3>
         <div style={{ fontSize: 14, color: C.text, marginBottom: 8 }}>
           <p><strong>Client:</strong> {clientName(b.profiles)}</p>
           <p><strong>Date:</strong> {b.date}</p>
@@ -2156,7 +2226,7 @@ export default function AdminSchedule({ setPage }) {
     const b = modal.booking;
     return (
       <>
-        <h3 style={{ ...S.h3, paddingRight: 32 }}>Edit Session</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>Edit Session</h3>
         <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
           <strong>Client:</strong> {clientName(b.profiles)}
         </p>
@@ -2228,7 +2298,7 @@ export default function AdminSchedule({ setPage }) {
     const clientList = clients.filter(c => c.role === "client");
     return (
       <>
-        <h3 style={{ ...S.h3, paddingRight: 32 }}>Book a Session</h3>
+        <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>Book a Session</h3>
         {showAdminCloseWarning && (
           <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
             <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
@@ -2268,6 +2338,18 @@ export default function AdminSchedule({ setPage }) {
           </div>
         </div>
 
+        {(() => {
+          const selType = sessionTypes.find(t => t.id === bookType);
+          if (!bookDate || !bookTime || !selType) return null;
+          const [h, m] = bookTime.split(":").map(Number);
+          if (!wouldOverlap(bookDate, h * 60 + m, selType.duration)) return null;
+          return (
+            <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#7a5c00", marginTop: 4 }}>
+              ⚠ This session overlaps with an existing booking or event.
+            </div>
+          );
+        })()}
+
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <button style={S.btn} onClick={handleBookSession} disabled={modalSaving}>
             {modalSaving ? (<><Spinner />Booking...</>) : "Book Session"}
@@ -2279,7 +2361,7 @@ export default function AdminSchedule({ setPage }) {
 
   const renderEventContent = () => (
     <>
-      <h3 style={{ ...S.h3, paddingRight: 32 }}>Add Event</h3>
+      <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>Add Event</h3>
       {showAdminCloseWarning && (
         <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
           <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
@@ -2317,7 +2399,7 @@ export default function AdminSchedule({ setPage }) {
 
   const renderEditEventContent = () => (
     <>
-      <h3 style={{ ...S.h3, paddingRight: 32 }}>Edit Event</h3>
+      <h3 style={{ ...S.h3, paddingRight: 32, cursor: "grab" }}>Edit Event</h3>
       {showAdminCloseWarning && (
         <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
           <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>You have unsaved changes. Save or discard before closing?</p>
@@ -2396,7 +2478,7 @@ export default function AdminSchedule({ setPage }) {
     return (
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-        background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+        background: "rgba(0,0,0,0.1)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
       }} onClick={cancelPendingMove}>
         <div style={{ ...S.card, maxWidth: 440, width: "90%", margin: 0 }} onClick={e => e.stopPropagation()}>
           <h3 style={S.h3}>{title}</h3>

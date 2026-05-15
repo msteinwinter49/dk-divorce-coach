@@ -70,7 +70,9 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
     ? <p style={{ ...S.p, fontSize: 20, color: C.muted, marginTop: 4, marginBottom: 0 }}>Available to schedule: {fmtBalance(balanceMinutes)}</p>
     : null;
 
-  const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min))).sort((a, b) => a - b);
+  const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min)))
+    .filter(d => sessionTypes.some(st => st.duration === d))
+    .sort((a, b) => a - b);
   const packagesForDuration = (d) => pricing.filter(p => p.duration_min === d).sort((a, b) => a.package_size - b.package_size);
   const sessionLabel = (d) => sessionTypes.find(st => st.duration === d)?.label || `${d} min`;
 
