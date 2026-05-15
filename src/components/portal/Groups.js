@@ -20,7 +20,7 @@ function fmtRate(rate) {
   return `$${Number(rate).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/hr`;
 }
 
-export default function Groups({ setPage }) {
+export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
   const mobile = useIsMobile();
 
   const [groups, setGroups] = useState([]);
@@ -60,6 +60,17 @@ export default function Groups({ setPage }) {
   };
 
   useEffect(() => { fetchGroups(); }, []);
+
+  // Auto-open a specific group when navigated from the Clients page
+  useEffect(() => {
+    if (initialGroupId && groups.length > 0) {
+      const g = groups.find(gr => gr.id === initialGroupId);
+      if (g) {
+        openGroup(g);
+        onGroupOpened?.();
+      }
+    }
+  }, [initialGroupId, groups]);
 
   const openGroup = async (group) => {
     setModal(group);

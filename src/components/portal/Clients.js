@@ -12,7 +12,7 @@ function formatPhoneInput(value) {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-export default function Clients({ setPage, onViewAsClient }) {
+export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
   const mobile = useIsMobile();
   // Invite form state
   const [email, setEmail] = useState("");
@@ -352,7 +352,8 @@ export default function Clients({ setPage, onViewAsClient }) {
         (c.first_name || "").toLowerCase().includes(q) ||
         (c.last_name || "").toLowerCase().includes(q) ||
         (c.email || "").toLowerCase().includes(q) ||
-        (c.phone || "").toLowerCase().includes(q)
+        (c.phone || "").toLowerCase().includes(q) ||
+        (c.group_name || "").toLowerCase().includes(q)
       );
     }
     return [...list].sort((a, b) => {
@@ -481,7 +482,7 @@ export default function Clients({ setPage, onViewAsClient }) {
           <h3 style={{ ...S.h3, marginBottom: 0 }}>All clients ({filtered.length})</h3>
           <input
             style={{ ...S.input, marginBottom: 0, maxWidth: 260 }}
-            placeholder="Search by name, email, or phone..."
+            placeholder="Search by name, email, phone, or group..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -506,6 +507,7 @@ export default function Clients({ setPage, onViewAsClient }) {
                   <th style={thStyle} onClick={() => handleSort("first_name")}>Name{sortArrow("first_name")}</th>
                   <th style={thStyle} onClick={() => handleSort("email")}>Email{sortArrow("email")}</th>
                   <th style={thStyle} onClick={() => handleSort("phone")}>Phone{sortArrow("phone")}</th>
+                  <th style={thStyle} onClick={() => handleSort("group_name")}>Group{sortArrow("group_name")}</th>
                   <th style={thStyle} onClick={() => handleSort("role")}>Role{sortArrow("role")}</th>
                   <th style={thStyle} onClick={() => handleSort("created_at")}>Joined{sortArrow("created_at")}</th>
                 </tr>
@@ -525,6 +527,18 @@ export default function Clients({ setPage, onViewAsClient }) {
                     </td>
                     <td style={tdStyle}>{c.email}</td>
                     <td style={tdStyle}>{formatPhone(c.phone)}</td>
+                    <td style={tdStyle}>
+                      {c.group_name && c.group_id ? (
+                        <button
+                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.teal, fontSize: 13, fontFamily: "inherit", textDecoration: "underline", textUnderlineOffset: 2 }}
+                          onClick={e => { e.stopPropagation(); onOpenGroup?.(c.group_id); }}
+                        >
+                          {c.group_name}
+                        </button>
+                      ) : (
+                        <span style={{ color: C.hint, fontStyle: "italic" }}>—</span>
+                      )}
+                    </td>
                     <td style={tdStyle}>
                       <span style={{
                         fontSize: 11, padding: "2px 8px", borderRadius: 12,

@@ -36,6 +36,7 @@ export default function App() {
     return "Home";
   });
   const [viewAsClient, setViewAsClient] = useState(null);
+  const [groupDetailId, setGroupDetailId] = useState(null);
   const [profileFocus, setProfileFocus] = useState(null);
   const inPortal = !!user;
   const isAdmin = profile?.role === "admin";
@@ -56,6 +57,11 @@ export default function App() {
   const exitViewAsClient = () => {
     setViewAsClient(null);
     setPage("Admin Clients");
+  };
+
+  const handleOpenGroup = (groupId) => {
+    setGroupDetailId(groupId);
+    setPage("Admin Groups");
   };
 
   const renderPage = () => {
@@ -84,8 +90,8 @@ export default function App() {
     if (isAdmin && page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
     if (isAdmin && !viewAsClient) {
       if (page === "Admin") return <Admin setPage={setPage} />;
-      if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} />;
-      if (page === "Admin Groups") return <Groups setPage={setPage} />;
+      if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} onOpenGroup={handleOpenGroup} />;
+      if (page === "Admin Groups") return <Groups setPage={setPage} initialGroupId={groupDetailId} onGroupOpened={() => setGroupDetailId(null)} />;
       if (page === "Admin Settings") return <AdminSettings setPage={setPage} />;
     }
     return <PortalHome setPage={setPage} viewAsClient={viewAsClient} />;
