@@ -126,11 +126,6 @@ export default function App() {
           </button>
         </div>
       )}
-      {inPortal && !needsProfile && !viewAsClient && profile?.first_name && (
-        <div style={{ padding:"6px 1rem", background:C.warm, borderBottom:`0.5px solid ${C.warmBorder}`, fontSize:13, color:C.muted }}>
-          Account Holder: {profile.first_name}
-        </div>
-      )}
       {renderPage()}
     </div>
   );

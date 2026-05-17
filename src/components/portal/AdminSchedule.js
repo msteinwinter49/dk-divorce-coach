@@ -2416,33 +2416,37 @@ export default function AdminSchedule({ setPage }) {
           value={bookGroup}
           onChange={e => { setBookGroup(e.target.value); setBookClientIds([]); }}
         >
-          <option value="">All groups</option>
+          <option value="">Select a group</option>
           {bookGroups.map(g => (
             <option key={g.id} value={g.id}>{g.name}</option>
           ))}
         </select>
 
-        <label style={S.label}>
-          Clients{bookClientIds.length > 0 ? ` (${bookClientIds.length} selected)` : ""}
-        </label>
-        <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden", maxHeight: 200, overflowY: "auto", marginBottom: 4 }}>
-          {filteredClients.length > 1 && (
-            <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", background: "#fafafa", fontSize: 13, fontWeight: 500 }}>
-              <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                style={{ accentColor: C.teal }} />
-              All
+        {bookGroup && (
+          <>
+            <label style={S.label}>
+              Clients{bookClientIds.length > 0 ? ` (${bookClientIds.length} selected)` : ""}
             </label>
-          )}
-          {filteredClients.map(c => (
-            <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", fontSize: 13 }}>
-              <input type="checkbox" checked={bookClientIds.includes(c.id)} onChange={() => toggleClient(c.id)} style={{ accentColor: C.teal }} />
-              {clientName(c)}
-            </label>
-          ))}
-          {filteredClients.length === 0 && (
-            <p style={{ padding: "8px 12px", margin: 0, color: C.hint, fontSize: 13 }}>No clients found.</p>
-          )}
-        </div>
+            <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden", maxHeight: 200, overflowY: "auto", marginBottom: 4 }}>
+              {filteredClients.length > 1 && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", background: "#fafafa", fontSize: 13, fontWeight: 500 }}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                    style={{ accentColor: C.teal }} />
+                  All
+                </label>
+              )}
+              {filteredClients.map(c => (
+                <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", fontSize: 13 }}>
+                  <input type="checkbox" checked={bookClientIds.includes(c.id)} onChange={() => toggleClient(c.id)} style={{ accentColor: C.teal }} />
+                  {clientName(c)}
+                </label>
+              ))}
+              {filteredClients.length === 0 && (
+                <p style={{ padding: "8px 12px", margin: 0, color: C.hint, fontSize: 13 }}>No clients found.</p>
+              )}
+            </div>
+          </>
+        )}
 
         <div style={{ display: "flex", gap: "1rem" }}>
           <div style={{ flex: 1 }}>
@@ -2626,7 +2630,7 @@ export default function AdminSchedule({ setPage }) {
       const b = data;
       content = (
         <>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>{clientName(b.profiles)}</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>{bookingDisplayName(b)}</div>
           <div>{b.session_types?.label || "Session"}</div>
           <div>{formatTime(b.start_time)} – {formatTime(b.end_time)}</div>
           <div>{b.session_duration} min</div>

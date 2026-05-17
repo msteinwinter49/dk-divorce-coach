@@ -161,7 +161,7 @@ export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess 
       {result && (
         result.ok ? (
           <p style={{ fontSize: 16, color: C.teal, marginBottom: 0 }}>
-            Charged ${result.charged_dollars}. New balance: {(() => { const h = Math.floor(result.balance_after / 60); const m = result.balance_after % 60; if (h === 0) return `${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${h} hour${h !== 1 ? "s" : ""}`; return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()}. Email receipt sent.
+            Charged ${result.charged_dollars}. New balance: {(() => { const sign = result.balance_after < 0 ? "-" : ""; const abs = Math.abs(result.balance_after); const h = Math.floor(abs / 60); const m = abs % 60; if (h === 0) return `${sign}${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${sign}${h} hour${h !== 1 ? "s" : ""}`; return `${sign}${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()}. Email receipt sent.
           </p>
         ) : (
           <p style={{ fontSize: 16, color: "#c0392b", marginBottom: 0 }}>{result.error}</p>

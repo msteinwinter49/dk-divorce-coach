@@ -57,7 +57,12 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
           {/* Left: logo on tablet, invisible spacer on phone for balance */}
           {!mobile ? (
             <div style={S.logo} onClick={() => { onLogout(); setPage("Home"); }}>
-              <span style={S.logoMain}>DK Divorce Coach</span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 15 }}>
+                <span style={S.logoMain}>DK Divorce Coach</span>
+                {profile?.first_name && (
+                  <span style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap" }}>Hello, {profile.first_name}</span>
+                )}
+              </div>
               <span style={S.logoSub}>DIANA KIEREIN · CDC</span>
             </div>
           ) : (
@@ -140,7 +145,12 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
   return (
     <nav style={{ ...S.nav, position: "sticky" }}>
       <div style={S.logo} onClick={() => { onLogout(); setPage("Home"); }}>
-        <span style={S.logoMain}>DK Divorce Coach</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 15 }}>
+          <span style={S.logoMain}>DK Divorce Coach</span>
+          {inPortal && profile?.first_name && (
+            <span style={{ fontSize: 13, color: C.muted, whiteSpace: "nowrap" }}>Hello, {profile.first_name}</span>
+          )}
+        </div>
         <span style={S.logoSub}>DIANA KIEREIN · CDC</span>
       </div>
       {inPortal && (

@@ -230,7 +230,7 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
             <>
               <h3 style={{ ...S.h3, color: C.teal }}>Purchase complete</h3>
               <p style={{ ...S.p, fontSize: 14, marginBottom: "1rem" }}>
-                Your card was charged successfully. You now have <strong>{(() => { const h = Math.floor(result.balance_after / 60); const m = result.balance_after % 60; if (h === 0) return `${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${h} hour${h !== 1 ? "s" : ""}`; return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()}</strong> available to schedule sessions.
+                Your card was charged successfully.
               </p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={S.btn} onClick={() => setPage("Schedule")}>Schedule a session</button>

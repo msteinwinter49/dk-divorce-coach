@@ -216,7 +216,6 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
 
   const openEditPopup = (b) => {
     if (readOnly) return;
-    if (isChangeBlocked(b)) { showBlockedAlert(); return; }
     const dateOnly = b.date || localDateStr(new Date(b.start_time));
     const timeOnly = b.time_slot || (() => {
       const d = new Date(b.start_time);
@@ -1112,7 +1111,9 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
               >
                 <h3 style={{ ...S.h3, paddingRight: 32 }}>
                   {editingBooking
-                    ? (editingBooking.status === "requested" ? "Edit Request" : "Edit Session")
+                    ? (isChangeBlocked(editingBooking)
+                        ? (editingBooking.status === "requested" ? "View Request" : "View Session")
+                        : (editingBooking.status === "requested" ? "Edit Request" : "Edit Session"))
                     : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session")}
                 </h3>
               </div>
@@ -1130,73 +1131,102 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
               })()}
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
-              {editingBooking && (() => {
-                const others = (editingBooking.participant_profiles || []).filter(p => p.id !== user?.id);
-                if (others.length === 0) return null;
-                return (
-                  <div style={{ marginBottom: 12, padding: "8px 12px", background: C.warm, borderRadius: 8, border: `0.5px solid ${C.warmBorder}` }}>
-                    <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginBottom: 4 }}>Also attending</div>
-                    {others.map(p => (
-                      <div key={p.id} style={{ fontSize: 13, color: C.text }}>
-                        {`${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member"}
+              {editingBooking && isChangeBlocked(editingBooking) ? (
+                <>
+                  <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
+                    {selectedTime && selectedType
+                      ? `${formatTimeStr(selectedTime)} – ${formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration))} (${selectedType.duration} min)`
+                      : selectedTime ? formatTimeStr(selectedTime) : "—"}
+                  </p>
+                  {(() => {
+                    const others = (editingBooking.participant_profiles || []).filter(p => p.id !== user?.id);
+                    if (others.length === 0) return null;
+                    return (
+                      <div style={{ marginBottom: 12, padding: "8px 12px", background: C.warm, borderRadius: 8, border: `0.5px solid ${C.warmBorder}` }}>
+                        <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginBottom: 4 }}>Also attending</div>
+                        {others.map(p => (
+                          <div key={p.id} style={{ fontSize: 13, color: C.text }}>
+                            {`${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member"}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  <div style={{ padding: "10px 14px", background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, fontSize: 13, color: C.text }}>
+                    This booking cannot be changed because there is too little notice or multiple attendees.
+                    {adminPhone && <> Text Diana at <strong>{adminPhone}</strong> for assistance.</>}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Edit mode: also attending → close warning → time inputs → session type tiles */}
+                  {editingBooking && (() => {
+                    const others = (editingBooking.participant_profiles || []).filter(p => p.id !== user?.id);
+                    if (others.length === 0) return null;
+                    return (
+                      <div style={{ marginBottom: 12, padding: "8px 12px", background: C.warm, borderRadius: 8, border: `0.5px solid ${C.warmBorder}` }}>
+                        <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginBottom: 4 }}>Also attending</div>
+                        {others.map(p => (
+                          <div key={p.id} style={{ fontSize: 13, color: C.text }}>
+                            {`${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member"}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {showCloseWarning && (
+                    <div style={{
+                      background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8,
+                      padding: "10px 14px", marginBottom: 16,
+                    }}>
+                      <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>
+                        You have unsaved changes. Save or discard before closing?
+                      </p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button style={S.btn} disabled={!selectedType || !selectedTime || confirming}
+                          onClick={() => { setShowCloseWarning(false); handleBook(); }}>
+                          {confirming ? "Saving..." : "Save"}
+                        </button>
+                        <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
+                          onClick={closePopup}>
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", gap: 20, alignItems: "flex-end", marginBottom: 16 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
+                      <input type="time" value={selectedTime || ""}
+                        onChange={e => setSelectedTime(e.target.value)}
+                        style={{ ...S.input, width: "100%", fontSize: 14, marginBottom: 0 }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
+                      <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
+                        {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <label style={{ ...S.label, marginBottom: 8 }}>Session type</label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                    {sessionTypes.map(t => (
+                      <div key={t.id} onClick={() => setSelectedType(t)}
+                        style={{
+                          padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                          border: `1px solid ${selectedType?.id === t.id ? C.teal : C.gridLine}`,
+                          background: selectedType?.id === t.id ? C.tealLight : "#fff",
+                        }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{t.label}</div>
+                        <div style={{ fontSize: 12, color: C.muted }}>{t.duration} min</div>
                       </div>
                     ))}
                   </div>
-                );
-              })()}
-
-              {showCloseWarning && (
-                <div style={{
-                  background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8,
-                  padding: "10px 14px", marginBottom: 16,
-                }}>
-                  <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>
-                    You have unsaved changes. Save or discard before closing?
-                  </p>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button style={S.btn} disabled={!selectedType || !selectedTime || confirming}
-                      onClick={() => { setShowCloseWarning(false); handleBook(); }}>
-                      {confirming ? "Saving..." : "Save"}
-                    </button>
-                    <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
-                      onClick={closePopup}>
-                      Discard
-                    </button>
-                  </div>
-                </div>
+                </>
               )}
-
-              {/* Start / End time */}
-              <div style={{ display: "flex", gap: 20, alignItems: "flex-end", marginBottom: 16 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
-                  <input type="time" value={selectedTime || ""}
-                    onChange={e => setSelectedTime(e.target.value)}
-                    style={{ ...S.input, width: "100%", fontSize: 14, marginBottom: 0 }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
-                  <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
-                    {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
-                  </div>
-                </div>
-              </div>
-
-              {/* Session type */}
-              <label style={{ ...S.label, marginBottom: 8 }}>Session type</label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
-                {sessionTypes.map(t => (
-                  <div key={t.id} onClick={() => setSelectedType(t)}
-                    style={{
-                      padding: "10px 12px", borderRadius: 8, cursor: "pointer",
-                      border: `1px solid ${selectedType?.id === t.id ? C.teal : C.gridLine}`,
-                      background: selectedType?.id === t.id ? C.tealLight : "#fff",
-                    }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{t.label}</div>
-                    <div style={{ fontSize: 12, color: C.muted }}>{t.duration} min</div>
-                  </div>
-                ))}
-              </div>
 
               {/* Participant selection — only for clients with other active group members */}
               {!editingBooking && !isAdminViewing && (() => {
@@ -1241,7 +1271,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
               })()}
 
               {/* Availability warning */}
-              {selectedType && selectedTime && (() => {
+              {!(editingBooking && isChangeBlocked(editingBooking)) && selectedType && selectedTime && (() => {
                 const slots = availability[bookingDate] || [];
                 const [h, m] = selectedTime.split(":").map(Number);
                 const startMin = h * 60 + m;
@@ -1301,7 +1331,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
               })()}
 
               {/* Step 3: Confirm */}
-              {selectedType && selectedTime && (
+              {!(editingBooking && isChangeBlocked(editingBooking)) && selectedType && selectedTime && (
                 <div style={{ padding: "1rem", background: C.warm, borderRadius: 12, marginBottom: 12 }}>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{selectedType.label}</div>
                   <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
@@ -1319,26 +1349,28 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {selectedType && selectedTime && (
-                  <button style={S.btn} onClick={handleBook} disabled={confirming}>
-                    {confirming
-                      ? (editingBooking ? "Saving..." : isAdminViewing ? "Booking..." : "Requesting...")
-                      : editingBooking
-                        ? "Save Changes"
-                        : (isAdminViewing ? "Book Session" : "Request Session")}
-                  </button>
-                )}
-                {editingBooking && ["requested", "booked"].includes(editingBooking.status) && (
-                  <button
-                    style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
-                    onClick={() => { const b = editingBooking; if (isChangeBlocked(b)) { showBlockedAlert(); return; } closePopup(); setCancelTarget(b); }}
-                    disabled={confirming}
-                  >
-                    {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
-                  </button>
-                )}
-              </div>
+              {!(editingBooking && isChangeBlocked(editingBooking)) && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {selectedType && selectedTime && (
+                    <button style={S.btn} onClick={handleBook} disabled={confirming}>
+                      {confirming
+                        ? (editingBooking ? "Saving..." : isAdminViewing ? "Booking..." : "Requesting...")
+                        : editingBooking
+                          ? "Save Changes"
+                          : (isAdminViewing ? "Book Session" : "Request Session")}
+                    </button>
+                  )}
+                  {editingBooking && ["requested", "booked"].includes(editingBooking.status) && (
+                    <button
+                      style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
+                      onClick={() => { closePopup(); setCancelTarget(editingBooking); }}
+                      disabled={confirming}
+                    >
+                      {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

@@ -38,7 +38,7 @@ function withTimeout(p, ms, label) {
 // Bounded at 8s so the user's response never waits on a slow Google round-trip.
 // action: "upsert" (create or patch) | "delete"
 // On upsert, persists the returned event id back onto the booking row.
-async function syncBookingGoogle(adminClient, booking, clientProfile, status, action = "upsert", sessionType = null) {
+async function syncBookingGoogle(adminClient, booking, clientProfile, status, action = "upsert", sessionType = null, groupName = null, attendeeCount = 1) {
   try {
     const token = await getGoogleToken(adminClient);
     if (!token) return;
@@ -56,7 +56,7 @@ async function syncBookingGoogle(adminClient, booking, clientProfile, status, ac
 
     const { syncBookingToGoogle } = await import("@/lib/google-calendar");
     const gEvent = await withTimeout(
-      syncBookingToGoogle(token, booking, clientProfile, status, sessionType),
+      syncBookingToGoogle(token, booking, clientProfile, status, sessionType, undefined, groupName, attendeeCount),
       8000,
       "gcal upsert"
     );
@@ -188,10 +188,11 @@ export async function POST(request) {
   // Look up the client's group for all balance operations
   const { data: bookingMembership } = await adminClient
     .from("group_members")
-    .select("group_id")
+    .select("group_id, groups(name)")
     .eq("client_id", bookingUserId)
     .maybeSingle();
   const bookingGroupId = bookingMembership?.group_id ?? null;
+  const bookingGroupName = bookingMembership?.groups?.name ?? null;
 
   // Block client requests when balance is already negative
   if (!isAdmin) {
@@ -300,7 +301,8 @@ export async function POST(request) {
   }
 
   const gcalStatus = bookingStatus === "booked" ? "confirmed" : "tentative";
-  await syncBookingGoogle(adminClient, booking, clientProfileForSync, gcalStatus, "upsert", sessionType);
+  const postAttendeeCount = storedParticipantIds?.length ?? 1;
+  await syncBookingGoogle(adminClient, booking, clientProfileForSync, gcalStatus, "upsert", sessionType, bookingGroupName, postAttendeeCount);
 
   if (isAdmin && (targetUserId || isGroupBooking)) {
     // Admin booked on behalf — notify all participants
@@ -398,10 +400,11 @@ export async function PATCH(request) {
   // Look up the booking client's group for balance operations (decline/update branches)
   const { data: patchMembership } = await adminClient
     .from("group_members")
-    .select("group_id")
+    .select("group_id, groups(name)")
     .eq("client_id", booking.user_id)
     .maybeSingle();
   const patchGroupId = patchMembership?.group_id ?? null;
+  const patchGroupName = patchMembership?.groups?.name ?? null;
 
   if (action === "accept") {
     const { data, error } = await adminClient
@@ -414,7 +417,7 @@ export async function PATCH(request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // Google sync: flip tentative → confirmed (patches existing event; creates if missing)
-    await syncBookingGoogle(adminClient, data, clientProfile, "confirmed", "upsert");
+    await syncBookingGoogle(adminClient, data, clientProfile, "confirmed", "upsert", null, patchGroupName, data.participant_ids?.length ?? booking.participant_ids?.length ?? 1);
 
     const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
     try {
@@ -585,7 +588,7 @@ export async function PATCH(request) {
         .single();
       syncSessionType = st;
     }
-    await syncBookingGoogle(adminClient, data, clientProfile, gcalStatus, "upsert", syncSessionType);
+    await syncBookingGoogle(adminClient, data, clientProfile, gcalStatus, "upsert", syncSessionType, patchGroupName, data.participant_ids?.length ?? booking.participant_ids?.length ?? 1);
 
     const whenStr = formatSessionDateTime(data.date, data.time_slot);
 

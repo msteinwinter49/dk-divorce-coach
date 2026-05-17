@@ -170,12 +170,10 @@ function buildBookingDescription(booking, sessionType, status) {
   return lines.join("\n");
 }
 
-// Build the Coaching:{First Last} title, with fallbacks if names are blank
-function buildBookingSummary(clientProfile) {
-  const first = clientProfile?.first_name?.trim() || "";
-  const last = clientProfile?.last_name?.trim() || "";
-  const name = [first, last].filter(Boolean).join(" ") || clientProfile?.full_name?.trim() || "Client";
-  return `Coaching:${name}`;
+function buildBookingSummary(groupName, attendeeCount) {
+  const name = (groupName || "").trim() || "Client";
+  const suffix = attendeeCount > 1 ? ` (${attendeeCount})` : "";
+  return `Coaching: ${name}${suffix}`;
 }
 
 // Create or update the Google Calendar event for a booking.
@@ -185,13 +183,13 @@ function buildBookingSummary(clientProfile) {
 // status: "tentative" (requested) or "confirmed" (booked)
 // sessionType may be passed separately (e.g. joined via session_types(...)),
 // or as booking.session_types from the join.
-export async function syncBookingToGoogle(refreshToken, booking, clientProfile, status, sessionType, onNewToken) {
+export async function syncBookingToGoogle(refreshToken, booking, clientProfile, status, sessionType, onNewToken, groupName, attendeeCount) {
   if (!refreshToken) throw new Error("No Google refresh token");
   const calendar = getCalendarClient(refreshToken, onNewToken);
   const st = sessionType || booking.session_types || null;
 
   const requestBody = {
-    summary: buildBookingSummary(clientProfile),
+    summary: buildBookingSummary(groupName, attendeeCount || 1),
     description: buildBookingDescription(booking, st, status),
     start: { dateTime: new Date(booking.start_time).toISOString() },
     end: { dateTime: new Date(booking.end_time).toISOString() },
