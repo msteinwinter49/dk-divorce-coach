@@ -70,7 +70,7 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
           )}
           {/* Centered title */}
           <span style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", fontSize: 20, fontWeight: 600, color: C.teal, pointerEvents: "none", whiteSpace: "nowrap" }}>
-            Client Portal
+            {isAdmin ? "Admin Portal" : "Client Portal"}
           </span>
           {/* Right: hamburger */}
           <button
@@ -155,7 +155,7 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
       </div>
       {inPortal && (
         <span style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", fontSize: 32, fontWeight: 600, color: C.teal, pointerEvents: "none", whiteSpace: "nowrap" }}>
-          Client Portal
+          {isAdmin ? "Admin Portal" : "Client Portal"}
         </span>
       )}
       <div style={S.navLinks}>
