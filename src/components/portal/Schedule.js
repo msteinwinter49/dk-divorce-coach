@@ -824,7 +824,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     return (
       <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, userSelect: "none" }}>
         {/* Sticky day header */}
-        <div style={{ position: "sticky", top: 56, zIndex: 20, background: "#fafafa", display: "flex", borderTop: `0.5px solid ${C.gridLine}`, borderBottom: `0.5px solid ${C.gridLine}` }}>
+        <div style={{ position: "sticky", top: mobile ? 44 : 56, zIndex: 20, background: "#fafafa", display: "flex", borderTop: `0.5px solid ${C.gridLine}`, borderBottom: `0.5px solid ${C.gridLine}` }}>
           <div style={{ width: 70, flexShrink: 0, height: 36, borderRight: `0.5px solid ${C.gridLine}` }} />
           <div style={{ flex: 1, height: 36, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: isToday ? C.teal : C.text }}>
             {DAYS_SHORT[currentDate.getDay()]} {currentDate.getDate()}
