@@ -901,9 +901,10 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     return (
       <div>
         {/* Header row is outside the overflow-x container so position:sticky works vertically */}
-        <div ref={weekHeaderRef} style={{ position: "sticky", top: 0, zIndex: 20, overflowX: "hidden", background: "#fafafa" }}>
+        <div ref={weekHeaderRef} style={{ position: "sticky", top: 0, zIndex: 20, overflowX: mobile ? "auto" : "hidden", overscrollBehavior: "none", scrollSnapType: mobile ? "x mandatory" : "none", scrollPaddingLeft: 70, background: "#fafafa", scrollbarWidth: "none", msOverflowStyle: "none" }}
+          onScroll={(e) => { if (weekBodyRef.current) weekBodyRef.current.scrollLeft = e.target.scrollLeft; }}>
           <div style={{ display: "flex", minWidth: minW }}>
-            <div style={{ width: 70, flexShrink: 0, height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}` }} />
+            <div style={{ width: 70, flexShrink: 0, height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, position: "sticky", left: 0, background: "#fafafa", zIndex: 1 }} />
             {days.map((d, i) => (
               <div
                 key={i}
@@ -915,6 +916,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                   fontWeight: sameDay(d, new Date()) ? 600 : 400,
                   color: sameDay(d, new Date()) ? C.teal : C.text,
                   cursor: "pointer",
+                  scrollSnapAlign: mobile ? "start" : "none",
                 }}
               >
                 <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
@@ -923,11 +925,10 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
             ))}
           </div>
         </div>
-        {/* Body scrolls horizontally; header is synced to match */}
+        {/* Body: vertical scroll only on mobile; horizontal locked to header */}
         <div
           ref={weekBodyRef}
-          style={{ overflowX: "auto", userSelect: "none" }}
-          onScroll={(e) => { if (weekHeaderRef.current) weekHeaderRef.current.scrollLeft = e.target.scrollLeft; }}
+          style={{ overflowX: mobile ? "hidden" : "auto", userSelect: "none" }}
         >
           <div style={{ display: "flex", minWidth: minW }}>
             <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>

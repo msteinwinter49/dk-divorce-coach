@@ -1531,10 +1531,11 @@ export default function AdminSchedule({ setPage }) {
     const minW = mobile ? 770 : "auto";
     return (
       <div>
-        {/* Header row is outside the overflow-x container so position:sticky works vertically */}
-        <div ref={weekHeaderRef} style={{ position: "sticky", top: 0, zIndex: 20, overflowX: "hidden", background: "#fafafa" }}>
+        {/* Header row: horizontal scroll source on mobile; body syncs to it */}
+        <div ref={weekHeaderRef} style={{ position: "sticky", top: 0, zIndex: 20, overflowX: mobile ? "auto" : "hidden", overscrollBehavior: "none", scrollSnapType: mobile ? "x mandatory" : "none", scrollPaddingLeft: 70, background: "#fafafa", scrollbarWidth: "none", msOverflowStyle: "none" }}
+          onScroll={(e) => { if (weekBodyRef.current) weekBodyRef.current.scrollLeft = e.target.scrollLeft; }}>
           <div style={{ display: "flex", minWidth: minW }}>
-            <div style={{ width: 70, flexShrink: 0, height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}` }} />
+            <div style={{ width: 70, flexShrink: 0, height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, position: "sticky", left: 0, background: "#fafafa", zIndex: 1 }} />
             {days.map((d, i) => (
               <div
                 key={i}
@@ -1546,6 +1547,7 @@ export default function AdminSchedule({ setPage }) {
                   fontWeight: sameDay(d, new Date()) ? 600 : 400,
                   color: sameDay(d, new Date()) ? C.teal : C.text,
                   cursor: "pointer",
+                  scrollSnapAlign: mobile ? "start" : "none",
                 }}
               >
                 <div style={{ fontSize: 11, color: C.hint }}>{DAYS_SHORT[d.getDay()]}</div>
@@ -1554,11 +1556,10 @@ export default function AdminSchedule({ setPage }) {
             ))}
           </div>
         </div>
-        {/* Body scrolls horizontally; header is synced to match */}
+        {/* Body: vertical scroll only on mobile; horizontal locked to header */}
         <div
           ref={weekBodyRef}
-          style={{ overflowX: "auto", userSelect: "none" }}
-          onScroll={(e) => { if (weekHeaderRef.current) weekHeaderRef.current.scrollLeft = e.target.scrollLeft; }}
+          style={{ overflowX: mobile ? "hidden" : "auto", userSelect: "none" }}
         >
           <div style={{ display: "flex", minWidth: minW }}>
             <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>
@@ -2253,6 +2254,10 @@ export default function AdminSchedule({ setPage }) {
           <p><strong>Date:</strong> {b.date}</p>
           <p><strong>Time:</strong> {formatTime(b.start_time)} - {formatTime(b.end_time)}</p>
           <p><strong>Duration:</strong> {b.session_duration} min</p>
+          {b.session_types?.label && <p><strong>Type:</strong> {b.session_types.label}</p>}
+          {b.participant_profiles?.length > 0 && (
+            <p><strong>Attendees:</strong> {b.participant_profiles.map(p => `${p.first_name || ""} ${p.last_name || ""}`.trim()).join(", ")}</p>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           <button style={S.btn} onClick={() => handleAcceptDecline("accept")} disabled={modalSaving}>
@@ -2265,7 +2270,6 @@ export default function AdminSchedule({ setPage }) {
           >
             Decline
           </button>
-          <button style={S.btnSmOut} onClick={closeModal}>Close</button>
         </div>
       </>
     );
