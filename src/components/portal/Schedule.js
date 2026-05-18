@@ -1270,11 +1270,11 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                 <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
                 <input type="time" value={selectedTime || ""}
                   onChange={e => setSelectedTime(e.target.value)}
-                  style={{ ...S.input, width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 0 }} />
+                  style={{ ...S.input, width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 0, textAlign: "left", WebkitAppearance: "none" }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
-                <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
+                <div style={{ padding: "10px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted, border: "0.5px solid transparent" }}>
                   {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
                 </div>
               </div>
@@ -1617,11 +1617,11 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                       <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
                       <input type="time" value={selectedTime || ""}
                         onChange={e => setSelectedTime(e.target.value)}
-                        style={{ ...S.input, width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 0 }} />
+                        style={{ ...S.input, width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 0, textAlign: "left", WebkitAppearance: "none" }} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
-                      <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
+                      <div style={{ padding: "10px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted, border: "0.5px solid transparent" }}>
                         {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
                       </div>
                     </div>
