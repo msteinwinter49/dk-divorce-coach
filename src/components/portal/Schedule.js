@@ -152,6 +152,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
 
   useEffect(() => { refreshBalance(); }, [refreshBalance]);
 
+
   useEffect(() => {
     const onMouseMove = (e) => {
       if (!dragStateRef.current) return;
@@ -1063,7 +1064,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
           top: popupPos ? popupPos.y : "50%",
           transform: popupPos ? "none" : "translate(-50%, -50%)",
           maxWidth: 480, width: "90%", margin: 0,
-          maxHeight: "80vh", overflowY: "auto", overscrollBehavior: "contain",
+          maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden",
           zIndex: 101,
         }} onClick={e => e.stopPropagation()}>
           <button onClick={tryClose} onMouseDown={e => e.stopPropagation()} aria-label="Close" style={{
@@ -1122,7 +1123,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                     ? (isChangeBlocked(editingBooking)
                         ? (editingBooking.status === "requested" ? "View Request" : "View Session")
                         : (editingBooking.status === "requested" ? "Edit Request" : "Edit Session"))
-                    : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Book a Session")}
+                    : (isAdminViewing ? `Book for ${viewAsClient.first_name}` : "Request a Session")}
                 </h3>
               </div>
               {!editingBooking && !isAdminViewing && balanceMinutes !== null && (() => {
@@ -1139,6 +1140,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
               })()}
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
+              <div style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain", minHeight: 0 }}>
               {editingBooking && isChangeBlocked(editingBooking) ? (
                 <>
                   <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
@@ -1204,12 +1206,12 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                     </div>
                   )}
 
-                  <div style={{ display: "flex", gap: 20, alignItems: "flex-end", marginBottom: 16 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-end", marginBottom: 16 }}>
+                    <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
                       <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
                       <input type="time" value={selectedTime || ""}
                         onChange={e => setSelectedTime(e.target.value)}
-                        style={{ ...S.input, width: "100%", fontSize: 14, marginBottom: 0 }} />
+                        style={{ ...S.input, width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 0 }} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
@@ -1280,6 +1282,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
 
               {/* Availability warning */}
               {!(editingBooking && isChangeBlocked(editingBooking)) && selectedType && selectedTime && (() => {
+
                 const slots = availability[bookingDate] || [];
                 const [h, m] = selectedTime.split(":").map(Number);
                 const startMin = h * 60 + m;
@@ -1337,46 +1340,47 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
                 }
                 return null;
               })()}
+              </div>
 
-              {/* Step 3: Confirm */}
-              {!(editingBooking && isChangeBlocked(editingBooking)) && selectedType && selectedTime && (
-                <div style={{ padding: "1rem", background: C.warm, borderRadius: 12, marginBottom: 12 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{selectedType.label}</div>
-                  <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
-                    {dateLabel} at {formatTimeStr(selectedTime)} — {selectedType.duration} min
-                  </div>
-                </div>
-              )}
-
-              {bookingError && (
-                <div style={{ marginBottom: 12 }}>
-                  <p style={{ fontSize: 13, color: "#c0392b", marginBottom: bookingError.includes("payment method") ? 8 : 0 }}>{bookingError}</p>
-                  {bookingError.includes("payment method") && !viewAsClient && (
-                    <button style={S.btnSm} onClick={() => { setProfileFocus("payment"); setPage("Profile"); }}>Add a payment method</button>
-                  )}
-                </div>
-              )}
-
+              {/* Sticky footer: summary + error + action buttons */}
               {!(editingBooking && isChangeBlocked(editingBooking)) && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ flexShrink: 0, borderTop: `0.5px solid ${C.border}`, paddingTop: 12, marginTop: 4 }}>
                   {selectedType && selectedTime && (
-                    <button style={S.btn} onClick={handleBook} disabled={confirming}>
-                      {confirming
-                        ? (editingBooking ? "Saving..." : isAdminViewing ? "Booking..." : "Requesting...")
-                        : editingBooking
-                          ? "Save Changes"
-                          : (isAdminViewing ? "Book Session" : "Request Session")}
-                    </button>
+                    <div style={{ padding: "0.75rem 1rem", background: C.warm, borderRadius: 12, marginBottom: 10 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{selectedType.label}</div>
+                      <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
+                        {dateLabel} at {formatTimeStr(selectedTime)} — {selectedType.duration} min
+                      </div>
+                    </div>
                   )}
-                  {editingBooking && ["requested", "booked"].includes(editingBooking.status) && (
-                    <button
-                      style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
-                      onClick={() => { closePopup(); setCancelTarget(editingBooking); }}
-                      disabled={confirming}
-                    >
-                      {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
-                    </button>
+                  {bookingError && (
+                    <div style={{ marginBottom: 10 }}>
+                      <p style={{ fontSize: 13, color: "#c0392b", marginBottom: bookingError.includes("payment method") ? 8 : 0 }}>{bookingError}</p>
+                      {bookingError.includes("payment method") && !viewAsClient && (
+                        <button style={S.btnSm} onClick={() => { setProfileFocus("payment"); setPage("Profile"); }}>Add a payment method</button>
+                      )}
+                    </div>
                   )}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {selectedType && selectedTime && (
+                      <button style={S.btn} onClick={handleBook} disabled={confirming}>
+                        {confirming
+                          ? (editingBooking ? "Saving..." : isAdminViewing ? "Booking..." : "Requesting...")
+                          : editingBooking
+                            ? "Save Changes"
+                            : (isAdminViewing ? "Book Session" : "Request Session")}
+                      </button>
+                    )}
+                    {editingBooking && ["requested", "booked"].includes(editingBooking.status) && (
+                      <button
+                        style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
+                        onClick={() => { closePopup(); setCancelTarget(editingBooking); }}
+                        disabled={confirming}
+                      >
+                        {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </>
