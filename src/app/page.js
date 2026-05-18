@@ -39,6 +39,7 @@ export default function App() {
   const [viewAsClient, setViewAsClient] = useState(null);
   const [groupDetailId, setGroupDetailId] = useState(null);
   const [profileFocus, setProfileFocus] = useState(null);
+  const [bookingActive, setBookingActive] = useState(false);
   const inPortal = !!user;
   const isAdmin = profile?.role === "admin";
   const needsProfile = inPortal && profile && !profile.first_name;
@@ -84,7 +85,7 @@ export default function App() {
     if (page === "Profile") return <Profile onSaved={refreshProfile} viewAsClient={viewAsClient} scrollTo={profileFocus} onScrolled={() => setProfileFocus(null)} />;
     if (page === "Portal Home") return <PortalHome setPage={setPage} viewAsClient={viewAsClient} setProfileFocus={setProfileFocus} />;
     if (page === "Documents") return <Documents viewAsClient={viewAsClient} />;
-    if (page === "Schedule") return <Schedule setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />;
+    if (page === "Schedule") return <Schedule setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} setBookingActive={setBookingActive} />;
     if (page === "Buy Sessions") return <BuySessions setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />;
     if (page === "Messages") return <Messages viewAsClient={viewAsClient} />;
     if (page === "Statement") return (
@@ -115,7 +116,7 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
-      {!needsProfile && <Nav page={page} setPage={setPage} inPortal={inPortal} onLogout={handleLogout} viewAsClient={viewAsClient} />}
+      {!needsProfile && <Nav page={page} setPage={setPage} inPortal={inPortal} onLogout={handleLogout} viewAsClient={viewAsClient} bookingActive={bookingActive} />}
       {viewAsClient && (
         <div style={{ padding:"8px 1rem", background:"#fdecea", borderBottom:"1px solid #e6b8b0", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
           <span style={{ fontSize:13, color:"#c0392b", fontWeight:500 }}>

@@ -33,7 +33,7 @@ function sameDay(a, b) { return dateStr(a) === dateStr(b); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function startOfWeek(d) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; }
 
-export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
+export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBookingActive }) {
   const { user, profile } = useAuth();
   const isAdminViewing = !!viewAsClient && profile?.role === "admin";
   const readOnly = !!viewAsClient && !isAdminViewing;
@@ -766,6 +766,14 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     return () => window.removeEventListener("dragend", onUp);
   }, []);
 
+  // Notify page.js when mobile full-page booking is active so Nav can hide the hamburger
+  useEffect(() => {
+    if (!setBookingActive) return;
+    const active = mobile && !isAdminViewing && !!(bookingDate || editingBooking);
+    setBookingActive(active);
+    return () => setBookingActive(false);
+  }, [mobile, isAdminViewing, bookingDate, editingBooking]);
+
   // Track visual viewport height (used for keyboard detection on mobile)
   useEffect(() => {
     if (!mobile) return;
@@ -1199,13 +1207,13 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
             </p>
           );
         })()}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <p style={{ ...S.p, fontSize: 13, margin: 0 }}>{dateLabel}</p>
-          <button onClick={() => setShowDayView(true)} style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 13, color: C.teal, fontWeight: 500, padding: 0,
-          }}>View Day →</button>
-        </div>
+        <button onClick={() => setShowDayView(true)} style={{
+          display: "flex", alignItems: "center", gap: 6, marginBottom: 12,
+          background: "none", border: "none", cursor: "pointer", padding: 0,
+        }}>
+          <span style={{ ...S.p, fontSize: 13, margin: 0 }}>{dateLabel}</span>
+          <span style={{ fontSize: 13, color: C.teal, fontWeight: 500 }}>· Tap to View</span>
+        </button>
 
         {editingBooking && isChangeBlocked(editingBooking) ? (
           <>
@@ -1913,7 +1921,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   // Mobile client booking: render form in normal document flow (avoids all iOS fixed-positioning bugs)
   if (mobile && !isAdminViewing && (bookingDate || editingBooking)) {
     return (
-      <div style={{...S.page, paddingBottom: "calc(5rem + env(safe-area-inset-bottom, 0px))"}}>
+      <div style={{...S.page, paddingTop: "0.75rem", paddingBottom: "calc(5rem + env(safe-area-inset-bottom, 0px))"}}>
         {renderBookingFullPage()}
         {renderCancelModal()}
         {blockedAlertOpen && (

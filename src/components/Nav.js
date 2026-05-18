@@ -4,7 +4,7 @@ import { C, S } from "@/lib/constants";
 import { useIsMobile, useIsNarrow } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 
-export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient }) {
+export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, bookingActive }) {
   const mobile = useIsMobile();
   const narrow = useIsNarrow();
   const { profile } = useAuth();
@@ -72,14 +72,16 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient })
           <span style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", fontSize: 20, fontWeight: 600, color: C.teal, pointerEvents: "none", whiteSpace: "nowrap" }}>
             {isAdmin ? "Admin Portal" : "Client Portal"}
           </span>
-          {/* Right: hamburger */}
-          <button
-            onClick={() => setMenuOpen(o => !o)}
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 0", lineHeight: 0, flexShrink: 0 }}
-          >
-            {menuOpen ? <Close /> : <Hamburger />}
-          </button>
+          {/* Right: hamburger — hidden during mobile booking to prevent bypassing unsaved-changes check */}
+          {!bookingActive && (
+            <button
+              onClick={() => setMenuOpen(o => !o)}
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "8px 0", lineHeight: 0, flexShrink: 0 }}
+            >
+              {menuOpen ? <Close /> : <Hamburger />}
+            </button>
+          )}
         </div>
       </nav>
       {menuOpen && (
