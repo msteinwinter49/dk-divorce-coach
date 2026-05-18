@@ -60,11 +60,13 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const [editingBooking, setEditingBooking] = useState(null);
   const [noChangeMessage, setNoChangeMessage] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
+  const [showDayView, setShowDayView] = useState(false);
   const [popupPos, setPopupPos] = useState(null); // { x, y } px when dragged; null = centered
   const [cancelModalPos, setCancelModalPos] = useState(null);
   const [moveModalPos, setMoveModalPos] = useState(null);
 
   const [showSpinner, setShowSpinner] = useState(false);
+  const [visualVpHeight, setVisualVpHeight] = useState(null);
 
   // Client change policy
   const [minNoticeHours, setMinNoticeHours] = useState(24);
@@ -82,6 +84,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
   const cancelModalRef = useRef(null);
   const moveModalRef = useRef(null);
   const dragStateRef = useRef(null);
+  const bookingPageInnerRef = useRef(null);
 
   // Drag-and-drop state (move existing bookings)
   const dragRef = useRef(null);
@@ -203,6 +206,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     setLowBalance(false);
     setBookingBalanceAfter(null);
     setShowCloseWarning(false);
+    setShowDayView(false);
     setPopupPos(null);
   };
 
@@ -762,6 +766,26 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     return () => window.removeEventListener("dragend", onUp);
   }, []);
 
+  // Track visual viewport height (used for keyboard detection on mobile)
+  useEffect(() => {
+    if (!mobile) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      setVisualVpHeight(Math.round(vv.height));
+      // Also adjust inner div padding when keyboard is open
+      const el = bookingPageInnerRef.current;
+      if (!el) return;
+      const kbHeight = Math.max(0, window.innerHeight - vv.offsetTop - vv.height);
+      el.style.paddingBottom = kbHeight > 0
+        ? `${kbHeight + 32}px`
+        : "calc(3rem + env(safe-area-inset-bottom, 0px))";
+    };
+    update();
+    vv.addEventListener("resize", update);
+    return () => vv.removeEventListener("resize", update);
+  }, [mobile]);
+
   // --- VIEWS ---
 
   const renderOverlayBooking = (b, top, height, compact) => {
@@ -1035,21 +1059,403 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
     setSelectedParticipants(user ? [user.id] : []);
   };
 
+  // Derived booking state — shared by renderBookingPopup, renderBookingFullPage, renderBookingDayView
+  const dateLabel = bookingDate
+    ? new Date(bookingDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+    : "";
+  const origDate = editingBooking ? (editingBooking.date || localDateStr(new Date(editingBooking.start_time))) : null;
+  const origTime = editingBooking ? (editingBooking.time_slot || (() => {
+    const d = new Date(editingBooking.start_time);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  })()) : null;
+  const hasUnsavedChanges = !bookingSuccess && (editingBooking
+    ? (bookingDate !== origDate || selectedTime !== origTime || selectedType?.id !== editingBooking.session_type_id)
+    : !!(selectedTime || selectedType));
+  const tryClose = () => { if (hasUnsavedChanges) setShowCloseWarning(true); else closePopup(); };
+
+  const renderBookingDayView = () => {
+    const date = bookingDate || origDate;
+    if (!date) return null;
+    const totalH = HOURS.length * DAY_ROW_H;
+    const dayDate = new Date(date + "T12:00:00");
+    const firstMin = HOURS[0] * 60;
+    const overlayItems = getBookingsForDateOverlay(date, DAY_ROW_H);
+
+    const handleSlotClick = (timeStr) => { setSelectedTime(timeStr); setShowDayView(false); };
+
+    const renderAvailBar = (item) => {
+      const blocks = [];
+      let cursor = item.startMin;
+      while (cursor < item.endMin) {
+        const nextHour = (Math.floor(cursor / 60) + 1) * 60;
+        const blockEnd = Math.min(nextHour, item.endMin);
+        const h = Math.floor(cursor / 60);
+        const m = cursor % 60;
+        blocks.push({
+          startMin: cursor,
+          timeStr: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
+          top: ((cursor - firstMin) / 60) * DAY_ROW_H,
+          height: ((blockEnd - cursor) / 60) * DAY_ROW_H,
+          isLast: blockEnd >= item.endMin,
+        });
+        cursor = blockEnd;
+      }
+      return blocks.map(b => (
+        <div key={`dvavail-${b.startMin}`} onClick={() => handleSlotClick(b.timeStr)}
+          style={{
+            position: "absolute", top: b.top, left: 0, right: 0, height: b.height,
+            background: "#d4edda",
+            borderBottom: b.isLast ? "none" : `0.5px solid ${C.gridLine}`,
+            cursor: "pointer", zIndex: 1, boxSizing: "border-box",
+          }} />
+      ));
+    };
+
+    const renderSelectionHighlight = () => {
+      if (!selectedTime || !selectedType) return null;
+      const [h, m] = selectedTime.split(":").map(Number);
+      const startMin = h * 60 + m;
+      const top = ((startMin - HOURS[0] * 60) / 60) * DAY_ROW_H;
+      const height = (selectedType.duration / 60) * DAY_ROW_H;
+      const gridH = HOURS.length * DAY_ROW_H;
+      if (top >= gridH || top + height <= 0) return null;
+      return (
+        <div style={{
+          position: "absolute", left: 2, right: 2, zIndex: 5,
+          top: Math.max(top, 0),
+          height: Math.max(Math.min(height, gridH - Math.max(top, 0)), DAY_ROW_H * 0.4),
+          border: `2.5px solid ${C.teal}`, borderRadius: 6,
+          background: "rgba(15,110,86,0.12)", pointerEvents: "none", boxSizing: "border-box",
+        }} />
+      );
+    };
+
+    return (
+      <div style={{ paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ padding: "12px 16px 10px", display: "flex", alignItems: "center", gap: 14, borderBottom: `0.5px solid ${C.border}` }}>
+          <button onClick={() => setShowDayView(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.teal, fontWeight: 500, padding: 0, flexShrink: 0 }}>
+            ← Back to Booking
+          </button>
+          <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+            {DAYS_SHORT[dayDate.getDay()]}, {MONTHS[dayDate.getMonth()]} {dayDate.getDate()}
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: C.muted, margin: "8px 16px 4px" }}>Tap a green slot to set your start time</p>
+        <div style={{ display: "flex" }}>
+          <div style={{ width: 60, flexShrink: 0 }}>
+            {HOURS.map(h => (
+              <div key={h} style={{ height: DAY_ROW_H, padding: "8px 4px", fontSize: 11, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box" }}>
+                {formatHour(h)}
+              </div>
+            ))}
+          </div>
+          <div style={{ flex: 1, position: "relative", height: totalH }}>
+            {HOURS.map(h => (
+              <div key={h} style={{ height: DAY_ROW_H, borderBottom: `0.5px solid ${C.gridLine}`, background: "#fff", boxSizing: "border-box" }} />
+            ))}
+            {getBookableOverlay(date, DAY_ROW_H).map(item => renderAvailBar(item))}
+            {overlayItems.map(item => (
+              <div key={item.data.id} style={{
+                position: "absolute", top: item.top, left: 2, right: 2, height: item.height, zIndex: 4,
+                padding: "4px 8px", borderRadius: 6, fontSize: 13, overflow: "hidden", boxSizing: "border-box",
+                background: item.data.status === "requested" ? "#fdecea" : C.tealLight,
+                border: item.data.status === "requested" ? "2px solid #c0392b" : `1px solid ${C.teal}`,
+                pointerEvents: "none",
+              }}>
+                <div style={{ fontWeight: 500, color: item.data.status === "requested" ? "#c0392b" : C.teal, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {item.data.session_types?.label || "Session"} — {item.data.status}
+                </div>
+              </div>
+            ))}
+            {renderSelectionHighlight()}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderBookingFullPage = () => {
+    if (!bookingDate && !editingBooking) return null;
+    if (showDayView) return renderBookingDayView();
+
+    const formBody = (
+      <>
+        <h3 style={{ ...S.h3, marginTop: 4, marginBottom: 8 }}>
+          {editingBooking
+            ? (isChangeBlocked(editingBooking)
+                ? (editingBooking.status === "requested" ? "View Request" : "View Session")
+                : (editingBooking.status === "requested" ? "Edit Request" : "Edit Session"))
+            : "Request a Session"}
+        </h3>
+        {!editingBooking && !isAdminViewing && balanceMinutes !== null && (() => {
+          const abs = Math.abs(balanceMinutes);
+          const h = Math.floor(abs / 60);
+          const m = abs % 60;
+          const sign = balanceMinutes < 0 ? "-" : "";
+          const label = h === 0 ? `${sign}${m} min` : m === 0 ? `${sign}${h} hr` : `${sign}${h} hr ${m} min`;
+          return (
+            <p style={{ fontSize: 13, color: balanceMinutes < 0 ? "#c0392b" : C.muted, marginTop: -4, marginBottom: 8 }}>
+              Available to schedule: {label}
+            </p>
+          );
+        })()}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <p style={{ ...S.p, fontSize: 13, margin: 0 }}>{dateLabel}</p>
+          <button onClick={() => setShowDayView(true)} style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 13, color: C.teal, fontWeight: 500, padding: 0,
+          }}>View Day →</button>
+        </div>
+
+        {editingBooking && isChangeBlocked(editingBooking) ? (
+          <>
+            <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
+              {selectedTime && selectedType
+                ? `${formatTimeStr(selectedTime)} – ${formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration))} (${selectedType.duration} min)`
+                : selectedTime ? formatTimeStr(selectedTime) : "—"}
+            </p>
+            {(() => {
+              const others = (editingBooking.participant_profiles || []).filter(p => p.id !== user?.id);
+              if (others.length === 0) return null;
+              return (
+                <div style={{ marginBottom: 12, padding: "8px 12px", background: C.warm, borderRadius: 8, border: `0.5px solid ${C.warmBorder}` }}>
+                  <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginBottom: 4 }}>Also attending</div>
+                  {others.map(p => (
+                    <div key={p.id} style={{ fontSize: 13, color: C.text }}>
+                      {`${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member"}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            <div style={{ padding: "10px 14px", background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, fontSize: 13, color: C.text }}>
+              This booking cannot be changed because there is too little notice or multiple attendees.
+              {adminPhone && <> Text Diana at <strong>{adminPhone}</strong> for assistance.</>}
+            </div>
+          </>
+        ) : (
+          <>
+            {editingBooking && (() => {
+              const others = (editingBooking.participant_profiles || []).filter(p => p.id !== user?.id);
+              if (others.length === 0) return null;
+              return (
+                <div style={{ marginBottom: 12, padding: "8px 12px", background: C.warm, borderRadius: 8, border: `0.5px solid ${C.warmBorder}` }}>
+                  <div style={{ fontSize: 12, color: C.muted, fontWeight: 500, marginBottom: 4 }}>Also attending</div>
+                  {others.map(p => (
+                    <div key={p.id} style={{ fontSize: 13, color: C.text }}>
+                      {`${(p.first_name || "").trim()} ${(p.last_name || "").trim()}`.trim() || "Member"}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {showCloseWarning && (
+              <div style={{ background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
+                <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500 }}>
+                  You have unsaved changes. Save or discard before closing?
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={S.btn} disabled={!selectedType || !selectedTime || confirming}
+                    onClick={() => { setShowCloseWarning(false); handleBook(); }}>
+                    {confirming ? "Saving..." : "Save"}
+                  </button>
+                  <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }} onClick={closePopup}>
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-end", marginBottom: 16 }}>
+              <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                <label style={{ ...S.label, marginBottom: 4 }}>Start time</label>
+                <input type="time" value={selectedTime || ""}
+                  onChange={e => setSelectedTime(e.target.value)}
+                  style={{ ...S.input, width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 0 }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={{ ...S.label, marginBottom: 4 }}>End time</label>
+                <div style={{ padding: "8px 12px", background: C.warm, borderRadius: 8, fontSize: 14, color: C.muted }}>
+                  {selectedTime && selectedType ? formatTimeStr(addMinutesToTime(selectedTime, selectedType.duration)) : "—"}
+                </div>
+              </div>
+            </div>
+            <label style={{ ...S.label, marginBottom: 8 }}>Session type</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              {sessionTypes.map(t => (
+                <div key={t.id} onClick={() => setSelectedType(t)}
+                  style={{
+                    padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                    border: `1px solid ${selectedType?.id === t.id ? C.teal : C.gridLine}`,
+                    background: selectedType?.id === t.id ? C.tealLight : "#fff",
+                  }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{t.label}</div>
+                  <div style={{ fontSize: 12, color: C.muted }}>{t.duration} min</div>
+                </div>
+              ))}
+            </div>
+            {!editingBooking && !isAdminViewing && (() => {
+              const otherMembers = groupMembers.filter(m => m.is_active && m.client_id !== user?.id);
+              if (otherMembers.length === 0) return null;
+              const allMembers = groupMembers.filter(m => m.is_active);
+              const allSelected = allMembers.every(m => selectedParticipants.includes(m.client_id));
+              const someSelected = allMembers.some(m => selectedParticipants.includes(m.client_id) && m.client_id !== user?.id);
+              const toggleParticipant = (id) => {
+                if (id === user?.id) return;
+                setSelectedParticipants(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+              };
+              const toggleAll = () => {
+                if (allSelected) setSelectedParticipants(user ? [user.id] : []);
+                else setSelectedParticipants(allMembers.map(m => m.client_id));
+              };
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ ...S.label, marginBottom: 8 }}>Who's attending?</label>
+                  <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+                    {allMembers.length > 1 && (
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", background: "#fafafa", fontSize: 13, fontWeight: 500 }}>
+                        <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                          ref={el => { if (el) el.indeterminate = !allSelected && someSelected; }}
+                          style={{ accentColor: C.teal }} />
+                        All
+                      </label>
+                    )}
+                    {allMembers.map(m => (
+                      <label key={m.client_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: m.client_id === user?.id ? "default" : "pointer", fontSize: 13 }}>
+                        <input type="checkbox" checked={selectedParticipants.includes(m.client_id)}
+                          onChange={() => toggleParticipant(m.client_id)}
+                          disabled={m.client_id === user?.id}
+                          style={{ accentColor: C.teal }} />
+                        {m.profile ? `${m.profile.first_name || ""} ${m.profile.last_name || ""}`.trim() || "Member" : "Member"}
+                        {m.client_id === user?.id && <span style={{ color: C.muted, fontSize: 11, marginLeft: 4 }}>you</span>}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {selectedType && selectedTime && (() => {
+              const slots = availability[bookingDate] || [];
+              const [h, m] = selectedTime.split(":").map(Number);
+              const startMin = h * 60 + m;
+              const endMin = startMin + selectedType.duration;
+              const ranges = [];
+              for (const s of slots) {
+                const [sh, sm] = s.split(":").map(Number);
+                const sMin = sh * 60 + sm;
+                const sEnd = sMin + increment;
+                if (ranges.length > 0 && ranges[ranges.length - 1][1] >= sMin) {
+                  ranges[ranges.length - 1][1] = sEnd;
+                } else {
+                  ranges.push([sMin, sEnd]);
+                }
+              }
+              if (editingBooking && (editingBooking.date === bookingDate)) {
+                const [eh, em] = (editingBooking.time_slot || "00:00").split(":").map(Number);
+                const eStart = eh * 60 + em;
+                const eEnd = eStart + (editingBooking.session_duration || 60);
+                ranges.push([eStart, eEnd]);
+                ranges.sort((a, b) => a[0] - b[0]);
+                for (let i = ranges.length - 2; i >= 0; i--) {
+                  if (ranges[i][1] >= ranges[i + 1][0]) {
+                    ranges[i][1] = Math.max(ranges[i][1], ranges[i + 1][1]);
+                    ranges.splice(i + 1, 1);
+                  }
+                }
+              }
+              const covered = ranges.some(([rStart, rEnd]) => startMin >= rStart && endMin <= rEnd);
+              const overlap = bookings.some(b => {
+                if (editingBooking && b.id === editingBooking.id) return false;
+                const bDate = localDateStr(new Date(b.start_time));
+                if (bDate !== bookingDate || !["requested", "booked"].includes(b.status)) return false;
+                const bStart = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
+                const bEnd = bStart + (b.session_duration || 60);
+                return startMin < bEnd && endMin > bStart;
+              });
+              const validStart = !!editingBooking || (availability[bookingDate] || []).includes(selectedTime);
+              if (overlap) return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>This time overlaps an existing booking.</p>;
+              if (!validStart) return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>This start time is not on an available time slot.</p>;
+              if (!covered) return <p style={{ fontSize: 13, color: "#c0392b", margin: "0 0 12px" }}>Part of this time slot is outside available hours.</p>;
+              return null;
+            })()}
+          </>
+        )}
+
+        {!(editingBooking && isChangeBlocked(editingBooking)) && (
+          <div style={{ borderTop: `0.5px solid ${C.border}`, paddingTop: 12, marginTop: 4 }}>
+            {selectedType && selectedTime && (
+              <div style={{ padding: "0.75rem 1rem", background: C.warm, borderRadius: 12, marginBottom: 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{selectedType.label}</div>
+                <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
+                  {dateLabel} at {formatTimeStr(selectedTime)} — {selectedType.duration} min
+                </div>
+              </div>
+            )}
+            {bookingError && (
+              <div style={{ marginBottom: 10 }}>
+                <p style={{ fontSize: 13, color: "#c0392b", marginBottom: bookingError.includes("payment method") ? 8 : 0 }}>{bookingError}</p>
+                {bookingError.includes("payment method") && !viewAsClient && (
+                  <button style={S.btnSm} onClick={() => { setProfileFocus("payment"); setPage("Profile"); }}>Add a payment method</button>
+                )}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {selectedType && selectedTime && (
+                <button style={S.btn} onClick={handleBook} disabled={confirming}>
+                  {confirming
+                    ? (editingBooking ? "Saving..." : "Requesting...")
+                    : editingBooking ? "Save Changes" : "Request Session"}
+                </button>
+              )}
+              {editingBooking && ["requested", "booked"].includes(editingBooking.status) && (
+                <button style={{ ...S.btnSmOut, color: "#c0392b", border: "1px solid #c0392b" }}
+                  onClick={() => { closePopup(); setCancelTarget(editingBooking); }}
+                  disabled={confirming}>
+                  {editingBooking.status === "booked" ? "Cancel Session" : "Cancel Request"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </>
+    );
+
+    return (
+      <>
+        <div style={{ marginBottom: 8 }}>
+          <button onClick={tryClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.teal, fontWeight: 500, padding: 0 }}>
+            ← Back
+          </button>
+        </div>
+        {bookingSuccess ? (
+          <div style={{ textAlign: "center", padding: "2rem 0" }}>
+            <div style={{ fontSize: 16, fontWeight: 500, color: C.teal, marginBottom: 8 }}>
+              {noChangeMessage ? "No changes were made." : editingBooking ? "Changes saved!" : "Session requested!"}
+            </div>
+            {!noChangeMessage && (
+              <p style={{ ...S.p, color: C.muted }}>
+                {editingBooking
+                  ? `Your updated session for ${dateLabel} at ${selectedTime} has been submitted for Diana's review.`
+                  : `Your request for ${dateLabel} at ${selectedTime} has been submitted. Diana will review and confirm.`}
+              </p>
+            )}
+            {!noChangeMessage && !editingBooking && bookingBalanceAfter != null && (() => {
+              const min = bookingBalanceAfter;
+              const abs = Math.abs(min);
+              const h = Math.floor(abs / 60);
+              const m = abs % 60;
+              const sign = min < 0 ? "-" : "";
+              const label = h === 0 ? `${sign}${m} minute${m !== 1 ? "s" : ""}` : m === 0 ? `${sign}${h} hour${h !== 1 ? "s" : ""}` : `${sign}${h} hr ${m} min`;
+              return <p style={{ fontSize: 13, color: min < 0 ? "#c0392b" : C.muted, marginTop: 4, marginBottom: 4 }}>Your remaining balance is now {label}.</p>;
+            })()}
+            <button style={S.btn} onClick={closePopup}>Close</button>
+          </div>
+        ) : formBody}
+      </>
+    );
+  };
+
   const renderBookingPopup = () => {
     if (!bookingDate) return null;
-
-    const times = selectedType ? getTimesForDuration(bookingDate, selectedType.duration) : [];
-    const dateLabel = new Date(bookingDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-
-    const origDate = editingBooking ? (editingBooking.date || localDateStr(new Date(editingBooking.start_time))) : null;
-    const origTime = editingBooking ? (editingBooking.time_slot || (() => {
-      const d = new Date(editingBooking.start_time);
-      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    })()) : null;
-    const hasUnsavedChanges = !bookingSuccess && (editingBooking
-      ? (bookingDate !== origDate || selectedTime !== origTime || selectedType?.id !== editingBooking.session_type_id)
-      : !!(selectedTime || selectedType));
-    const tryClose = () => { if (hasUnsavedChanges) setShowCloseWarning(true); else closePopup(); };
 
     return (
       <>
@@ -1503,6 +1909,33 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient }) {
       </>
     );
   };
+
+  // Mobile client booking: render form in normal document flow (avoids all iOS fixed-positioning bugs)
+  if (mobile && !isAdminViewing && (bookingDate || editingBooking)) {
+    return (
+      <div style={{...S.page, paddingBottom: "calc(5rem + env(safe-area-inset-bottom, 0px))"}}>
+        {renderBookingFullPage()}
+        {renderCancelModal()}
+        {blockedAlertOpen && (
+          <>
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.1)", zIndex: 200 }} onClick={() => setBlockedAlertOpen(false)} />
+            <div style={{ ...S.card, maxWidth: 380, width: "90%", margin: 0, position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 201 }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ ...S.h3, marginBottom: 10 }}>Change Not Allowed</h3>
+              <p style={{ ...S.p, marginBottom: 4 }}>You cannot make this change — too little notice or multiple attendees.</p>
+              {adminPhone && <p style={{ ...S.p, marginBottom: 16 }}>Text Diana at <strong>{adminPhone}</strong> for assistance.</p>}
+              <button style={S.btn} onClick={() => setBlockedAlertOpen(false)}>OK</button>
+            </div>
+          </>
+        )}
+        {showSpinner && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+            <div style={{ width: 40, height: 40, border: `3px solid ${C.gridLine}`, borderTopColor: C.teal, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={S.page}>
