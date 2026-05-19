@@ -100,7 +100,7 @@ export default function Statement({ groupId, clientName }) {
     win.print();
   };
 
-  const thStyle = { textAlign: "left", padding: "8px 7px", fontSize: 12, fontWeight: 600, color: C.muted, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
+  const thStyle = { textAlign: "left", padding: "8px 7px", fontSize: 12, fontWeight: 600, color: C.muted, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", background: "#f7f7f5" };
   const tdStyle = { padding: "8px 7px", fontSize: 13, color: C.text, borderBottom: `0.5px solid ${C.border}`, verticalAlign: "top" };
   const tdNum = { ...tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums" };
 
@@ -131,22 +131,19 @@ export default function Statement({ groupId, clientName }) {
 
       {rows !== null && (
         <div>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 600, fontSize: 15 }}>
-              {clientName ? `Statement — ${clientName}` : "Statement"}
+          <div style={{ position: "sticky", top: "var(--nav-height, 56px)", zIndex: 5, background: "#fff" }}>
+            <div style={{ paddingTop: 8, paddingBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>
+                {clientName ? `Statement — ${clientName}` : "Statement"}
+              </div>
+              <div style={{ fontSize: 13, color: C.muted }}>
+                {fmtDate(start + "T00:00:00")} – {fmtDate(end + "T00:00:00")}
+              </div>
             </div>
-            <div style={{ fontSize: 13, color: C.muted }}>
-              {fmtDate(start + "T00:00:00")} – {fmtDate(end + "T00:00:00")}
-            </div>
-          </div>
-
-          {rows.length === 0 ? (
-            <p style={{ fontSize: 14, color: C.muted }}>No transactions in this period.</p>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
+            {rows.length > 0 && (
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
-                  <tr style={{ background: "#f7f7f5" }}>
+                  <tr>
                     <th style={thStyle}>Date</th>
                     <th style={thStyle}>Description</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Minutes</th>
@@ -154,21 +151,28 @@ export default function Statement({ groupId, clientName }) {
                     <th style={{ ...thStyle, textAlign: "right" }}>Balance</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {rows.map(r => (
-                    <tr key={r.id}>
-                      <td style={tdStyle}>{fmtDate(r.date)}</td>
-                      <td style={tdStyle}>{r.description}</td>
-                      <td style={{ ...tdNum, color: r.delta_minutes > 0 ? C.teal : r.delta_minutes < 0 ? "#c0392b" : C.muted }}>
-                        {fmtMins(r.delta_minutes)}
-                      </td>
-                      <td style={tdNum}>{fmtDollars(r.amount_cents)}</td>
-                      <td style={{ ...tdNum, fontWeight: 500 }}>{r.balance_minutes} min</td>
-                    </tr>
-                  ))}
-                </tbody>
               </table>
-            </div>
+            )}
+          </div>
+
+          {rows.length === 0 ? (
+            <p style={{ fontSize: 14, color: C.muted }}>No transactions in this period.</p>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.id}>
+                    <td style={tdStyle}>{fmtDate(r.date)}</td>
+                    <td style={tdStyle}>{r.description}</td>
+                    <td style={{ ...tdNum, color: r.delta_minutes > 0 ? C.teal : r.delta_minutes < 0 ? "#c0392b" : C.muted }}>
+                      {fmtMins(r.delta_minutes)}
+                    </td>
+                    <td style={tdNum}>{fmtDollars(r.amount_cents)}</td>
+                    <td style={{ ...tdNum, fontWeight: 500 }}>{r.balance_minutes} min</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       )}

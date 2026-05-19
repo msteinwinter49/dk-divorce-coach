@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile, useIsNarrow } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
@@ -31,6 +31,16 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, b
   const isActive = (p) => page === p || (p === "Admin" && page.startsWith("Admin") && page !== "Admin Calendar" && page !== "Admin Schedule");
 
   const closeMenu = () => setMenuOpen(false);
+
+  useEffect(() => {
+    const nav = document.querySelector('nav');
+    if (!nav) return;
+    const set = () => document.documentElement.style.setProperty('--nav-height', nav.offsetHeight + 'px');
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [narrow, mobile, inPortal]);
 
   // Hamburger icon
   const Hamburger = () => (
