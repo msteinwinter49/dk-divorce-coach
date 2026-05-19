@@ -217,6 +217,14 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     return hasOthers || tooClose;
   };
 
+  const blockReason = (b) => {
+    const hasOthers = (b.participant_ids || []).length > 1;
+    const tooClose = new Date(b.start_time).getTime() - Date.now() < minNoticeHours * 60 * 60 * 1000;
+    if (tooClose && hasOthers) return `This booking cannot be changed because there is less than ${minNoticeHours} hours notice and there are other attendees.`;
+    if (tooClose) return `This booking cannot be changed because there is less than ${minNoticeHours} hours notice.`;
+    return "This booking cannot be changed because there are other attendees.";
+  };
+
   const showBlockedAlert = () => setBlockedAlertOpen(true);
 
   const openEditPopup = (b) => {
@@ -766,11 +774,13 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     return () => window.removeEventListener("dragend", onUp);
   }, []);
 
-  // Notify page.js when mobile full-page booking is active so Nav can hide the hamburger
+  // Notify page.js when mobile full-page booking is active so Nav can hide the hamburger.
+  // Also scroll to top so the form and nav bar are immediately visible.
   useEffect(() => {
     if (!setBookingActive) return;
     const active = mobile && !isAdminViewing && !!(bookingDate || editingBooking);
     setBookingActive(active);
+    if (active) window.scrollTo({ top: 0, behavior: "instant" });
     return () => setBookingActive(false);
   }, [mobile, isAdminViewing, bookingDate, editingBooking]);
 
@@ -1238,7 +1248,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
               );
             })()}
             <div style={{ padding: "10px 14px", background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, fontSize: 13, color: C.text }}>
-              This booking cannot be changed because there is too little notice or multiple attendees.
+              {blockReason(editingBooking)}
               {adminPhone && <> Text Diana at <strong>{adminPhone}</strong> for assistance.</>}
             </div>
           </>

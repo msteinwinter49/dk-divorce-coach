@@ -5,6 +5,10 @@ import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
+const Skel = ({ w = "70%", h = 16, mb = 8 }) => (
+  <div style={{ width: w, height: h, background: "rgba(0,0,0,0.08)", borderRadius: 6, marginBottom: mb, animation: "skel-pulse 1.5s ease-in-out infinite" }} />
+);
+
 export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const mobile = useIsMobile();
   const { user, profile } = useAuth();
@@ -16,6 +20,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [balanceMinutes, setBalanceMinutes] = useState(null);
   const [hasCard, setHasCard] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const targetId = viewAsClient?.id || user?.id;
   const targetProfile = viewAsClient || profile;
@@ -23,6 +28,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
 
   useEffect(() => {
     if (!targetId) return;
+    setLoading(true);
     const supabase = createClient();
     const today = new Date();
     const todayStr = today.toLocaleDateString("en-CA");
@@ -67,17 +73,17 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
         });
 
         setAdminStats({ w1, w2, w3, w4 });
-      });
+        setLoading(false);
+      }).catch(() => setLoading(false));
     } else {
       const in12mo = new Date(today);
       in12mo.setFullYear(in12mo.getFullYear() + 1);
       const end12moStr = in12mo.toLocaleDateString("en-CA");
 
-      const in12moIso = in12mo.toISOString();
       fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`)
         .then(r => r.json())
         .then(data => {
-          if (!Array.isArray(data)) return;
+          if (!Array.isArray(data)) { setLoading(false); return; }
           const end30d = new Date(today);
           end30d.setDate(end30d.getDate() + 30);
           const end30dStr = end30d.toLocaleDateString("en-CA");
@@ -85,8 +91,9 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
           if (booked.length > 0) setNextBooking(booked[0]);
           setBookedCount(booked.filter(b => b.date <= end30dStr).length);
           setRequestedCount(data.filter(b => b.status === "requested" && b.date <= end30dStr).length);
+          setLoading(false);
         })
-        .catch(() => {});
+        .catch(() => setLoading(false));
     }
 
     supabase.from("documents")
@@ -108,6 +115,14 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
     }
   }, [targetId]);
 
+  const allReady = !loading && balanceMinutes !== null;
+  const [showSpinner, setShowSpinner] = useState(false);
+  useEffect(() => {
+    if (allReady) { setShowSpinner(false); return; }
+    const t = setTimeout(() => setShowSpinner(true), 1000);
+    return () => clearTimeout(t);
+  }, [allReady]);
+
   const displayName = targetProfile?.first_name || targetProfile?.full_name?.split(" ")[0] || "there";
   const showCardBanner = !viewAsClient && targetProfile?.role === "client" && hasCard === false;
 
@@ -118,7 +133,13 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
     return m === 0 ? `${hour} ${period}` : `${hour}:${String(m).padStart(2, "0")} ${period}`;
   };
 
-  const formatBooking = () => (
+  const formatBooking = () => !allReady ? (
+    <div>
+      <Skel w="90%" />
+      <Skel w="55%" />
+      <Skel w="65%" mb={0} />
+    </div>
+  ) : (
     <div style={{ fontSize: 16, color: C.text }}>
       <div>Upcoming in the next 30 days:</div>
       <div>{bookedCount} session{bookedCount !== 1 ? "s" : ""}</div>
@@ -144,7 +165,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const scheduleDesc = isAdmin ? adminScheduleDesc() : formatBooking();
 
   const balanceDesc = (() => {
-    if (balanceMinutes === null) return "Purchase a package";
+    if (!allReady) return <Skel w="60%" mb={0} />;
     if (balanceMinutes <= 0) return "Low balance — buy more";
     const h = Math.floor(balanceMinutes / 60);
     const m = balanceMinutes % 60;
@@ -166,6 +187,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
 
   return (
     <div style={S.page}>
+      <style>{`@keyframes skel-pulse{0%,100%{opacity:1}50%{opacity:.45}} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
       {showCardBanner && (
         <div
           onClick={() => { setProfileFocus("payment"); setPage("Profile"); }}
@@ -177,14 +199,21 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
       )}
       <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, marginBottom: isAdmin ? "0.75rem" : "1.5rem" }}>
         <h2 style={{...S.h2, color:C.teal}}>Welcome back, {displayName}</h2>
-        <p style={{...S.p, color:C.teal, marginBottom:0}}>
+        <div style={{...S.p, color:C.teal, marginBottom:0}}>
           {isAdmin
             ? "Here's your upcoming schedule overview."
-            : nextBooking
-              ? <>Your next session with Diana is on <strong>{new Date(nextBooking.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at {formatTime(nextBooking.time_slot)}{nextBooking.session_duration ? ` (${nextBooking.session_duration} min)` : ""}</strong>. A video link will be sent to your email shortly before.</>
-              : "You have no upcoming sessions. Head to Schedule to book one."}
-        </p>
+            : !allReady
+              ? <><Skel w="85%" h={14} mb={6} /><Skel w="60%" h={14} mb={0} /></>
+              : nextBooking
+                ? <>Your next session with Diana is on <strong>{new Date(nextBooking.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} at {formatTime(nextBooking.time_slot)}{nextBooking.session_duration ? ` (${nextBooking.session_duration} min)` : ""}</strong>. A video link will be sent to your email shortly before.</>
+                : "You have no upcoming sessions. Head to Schedule to book one."}
+        </div>
       </div>
+      {!allReady && showSpinner && (
+        <div style={{ display:"flex", justifyContent:"center", marginBottom:"0.75rem" }}>
+          <div style={{ width:22, height:22, border:`3px solid ${C.tealLight}`, borderTop:`3px solid ${C.teal}`, borderRadius:"50%", animation:"spin 0.8s linear infinite" }} />
+        </div>
+      )}
       <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(2,1fr)", gap: (isAdmin || mobile) ? 0 : 12 }}>
         {homeCards.map(([target, label, d]) => (
           <div key={label} style={{ ...S.card, cursor:"pointer", ...((isAdmin || mobile) && { padding:"0.5rem 0 1rem 1rem", marginBottom:"1rem", marginLeft:"0.5rem" }) }} onClick={() => setPage(target)}>
