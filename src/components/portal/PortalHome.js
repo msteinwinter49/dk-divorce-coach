@@ -9,6 +9,8 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const mobile = useIsMobile();
   const { user, profile } = useAuth();
   const [nextBooking, setNextBooking] = useState(null);
+  const [requestedCount, setRequestedCount] = useState(0);
+  const [adminStats, setAdminStats] = useState(null);
   const [docCount, setDocCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [balanceMinutes, setBalanceMinutes] = useState(null);
@@ -16,22 +18,80 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
 
   const targetId = viewAsClient?.id || user?.id;
   const targetProfile = viewAsClient || profile;
+  const isAdmin = profile?.role === "admin" && !viewAsClient;
 
   useEffect(() => {
     if (!targetId) return;
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Date();
+    const todayStr = today.toLocaleDateString("en-CA");
 
-    supabase.from("bookings")
-      .select("date, time_slot")
-      .eq("user_id", targetId)
-      .eq("status", "confirmed")
-      .gte("date", today)
-      .order("date", { ascending: true })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data.length > 0) setNextBooking(data[0]);
+    if (isAdmin) {
+      const in28d = new Date(today);
+      in28d.setDate(in28d.getDate() + 28);
+      const end28dStr = in28d.toLocaleDateString("en-CA");
+
+      Promise.all([
+        fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end28dStr}`).then(r => r.json()).catch(() => []),
+        fetch(`/api/calendar/events?start=${todayStr}&end=${end28dStr}`).then(r => r.json()).catch(() => ({})),
+      ]).then(([bookingsData, eventsData]) => {
+        const bookings = Array.isArray(bookingsData) ? bookingsData : [];
+        const events = Array.isArray(eventsData) ? eventsData : (eventsData?.events || []);
+
+        const w1 = { booked: 0, requested: 0, sp: 0 };
+        const w2 = { booked: 0, requested: 0, sp: 0 };
+        const w3 = { booked: 0, requested: 0, sp: 0 };
+        const w4 = { booked: 0, requested: 0, sp: 0 };
+        const tDate = new Date(todayStr + "T12:00:00");
+
+        bookings.forEach(b => {
+          const diff = Math.round((new Date(b.date + "T12:00:00") - tDate) / 86400000);
+          const key = b.status === "booked" ? "booked" : b.status === "requested" ? "requested" : null;
+          if (!key || diff < 0 || diff > 28) return;
+          if (diff <= 7)       w1[key]++;
+          else if (diff <= 14) w2[key]++;
+          else if (diff <= 21) w3[key]++;
+          else                 w4[key]++;
+        });
+
+        events.forEach(ev => {
+          if (ev._type !== "sp" || !ev.start?.dateTime) return;
+          const eLocalDate = new Date(ev.start.dateTime).toLocaleDateString("en-CA");
+          const diff = Math.round((new Date(eLocalDate + "T12:00:00") - tDate) / 86400000);
+          if (diff < 0 || diff > 28) return;
+          if (diff <= 7)       w1.sp++;
+          else if (diff <= 14) w2.sp++;
+          else if (diff <= 21) w3.sp++;
+          else                 w4.sp++;
+        });
+
+        setAdminStats({ w1, w2, w3, w4 });
       });
+    } else {
+      const in12mo = new Date(today);
+      in12mo.setFullYear(in12mo.getFullYear() + 1);
+      const end12moStr = in12mo.toLocaleDateString("en-CA");
+
+      supabase.from("bookings")
+        .select("date, time_slot")
+        .eq("user_id", targetId)
+        .eq("status", "booked")
+        .gte("date", todayStr)
+        .lte("date", end12moStr)
+        .order("date", { ascending: true })
+        .limit(1)
+        .then(({ data }) => {
+          if (data && data.length > 0) setNextBooking(data[0]);
+        });
+
+      supabase.from("bookings")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", targetId)
+        .eq("status", "requested")
+        .gte("date", todayStr)
+        .lte("date", end12moStr)
+        .then(({ count }) => setRequestedCount(count || 0));
+    }
 
     supabase.from("documents")
       .select("id", { count: "exact", head: true })
@@ -48,8 +108,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
       .then(({ count }) => setUnreadCount(count || 0));
 
     if (!viewAsClient && targetProfile?.role === "client") {
-      const cardUrl = viewAsClient ? `/api/stripe/card?client_id=${targetId}` : "/api/stripe/card";
-      fetch(cardUrl).then(r => r.json()).then(d => setHasCard(!!d.card)).catch(() => setHasCard(false));
+      fetch("/api/stripe/card").then(r => r.json()).then(d => setHasCard(!!d.card)).catch(() => setHasCard(false));
     }
   }, [targetId]);
 
@@ -57,12 +116,35 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const showCardBanner = !viewAsClient && targetProfile?.role === "client" && hasCard === false;
 
   const formatBooking = () => {
-    if (!nextBooking) return "No upcoming sessions";
+    if (!nextBooking) {
+      if (requestedCount > 0) return `No booked sessions · ${requestedCount} pending request${requestedCount !== 1 ? "s" : ""}`;
+      return "No upcoming sessions";
+    }
     const d = new Date(nextBooking.date + "T00:00:00");
     const month = d.toLocaleString("en-US", { month: "short" });
     const day = d.getDate();
-    return `Next: ${month} ${day}, ${nextBooking.time_slot}`;
+    const base = `Next: ${month} ${day}, ${nextBooking.time_slot}`;
+    if (requestedCount > 0) return `${base} · ${requestedCount} pending request${requestedCount !== 1 ? "s" : ""}`;
+    return base;
   };
+
+  const adminScheduleDesc = () => {
+    if (!adminStats) return "Loading...";
+    return (
+      <div>
+        {[["1w", adminStats.w1], ["2w", adminStats.w2], ["3w", adminStats.w3], ["4w", adminStats.w4]].map(([label, stat]) => (
+          <div key={label} style={{ display: "flex", gap: 8, fontSize: 13, color: C.text, marginBottom: 2 }}>
+            <span style={{ color: C.muted, width: 24, flexShrink: 0 }}>{label}</span>
+            <span>{stat.booked} session{stat.booked !== 1 ? "s" : ""} · {stat.requested} request{stat.requested !== 1 ? "s" : ""} · {stat.sp} SP</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const scheduleTarget = isAdmin ? "Admin Schedule" : "Schedule";
+  const scheduleLabel = isAdmin ? "Schedule" : "Schedule";
+  const scheduleDesc = isAdmin ? adminScheduleDesc() : formatBooking();
 
   return (
     <div style={S.page}>
@@ -78,16 +160,17 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
       <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, marginBottom:"1.5rem" }}>
         <h2 style={{...S.h2, color:C.teal}}>Welcome back, {displayName}</h2>
         <p style={{...S.p, color:C.teal, marginBottom:0}}>
-          {nextBooking
-            ? <>Your next session with Diana is on <strong>{new Date(nextBooking.date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })} at {nextBooking.time_slot}</strong>. A video link will be sent to your email 30 minutes before.</>
-            : "You have no upcoming sessions. Head to Schedule to book one."}
+          {isAdmin
+            ? "Here's your upcoming schedule overview."
+            : nextBooking
+              ? <>Your next session with Diana is on <strong>{new Date(nextBooking.date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })} at {nextBooking.time_slot}</strong>. A video link will be sent to your email 30 minutes before.</>
+              : "You have no upcoming sessions. Head to Schedule to book one."}
         </p>
       </div>
       <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(2,1fr)", gap:12 }}>
         {[
           ["Documents", "Documents", `${docCount} file${docCount !== 1 ? "s" : ""} shared`],
-          // Admin (not in view-as-client) gets the AdminSchedule page
-          [profile?.role === "admin" && !viewAsClient ? "Admin Schedule" : "Schedule", "Schedule", formatBooking()],
+          [scheduleTarget, scheduleLabel, scheduleDesc],
           ["Messages", "Messages", `${unreadCount} message${unreadCount !== 1 ? "s" : ""}`],
           ["Buy Sessions", "Buy Sessions", (() => {
             if (balanceMinutes === null) return "Purchase a package";
@@ -101,7 +184,10 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
         ].map(([target, label, d]) => (
           <div key={label} style={{ ...S.card, cursor:"pointer" }} onClick={() => setPage(target)}>
             <h3 style={{ ...S.h3, color:C.teal }}>{label}</h3>
-            <p style={{ ...S.p, marginBottom:0, fontSize:13 }}>{d}</p>
+            {typeof d === "string"
+              ? <p style={{ ...S.p, marginBottom:0, fontSize:13 }}>{d}</p>
+              : <div style={{ marginBottom: 0 }}>{d}</div>
+            }
           </div>
         ))}
       </div>
