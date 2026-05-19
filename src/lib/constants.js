@@ -3,7 +3,7 @@ export const C = {
   purple: "#534AB7", purpleLight: "#EEEDFE",
   warm: "#F5F0EB", warmBorder: "#E8E0D5",
   text: "#2C2C2A", muted: "#5F5E5A", hint: "#888780",
-  border: "rgba(0,0,0,0.1)",
+  border: "rgba(0,0,0,0.35)",
   gridLine: "rgba(0,0,0,0.3)",
 };
 
@@ -22,7 +22,7 @@ export const S = {
   page: { minHeight:"calc(100vh - 64px)", padding:"2rem 1rem 5rem", maxWidth:800, margin:"0 auto" },
   h1: { fontSize:30, fontWeight:500, color:C.text, marginBottom:"1rem", lineHeight:1.25 },
   h2: { fontSize:22, fontWeight:500, color:C.text, marginBottom:"0.75rem" },
-  h3: { fontSize:16, fontWeight:500, color:C.text, marginBottom:"0.5rem" },
+  h3: { fontSize:20, fontWeight:500, color:C.text, marginBottom:"0.5rem" },
   p: { fontSize:15, color:C.muted, lineHeight:1.75, marginBottom:"1rem" },
   card: { background:"#fff", border:`0.5px solid ${C.border}`, borderRadius:12, padding:"1.25rem 1.5rem", marginBottom:"1rem" },
   input: { width:"100%", padding:"10px 12px", border:`0.5px solid ${C.border}`, borderRadius:8, fontSize:16, fontFamily:"inherit", marginBottom:"0.75rem", boxSizing:"border-box", outline:"none" },
