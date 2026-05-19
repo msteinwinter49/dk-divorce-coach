@@ -143,8 +143,28 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   };
 
   const scheduleTarget = isAdmin ? "Admin Schedule" : "Schedule";
-  const scheduleLabel = isAdmin ? "Schedule" : "Schedule";
   const scheduleDesc = isAdmin ? adminScheduleDesc() : formatBooking();
+
+  const balanceDesc = (() => {
+    if (balanceMinutes === null) return "Purchase a package";
+    if (balanceMinutes <= 0) return "Low balance — buy more";
+    const h = Math.floor(balanceMinutes / 60);
+    const m = balanceMinutes % 60;
+    if (h === 0) return `${m} minute${m !== 1 ? "s" : ""} available`;
+    if (m === 0) return `${h} hour${h !== 1 ? "s" : ""} available`;
+    return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""} available`;
+  })();
+
+  const homeCards = isAdmin
+    ? [
+        [scheduleTarget, "Schedule", scheduleDesc],
+        ["Admin Clients", "Clients", "View, search, and invite clients"],
+        ["Admin Groups", "Groups", "Manage groups, balances, and rates"],
+      ]
+    : [
+        [scheduleTarget, "Schedule", scheduleDesc],
+        ["Buy Sessions", "Buy Sessions", balanceDesc],
+      ];
 
   return (
     <div style={S.page}>
@@ -157,7 +177,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
           Click to enter a Payment Method on your Profile page.
         </div>
       )}
-      <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, marginBottom:"1.5rem" }}>
+      <div style={{ ...S.card, background:C.tealLight, border:`0.5px solid ${C.tealMid}`, marginBottom: isAdmin ? "0.75rem" : "1.5rem" }}>
         <h2 style={{...S.h2, color:C.teal}}>Welcome back, {displayName}</h2>
         <p style={{...S.p, color:C.teal, marginBottom:0}}>
           {isAdmin
@@ -167,22 +187,9 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
               : "You have no upcoming sessions. Head to Schedule to book one."}
         </p>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(2,1fr)", gap:12 }}>
-        {[
-          ["Documents", "Documents", `${docCount} file${docCount !== 1 ? "s" : ""} shared`],
-          [scheduleTarget, scheduleLabel, scheduleDesc],
-          ["Messages", "Messages", `${unreadCount} message${unreadCount !== 1 ? "s" : ""}`],
-          ["Buy Sessions", "Buy Sessions", (() => {
-            if (balanceMinutes === null) return "Purchase a package";
-            if (balanceMinutes <= 0) return "Low balance — buy more";
-            const h = Math.floor(balanceMinutes / 60);
-            const m = balanceMinutes % 60;
-            if (h === 0) return `${m} minute${m !== 1 ? "s" : ""} available`;
-            if (m === 0) return `${h} hour${h !== 1 ? "s" : ""} available`;
-            return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""} available`;
-          })()],
-        ].map(([target, label, d]) => (
-          <div key={label} style={{ ...S.card, cursor:"pointer" }} onClick={() => setPage(target)}>
+      <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr" : "repeat(2,1fr)", gap: (isAdmin || mobile) ? 0 : 12 }}>
+        {homeCards.map(([target, label, d]) => (
+          <div key={label} style={{ ...S.card, cursor:"pointer", ...((isAdmin || mobile) && { padding:"0.5rem 0 0 0", marginBottom:0, marginLeft:"0.5rem" }) }} onClick={() => setPage(target)}>
             <h3 style={{ ...S.h3, color:C.teal }}>{label}</h3>
             {typeof d === "string"
               ? <p style={{ ...S.p, marginBottom:0, fontSize:13 }}>{d}</p>
@@ -190,15 +197,6 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
             }
           </div>
         ))}
-      </div>
-      <div style={{ ...S.card, marginTop:"0.5rem" }}>
-        <h3 style={S.h3}>Your progress</h3>
-        <p style={{...S.p, fontSize:14}}>Work with Diana to track your coaching milestones here.</p>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          {["Coparenting plan","Communication tools","Child conversation guide","Legal prep checklist"].map(t => (
-            <span key={t} style={{ fontSize:12, padding:"4px 12px", borderRadius:20, background:C.tealLight, color:C.teal, border:`0.5px solid ${C.tealMid}` }}>{t}</span>
-          ))}
-        </div>
       </div>
     </div>
   );
