@@ -38,21 +38,21 @@ function downloadCSV(rows, clientName) {
 
 function buildPrintHtml(rows, clientName, start, end) {
   const headerRow = `<tr style="background:#f7f7f5">
-    <th style="text-align:left;padding:8px 10px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Date</th>
-    <th style="text-align:left;padding:8px 10px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Description</th>
-    <th style="text-align:right;padding:8px 10px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Minutes</th>
-    <th style="text-align:right;padding:8px 10px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Amount</th>
-    <th style="text-align:right;padding:8px 10px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Balance</th>
+    <th style="text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Date</th>
+    <th style="text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Description</th>
+    <th style="text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Minutes</th>
+    <th style="text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Amount</th>
+    <th style="text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Balance</th>
   </tr>`;
 
   const bodyRows = rows.map(r => {
     const minColor = r.delta_minutes > 0 ? "#0F6E56" : r.delta_minutes < 0 ? "#c0392b" : "#5F5E5A";
     return `<tr>
-      <td style="padding:8px 10px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDate(r.date)}</td>
-      <td style="padding:8px 10px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.description}</td>
-      <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1);color:${minColor}">${fmtMins(r.delta_minutes)}</td>
-      <td style="padding:8px 10px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDollars(r.amount_cents)}</td>
-      <td style="padding:8px 10px;font-size:13px;text-align:right;font-weight:500;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.balance_minutes} min</td>
+      <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDate(r.date)}</td>
+      <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.description}</td>
+      <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1);color:${minColor}">${fmtMins(r.delta_minutes)}</td>
+      <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDollars(r.amount_cents)}</td>
+      <td style="padding:8px 7px;font-size:13px;text-align:right;font-weight:500;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.balance_minutes} min</td>
     </tr>`;
   }).join("");
 
@@ -100,8 +100,8 @@ export default function Statement({ groupId, clientName }) {
     win.print();
   };
 
-  const thStyle = { textAlign: "left", padding: "8px 10px", fontSize: 12, fontWeight: 600, color: C.muted, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
-  const tdStyle = { padding: "8px 10px", fontSize: 13, color: C.text, borderBottom: `0.5px solid ${C.border}`, verticalAlign: "top" };
+  const thStyle = { textAlign: "left", padding: "8px 7px", fontSize: 12, fontWeight: 600, color: C.muted, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" };
+  const tdStyle = { padding: "8px 7px", fontSize: 13, color: C.text, borderBottom: `0.5px solid ${C.border}`, verticalAlign: "top" };
   const tdNum = { ...tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums" };
 
   return (
