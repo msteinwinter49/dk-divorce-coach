@@ -20,15 +20,15 @@ function describeRow(row, bookingMap, purchaseMap) {
     }
     case "request":
       return bookingMap[row.source_id]
-        ? `Session on ${bookingMap[row.source_id]}`
+        ? `Session on ${bookingMap[row.source_id].label}`
         : "Session requested";
     case "cancel":
       return bookingMap[row.source_id]
-        ? `Cancellation — ${bookingMap[row.source_id]}`
+        ? `Cancellation — ${bookingMap[row.source_id].label}`
         : "Session cancelled";
     case "edit_delta":
       return bookingMap[row.source_id]
-        ? `Duration adjustment — ${bookingMap[row.source_id]}`
+        ? `Duration adjustment — ${bookingMap[row.source_id].label}`
         : "Duration adjustment";
     case "admin_adjust":
       return row.note ? `Admin adjustment: ${row.note}` : "Admin adjustment";
@@ -41,6 +41,33 @@ function describeRow(row, bookingMap, purchaseMap) {
     default:
       return row.source_type;
   }
+}
+
+function fmtName(profile) {
+  if (!profile) return null;
+  const first = profile.first_name || "";
+  const last = profile.last_name || "";
+  return last ? `${first} ${last.charAt(0)}.` : first || null;
+}
+
+const ADMIN_TYPES = new Set(["admin_adjust", "admin_charge", "admin_refund"]);
+const SESSION_TYPES = new Set(["request", "cancel", "edit_delta"]);
+
+function rowNames(row, bookingMap, purchaseMap, profileMap, isMultiMember) {
+  if (ADMIN_TYPES.has(row.source_type)) return ["Admin"];
+  if (!isMultiMember) return [];
+  if (row.source_type === "purchase") {
+    const p = purchaseMap[row.source_id];
+    const name = p ? fmtName(profileMap[p.purchaser_client_id]) : null;
+    return name ? [name] : [];
+  }
+  if (SESSION_TYPES.has(row.source_type)) {
+    const b = bookingMap[row.source_id];
+    if (!b) return [];
+    const ids = b.participant_ids?.length > 0 ? b.participant_ids : (b.user_id ? [b.user_id] : []);
+    return ids.map(id => fmtName(profileMap[id])).filter(Boolean);
+  }
+  return [];
 }
 
 export async function GET(request) {
@@ -95,20 +122,26 @@ export async function GET(request) {
     query = query.lt("created_at", endDate.toISOString());
   }
 
-  const { data: ledger, error } = await query;
+  const [{ data: ledger, error }, { data: group }, { count: memberCount }] = await Promise.all([
+    query,
+    admin.from("groups").select("name").eq("id", groupId).single(),
+    admin.from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId),
+  ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!ledger?.length) return NextResponse.json({ rows: [] });
+  if (!ledger?.length) return NextResponse.json({ group_name: group?.name ?? null, rows: [] });
+
+  const isMultiMember = (memberCount ?? 1) > 1;
 
   // Collect source IDs by type to batch-fetch descriptions
-  const bookingIds = [...new Set(ledger.filter(r => r.source_id && ["request", "cancel", "edit_delta"].includes(r.source_type)).map(r => r.source_id))];
+  const bookingIds = [...new Set(ledger.filter(r => r.source_id && SESSION_TYPES.has(r.source_type)).map(r => r.source_id))];
   const purchaseIds = [...new Set(ledger.filter(r => r.source_id && r.source_type === "purchase").map(r => r.source_id))];
 
   const [bookingsRes, purchasesRes] = await Promise.all([
     bookingIds.length
-      ? admin.from("bookings").select("id, date, time_slot").in("id", bookingIds)
+      ? admin.from("bookings").select("id, date, time_slot, user_id, participant_ids").in("id", bookingIds)
       : { data: [] },
     purchaseIds.length
-      ? admin.from("purchases").select("id, total_minutes, package_size").in("id", purchaseIds)
+      ? admin.from("purchases").select("id, total_minutes, package_size, purchaser_client_id").in("id", purchaseIds)
       : { data: [] },
   ]);
 
@@ -124,11 +157,32 @@ export async function GET(request) {
     const ampm = h >= 12 ? "PM" : "AM";
     const h12 = h % 12 || 12;
     const timeStr = m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
-    bookingMap[b.id] = `${dateStr} at ${timeStr}`;
+    bookingMap[b.id] = { label: `${dateStr} at ${timeStr}`, user_id: b.user_id, participant_ids: b.participant_ids };
   });
 
   const purchaseMap = {};
   (purchasesRes.data || []).forEach(p => { purchaseMap[p.id] = p; });
+
+  // Batch-fetch profiles for name resolution
+  const clientIds = new Set();
+  if (isMultiMember) {
+    (bookingsRes.data || []).forEach(b => {
+      if (b.user_id) clientIds.add(b.user_id);
+      (b.participant_ids || []).forEach(id => clientIds.add(id));
+    });
+    (purchasesRes.data || []).forEach(p => {
+      if (p.purchaser_client_id) clientIds.add(p.purchaser_client_id);
+    });
+  }
+
+  const profileMap = {};
+  if (clientIds.size > 0) {
+    const { data: profiles } = await admin
+      .from("profiles")
+      .select("id, first_name, last_name")
+      .in("id", [...clientIds]);
+    (profiles || []).forEach(p => { profileMap[p.id] = p; });
+  }
 
   // Build rows with running balance
   let running = 0;
@@ -138,11 +192,12 @@ export async function GET(request) {
       id: row.id,
       date: row.created_at,
       description: describeRow(row, bookingMap, purchaseMap),
+      names: rowNames(row, bookingMap, purchaseMap, profileMap, isMultiMember),
       delta_minutes: row.delta_minutes || 0,
       amount_cents: row.amount_cents || null,
       balance_minutes: running,
     };
   });
 
-  return NextResponse.json({ rows });
+  return NextResponse.json({ group_name: group?.name ?? null, rows });
 }

@@ -92,7 +92,7 @@ export default function App() {
       <div style={{ minHeight: "calc(100vh - 64px)", padding: "2rem 1rem 5rem", maxWidth: 800, margin: "0 auto" }}>
         <h1 style={{ fontSize: 26, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>Statement</h1>
         <p style={{ fontSize: 15, color: "#5F5E5A", marginBottom: 24 }}>Your session and purchase history.</p>
-        <Statement clientName={viewAsClient ? `${viewAsClient.first_name} ${viewAsClient.last_name || ""}`.trim() : `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim()} />
+        <Statement />
       </div>
     );
     if (isAdmin && page === "Admin Schedule") return <AdminSchedule setPage={setPage} />;

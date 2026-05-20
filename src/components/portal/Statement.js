@@ -17,11 +17,12 @@ function fmtDollars(cents) {
   return "$" + (Math.abs(cents) / 100).toFixed(2);
 }
 
-function downloadCSV(rows, clientName) {
-  const header = ["Date", "Description", "Minutes", "Amount", "Balance (min)"];
+function downloadCSV(rows, groupName) {
+  const header = ["Date", "Description", "Clients", "Minutes", "Amount", "Balance (min)"];
   const lines = rows.map(r => [
     `"${fmtDate(r.date)}"`,
     `"${r.description.replace(/"/g, '""')}"`,
+    r.names?.length ? `"${r.names.join(", ")}"` : "",
     r.delta_minutes || 0,
     r.amount_cents != null ? (Math.abs(r.amount_cents) / 100).toFixed(2) : "",
     r.balance_minutes,
@@ -31,12 +32,12 @@ function downloadCSV(rows, clientName) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `statement-${(clientName || "client").replace(/\s+/g, "-").toLowerCase()}.csv`;
+  a.download = `statement-${(groupName || "group").replace(/\s+/g, "-").toLowerCase()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
-function buildPrintHtml(rows, clientName, start, end) {
+function buildPrintHtml(rows, groupName, start, end) {
   const headerRow = `<tr style="background:#f7f7f5">
     <th style="text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Date</th>
     <th style="text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Description</th>
@@ -47,9 +48,10 @@ function buildPrintHtml(rows, clientName, start, end) {
 
   const bodyRows = rows.map(r => {
     const minColor = r.delta_minutes > 0 ? "#0F6E56" : r.delta_minutes < 0 ? "#c0392b" : "#5F5E5A";
+    const nameStr = r.names?.length ? `<div style="font-size:11px;color:#5F5E5A;margin-top:2px">${r.names.join(", ")}</div>` : "";
     return `<tr>
       <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDate(r.date)}</td>
-      <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.description}</td>
+      <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.description}${nameStr}</td>
       <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1);color:${minColor}">${fmtMins(r.delta_minutes)}</td>
       <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDollars(r.amount_cents)}</td>
       <td style="padding:8px 7px;font-size:13px;text-align:right;font-weight:500;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.balance_minutes} min</td>
@@ -60,17 +62,19 @@ function buildPrintHtml(rows, clientName, start, end) {
     <style>
       body { font-family: system-ui, sans-serif; padding: 24px; color: #2C2C2A; }
       table { width: 100%; border-collapse: collapse; }
+      h1 { margin: 0 0 16px; font-size: 20px; text-align: center; }
       h2 { margin: 0 0 4px; font-size: 18px; }
       p { margin: 0 0 20px; font-size: 13px; color: #5F5E5A; }
     </style>
   </head><body>
-    <h2>${clientName ? `Statement — ${clientName}` : "Statement"}</h2>
+    <h1>DK Divorce Coach</h1>
+    <h2>${groupName ? `Statement — ${groupName}` : "Statement"}</h2>
     <p>${fmtDate(start + "T00:00:00")} – ${fmtDate(end + "T00:00:00")}</p>
     <table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>
   </body></html>`;
 }
 
-export default function Statement({ groupId, clientName }) {
+export default function Statement({ groupId }) {
   const today = new Date();
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   const fmt = d => d.toISOString().slice(0, 10);
@@ -78,6 +82,7 @@ export default function Statement({ groupId, clientName }) {
   const [start, setStart] = useState(fmt(firstOfMonth));
   const [end, setEnd] = useState(fmt(today));
   const [rows, setRows] = useState(null);
+  const [groupName, setGroupName] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -89,12 +94,13 @@ export default function Statement({ groupId, clientName }) {
     const res = await fetch(`/api/statement?${params}`).then(r => r.json()).catch(() => ({ error: "Network error" }));
     setLoading(false);
     if (res.error) { setError(res.error); return; }
+    setGroupName(res.group_name || null);
     setRows(res.rows || []);
   }, [groupId, start, end]);
 
   const handlePrint = () => {
     const win = window.open("", "_blank");
-    win.document.write(buildPrintHtml(rows, clientName, start, end));
+    win.document.write(buildPrintHtml(rows, groupName, start, end));
     win.document.close();
     win.focus();
     win.print();
@@ -122,7 +128,7 @@ export default function Statement({ groupId, clientName }) {
         {rows?.length > 0 && (
           <>
             <button style={S.btnSmOut} onClick={handlePrint}>Print</button>
-            <button style={S.btnSmOut} onClick={() => downloadCSV(rows, clientName)}>Download CSV</button>
+            <button style={S.btnSmOut} onClick={() => downloadCSV(rows, groupName)}>Download CSV</button>
           </>
         )}
       </div>
@@ -134,7 +140,7 @@ export default function Statement({ groupId, clientName }) {
           <div style={{ position: "sticky", top: "var(--nav-height, 56px)", zIndex: 5, background: "#fff" }}>
             <div style={{ paddingTop: 8, paddingBottom: 8 }}>
               <div style={{ fontWeight: 600, fontSize: 15 }}>
-                {clientName ? `Statement — ${clientName}` : "Statement"}
+                {groupName ? `Statement — ${groupName}` : "Statement"}
               </div>
               <div style={{ fontSize: 13, color: C.muted }}>
                 {fmtDate(start + "T00:00:00")} – {fmtDate(end + "T00:00:00")}
@@ -163,7 +169,12 @@ export default function Statement({ groupId, clientName }) {
                 {rows.map(r => (
                   <tr key={r.id}>
                     <td style={tdStyle}>{fmtDate(r.date)}</td>
-                    <td style={tdStyle}>{r.description}</td>
+                    <td style={tdStyle}>
+                      <div>{r.description}</div>
+                      {r.names?.length > 0 && (
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{r.names.join(", ")}</div>
+                      )}
+                    </td>
                     <td style={{ ...tdNum, color: r.delta_minutes > 0 ? C.teal : r.delta_minutes < 0 ? "#c0392b" : C.muted }}>
                       {fmtMins(r.delta_minutes)}
                     </td>

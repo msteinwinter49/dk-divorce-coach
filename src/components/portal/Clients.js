@@ -856,7 +856,6 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
                 <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Statement</h3>
                 <Statement
                   groupId={detail.group_id}
-                  clientName={`${detail.first_name || ""} ${detail.last_name || ""}`.trim()}
                   isAdmin={true}
                 />
               </div>
