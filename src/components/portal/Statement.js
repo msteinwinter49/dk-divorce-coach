@@ -37,7 +37,7 @@ function downloadCSV(rows, groupName) {
   URL.revokeObjectURL(url);
 }
 
-function buildPrintHtml(rows, groupName, start, end) {
+function buildPrintHtml(rows, groupName, start, end, balanceForward) {
   const thL = "text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1);background:#f7f7f5";
   const thR = "text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1);background:#f7f7f5";
 
@@ -48,6 +48,14 @@ function buildPrintHtml(rows, groupName, start, end) {
     <th style="${thR}">Amount</th>
     <th style="${thR}">Balance</th>
   </tr>`;
+
+  const forwardRow = balanceForward !== 0 ? `<tr>
+    <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDate(start + "T00:00:00")}</td>
+    <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1);color:#5F5E5A;font-style:italic">Balance forward</td>
+    <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1)"></td>
+    <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1)"></td>
+    <td style="padding:8px 7px;font-size:13px;text-align:right;font-weight:500;border-bottom:0.5px solid rgba(0,0,0,0.1)">${balanceForward} min</td>
+  </tr>` : "";
 
   const bodyRows = rows.map(r => {
     const minColor = r.delta_minutes > 0 ? "#0F6E56" : r.delta_minutes < 0 ? "#c0392b" : "#5F5E5A";
@@ -78,7 +86,7 @@ function buildPrintHtml(rows, groupName, start, end) {
       <div style="font-size:13px;font-weight:600;text-align:left">${title}</div>
       <div style="font-size:12px;color:#5F5E5A;text-align:left">${dateRange}</div>
     </div>
-    <table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>
+    <table><thead>${headerRow}</thead><tbody>${forwardRow}${bodyRows}</tbody></table>
   </body></html>`;
 }
 
@@ -91,6 +99,7 @@ export default function Statement({ groupId }) {
   const [end, setEnd] = useState(fmt(today));
   const [rows, setRows] = useState(null);
   const [groupName, setGroupName] = useState(null);
+  const [balanceForward, setBalanceForward] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -103,12 +112,13 @@ export default function Statement({ groupId }) {
     setLoading(false);
     if (res.error) { setError(res.error); return; }
     setGroupName(res.group_name || null);
+    setBalanceForward(res.balance_forward ?? 0);
     setRows(res.rows || []);
   }, [groupId, start, end]);
 
   const handlePrint = () => {
     const win = window.open("", "_blank");
-    win.document.write(buildPrintHtml(rows, groupName, start, end));
+    win.document.write(buildPrintHtml(rows, groupName, start, end, balanceForward));
     win.document.close();
     win.focus();
     win.print();
@@ -117,6 +127,16 @@ export default function Statement({ groupId }) {
   const thStyle = { textAlign: "left", padding: "8px 7px", fontSize: 12, fontWeight: 600, color: C.muted, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", background: "#f7f7f5" };
   const tdStyle = { padding: "8px 7px", fontSize: 13, color: C.text, borderBottom: `0.5px solid ${C.border}`, verticalAlign: "top" };
   const tdNum = { ...tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums" };
+  const tblStyle = { width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" };
+  const colGroup = (
+    <colgroup>
+      <col style={{ width: "14%" }} />
+      <col style={{ width: "44%" }} />
+      <col style={{ width: "14%" }} />
+      <col style={{ width: "14%" }} />
+      <col style={{ width: "14%" }} />
+    </colgroup>
+  );
 
   return (
     <div>
@@ -124,11 +144,11 @@ export default function Statement({ groupId }) {
       <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 }}>
         <div>
           <label style={S.label}>From</label>
-          <input style={{ ...S.input, width: 140, marginBottom: 0 }} type="date" value={start} onChange={e => setStart(e.target.value)} />
+          <input style={{ ...S.input, width: 160, marginBottom: 0 }} type="date" value={start} onChange={e => setStart(e.target.value)} />
         </div>
         <div>
           <label style={S.label}>To</label>
-          <input style={{ ...S.input, width: 140, marginBottom: 0 }} type="date" value={end} onChange={e => setEnd(e.target.value)} />
+          <input style={{ ...S.input, width: 160, marginBottom: 0 }} type="date" value={end} onChange={e => setEnd(e.target.value)} />
         </div>
         <button style={S.btn} onClick={load} disabled={loading}>
           {loading ? "Loading..." : "Load"}
@@ -155,7 +175,8 @@ export default function Statement({ groupId }) {
               </div>
             </div>
             {rows.length > 0 && (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <table style={tblStyle}>
+                {colGroup}
                 <thead>
                   <tr>
                     <th style={thStyle}>Date</th>
@@ -172,8 +193,18 @@ export default function Statement({ groupId }) {
           {rows.length === 0 ? (
             <p style={{ fontSize: 14, color: C.muted }}>No transactions in this period.</p>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <table style={tblStyle}>
+              {colGroup}
               <tbody>
+                {balanceForward !== 0 && (
+                  <tr>
+                    <td style={tdStyle}>{fmtDate(start + "T00:00:00")}</td>
+                    <td style={{ ...tdStyle, color: C.muted, fontStyle: "italic" }}>Balance forward</td>
+                    <td style={tdNum} />
+                    <td style={tdNum} />
+                    <td style={{ ...tdNum, fontWeight: 500 }}>{balanceForward} min</td>
+                  </tr>
+                )}
                 {rows.map(r => (
                   <tr key={r.id}>
                     <td style={tdStyle}>{fmtDate(r.date)}</td>

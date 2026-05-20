@@ -122,13 +122,21 @@ export async function GET(request) {
     query = query.lt("created_at", endDate.toISOString());
   }
 
-  const [{ data: ledger, error }, { data: group }, { count: memberCount }] = await Promise.all([
+  const priorQuery = start
+    ? admin.from("balance_ledger").select("delta_minutes").eq("group_id", groupId).lt("created_at", new Date(start).toISOString())
+    : null;
+
+  const [{ data: ledger, error }, { data: group }, { count: memberCount }, priorRes] = await Promise.all([
     query,
     admin.from("groups").select("name").eq("id", groupId).single(),
     admin.from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId),
+    priorQuery ?? Promise.resolve({ data: [] }),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!ledger?.length) return NextResponse.json({ group_name: group?.name ?? null, rows: [] });
+
+  const balanceForward = (priorRes.data || []).reduce((sum, r) => sum + (r.delta_minutes || 0), 0);
+
+  if (!ledger?.length) return NextResponse.json({ group_name: group?.name ?? null, balance_forward: balanceForward, rows: [] });
 
   const isMultiMember = (memberCount ?? 1) > 1;
 
@@ -185,7 +193,7 @@ export async function GET(request) {
   }
 
   // Build rows with running balance
-  let running = 0;
+  let running = balanceForward;
   const rows = ledger.map(row => {
     running += row.delta_minutes || 0;
     return {
@@ -199,5 +207,5 @@ export async function GET(request) {
     };
   });
 
-  return NextResponse.json({ group_name: group?.name ?? null, rows });
+  return NextResponse.json({ group_name: group?.name ?? null, balance_forward: balanceForward, rows });
 }
