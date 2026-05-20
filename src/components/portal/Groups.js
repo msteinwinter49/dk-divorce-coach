@@ -229,7 +229,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: `1px solid rgba(0,0,0,0.15)` }}>
             <h2 style={{ ...S.h3, fontSize: 20, marginBottom: 0 }}>
-              {isCreateMode ? "New Group" : (modal.name || "Group")}
+              {isCreateMode ? "New Group" : `Group Actions — ${modal.name || "Group"}`}
             </h2>
             <button onClick={closeModal} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: C.muted, lineHeight: 1, padding: "0 4px" }}>✕</button>
           </div>
