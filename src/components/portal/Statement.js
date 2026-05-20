@@ -38,12 +38,15 @@ function downloadCSV(rows, groupName) {
 }
 
 function buildPrintHtml(rows, groupName, start, end) {
-  const headerRow = `<tr style="background:#f7f7f5">
-    <th style="text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Date</th>
-    <th style="text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Description</th>
-    <th style="text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Minutes</th>
-    <th style="text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Amount</th>
-    <th style="text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1)">Balance</th>
+  const thL = "text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1);background:#f7f7f5";
+  const thR = "text-align:right;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1);background:#f7f7f5";
+
+  const headerRow = `<tr>
+    <th style="${thL}">Date</th>
+    <th style="${thL}">Description</th>
+    <th style="${thR}">Minutes</th>
+    <th style="${thR}">Amount</th>
+    <th style="${thR}">Balance</th>
   </tr>`;
 
   const bodyRows = rows.map(r => {
@@ -58,18 +61,23 @@ function buildPrintHtml(rows, groupName, start, end) {
     </tr>`;
   }).join("");
 
+  const title = groupName ? `Statement — ${groupName}` : "Statement";
+  const dateRange = `${fmtDate(start + "T00:00:00")} – ${fmtDate(end + "T00:00:00")}`;
+
   return `<!DOCTYPE html><html><head><title>Statement</title>
     <style>
-      body { font-family: system-ui, sans-serif; padding: 24px; color: #2C2C2A; }
+      * { box-sizing: border-box; }
+      @page { margin: 24px; }
+      body { font-family: system-ui, sans-serif; color: #2C2C2A; margin: 0; padding: 80px 24px 24px; }
       table { width: 100%; border-collapse: collapse; }
-      h1 { margin: 0 0 16px; font-size: 20px; text-align: center; }
-      h2 { margin: 0 0 4px; font-size: 18px; }
-      p { margin: 0 0 20px; font-size: 13px; color: #5F5E5A; }
+      .hdr { position: fixed; top: 0; left: 0; right: 0; width: 100%; height: 72px; background: #fff; border-bottom: 1px solid rgba(0,0,0,0.15); padding: 10px 24px 8px; }
     </style>
   </head><body>
-    <h1>DK Divorce Coach</h1>
-    <h2>${groupName ? `Statement — ${groupName}` : "Statement"}</h2>
-    <p>${fmtDate(start + "T00:00:00")} – ${fmtDate(end + "T00:00:00")}</p>
+    <div class="hdr">
+      <div style="font-size:16px;font-weight:700;margin-bottom:2px;text-align:center">DK Divorce Coach</div>
+      <div style="font-size:13px;font-weight:600;text-align:left">${title}</div>
+      <div style="font-size:12px;color:#5F5E5A;text-align:left">${dateRange}</div>
+    </div>
     <table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>
   </body></html>`;
 }
