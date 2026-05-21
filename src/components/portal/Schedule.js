@@ -38,7 +38,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const isAdminViewing = !!viewAsClient && profile?.role === "admin";
   const readOnly = !!viewAsClient && !isAdminViewing;
   const mobile = useIsMobile();
-  const [view, setView] = useState("month");
+  const [view, setView] = useState("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [availability, setAvailability] = useState({});
   const [bookings, setBookings] = useState([]);
@@ -391,7 +391,12 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   // Collapse the discrete availability slot list into contiguous free ranges,
   // then drop ranges shorter than minDuration. Returns [[startMin, endMin], ...].
   const getBookableRanges = useCallback((date) => {
-    const slots = availability[date] || [];
+    const now = new Date();
+    const todayStr = localDateStr(now);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    let slots = availability[date] || [];
+    if (slots.length === 0) return [];
+    if (date === todayStr) slots = slots.filter(s => { const [sh, sm] = s.split(":").map(Number); return sh * 60 + sm > nowMin; });
     if (slots.length === 0) return [];
     const ranges = [];
     for (const s of slots) {
@@ -459,7 +464,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
           left: 0,
           right: 0,
           height: b.height,
-          background: "#d4edda",
+          background: "#dbeafe",
           borderBottom: b.isLast ? "none" : `0.5px solid ${C.gridLine}`,
           cursor: readOnly ? "default" : "pointer",
           zIndex: 1,
@@ -951,6 +956,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
             </div>
             {days.map((d, i) => {
               const date = dateStr(d);
+              const isPast = d < new Date(new Date().setHours(0, 0, 0, 0));
               const overlayItems = getBookingsForDateOverlay(date, WEEK_ROW_H);
               return (
                 <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none" }}>
@@ -966,7 +972,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                         onDrop={(e) => handleDrop(e, date, h)}
                       />
                     ))}
-                    {getBookableOverlay(date, WEEK_ROW_H).map(item => renderBookableBar(date, item, WEEK_ROW_H))}
+                    {!isPast && getBookableOverlay(date, WEEK_ROW_H).map(item => renderBookableBar(date, item, WEEK_ROW_H))}
                     {overlayItems.map(item => renderOverlayBooking(item.data, item.top, item.height, true))}
                     {renderBookingPreview(date, WEEK_ROW_H)}
                     {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
@@ -1015,14 +1021,16 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                   minHeight: 80, padding: "4px 6px", minWidth: 0, overflow: "hidden",
                   borderBottom: wi < weeks.length - 1 ? `0.5px solid ${C.gridLine}` : "none",
                   borderRight: di < 6 ? `0.5px solid ${C.gridLine}` : "none",
+                  outline: sameDay(day, new Date()) ? `2px solid ${C.teal}` : "none",
+                  outlineOffset: "-2px",
                   opacity: isCurrentMonth ? 1 : 0.4,
                   cursor: hasAvail && !isPast ? "pointer" : "default",
-                  background: sameDay(day, new Date()) ? C.tealLight : hasAvail && !isPast ? "#f0faf5" : "transparent",
+                  background: hasAvail && !isPast ? "#eff6ff" : "transparent",
                 }} onClick={() => hasAvail && !isPast && openBookingPopup(date)}>
                   <div style={{
                     fontSize: 13, marginBottom: 4,
                     fontWeight: sameDay(day, new Date()) ? 600 : 400,
-                    color: hasAvail && !isPast ? C.teal : C.text,
+                    color: sameDay(day, new Date()) ? C.teal : hasAvail && !isPast ? "#3b82f6" : C.text,
                   }}>
                     {day.getDate()}
                   </div>
@@ -1053,7 +1061,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                     );
                   })}
                   {hasAvail && !isPast && dayBookings.length === 0 && (
-                    <div style={{ fontSize: 10, color: C.teal }}>Available</div>
+                    <div style={{ fontSize: 10, color: "#3b82f6" }}>Available</div>
                   )}
                 </div>
               );
@@ -1070,6 +1078,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const openBookingPopup = (date, time) => {
     if (readOnly) return;
     if (balanceMinutes !== null && balanceMinutes < 0) return;
+    if (date < localDateStr(new Date())) return;
     setBookingDate(date);
     setSelectedType(null);
     setSelectedTime(time || null);
@@ -1090,7 +1099,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   })()) : null;
   const hasUnsavedChanges = !bookingSuccess && (editingBooking
     ? (bookingDate !== origDate || selectedTime !== origTime || selectedType?.id !== editingBooking.session_type_id)
-    : !!(selectedTime || selectedType));
+    : !!selectedType);
   const tryClose = () => { if (hasUnsavedChanges) setShowCloseWarning(true); else closePopup(); };
 
   const renderBookingDayView = () => {
@@ -1124,7 +1133,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
         <div key={`dvavail-${b.startMin}`} onClick={() => handleSlotClick(b.timeStr)}
           style={{
             position: "absolute", top: b.top, left: 0, right: 0, height: b.height,
-            background: "#d4edda",
+            background: "#dbeafe",
             borderBottom: b.isLast ? "none" : `0.5px solid ${C.gridLine}`,
             cursor: "pointer", zIndex: 1, boxSizing: "border-box",
           }} />
@@ -1160,7 +1169,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
             {DAYS_SHORT[dayDate.getDay()]}, {MONTHS[dayDate.getMonth()]} {dayDate.getDate()}
           </span>
         </div>
-        <p style={{ fontSize: 12, color: C.muted, margin: "8px 16px 4px" }}>Tap a green slot to set your start time</p>
+        <p style={{ fontSize: 12, color: C.muted, margin: "8px 16px 4px" }}>Tap a blue slot to set your start time</p>
         <div style={{ display: "flex" }}>
           <div style={{ width: 60, flexShrink: 0 }}>
             {HOURS.map(h => (
@@ -1998,7 +2007,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
           ? "Read-only view — showing this client\u2019s bookings and available slots."
           : isAdminViewing
           ? `Managing ${viewAsClient.first_name}\u2019s schedule. Click to book or cancel sessions.`
-          : "Available times are shown in green. Click one to request a session. Click or drag your existing sessions to edit them — changing an approved session will send it back to Diana for re-approval."}
+          : "Available times are shown in blue. Click one to request a session. Click or drag your existing sessions to edit them — changing an approved session will send it back to Diana for re-approval."}
       </p>
 
       {loading ? (

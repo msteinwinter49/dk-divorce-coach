@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "env:test-stripe": "node -e \"require('fs').copyFileSync('.env.local.test-stripe', '.env.local')\" && echo Switched to TEST keys",
+    "env:live-stripe": "node -e \"require('fs').copyFileSync('.env.local.live-stripe', '.env.local')\" && echo Switched to LIVE keys"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.1.0",

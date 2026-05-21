@@ -248,6 +248,10 @@ export async function POST(request) {
   const startTimestamp = new Date(`${date}T${start_time}:00${offStr}`).toISOString();
   const endTimestamp = new Date(`${date}T${endTimeStr}:00${offStr}`).toISOString();
 
+  if (!isAdmin && new Date(startTimestamp) < new Date()) {
+    return NextResponse.json({ error: "Cannot request a session in the past." }, { status: 400 });
+  }
+
   // Create the booking
   // Admin booking on behalf of client goes straight to "booked"
   const bookingStatus = (isAdmin && (targetUserId || isGroupBooking)) ? "booked" : "requested";
