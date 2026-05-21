@@ -72,6 +72,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const [minNoticeHours, setMinNoticeHours] = useState(24);
   const [adminPhone, setAdminPhone] = useState("");
   const [blockedAlertOpen, setBlockedAlertOpen] = useState(false);
+  const [blockedAlertReason, setBlockedAlertReason] = useState("");
 
   // Cancel state
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -225,7 +226,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     return "This booking cannot be changed because there are other attendees.";
   };
 
-  const showBlockedAlert = () => setBlockedAlertOpen(true);
+  const showBlockedAlert = (b) => { setBlockedAlertReason(blockReason(b)); setBlockedAlertOpen(true); };
 
   const openEditPopup = (b) => {
     if (readOnly) return;
@@ -541,7 +542,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   // --- Drag and drop ---
 
   const handleDragStart = (e, b) => {
-    if (isChangeBlocked(b)) { e.preventDefault(); showBlockedAlert(); return; }
+    if (isChangeBlocked(b)) { e.preventDefault(); showBlockedAlert(b); return; }
     const durationMin = b.session_duration || 60;
     dragRef.current = { ...b, _durationMin: durationMin };
     e.dataTransfer.effectAllowed = "move";
@@ -633,7 +634,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const confirmPendingMove = async () => {
     if (!pendingMove) return;
     const { booking, newDate, newTime } = pendingMove;
-    if (isChangeBlocked(booking)) { setPendingMove(null); showBlockedAlert(); return; }
+    if (isChangeBlocked(booking)) { setPendingMove(null); showBlockedAlert(booking); return; }
     setConfirming(true);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
     const res = await fetch("/api/bookings", {
@@ -1588,7 +1589,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                     );
                   })()}
                   <div style={{ padding: "10px 14px", background: "#fff8e1", border: "1px solid #f0c040", borderRadius: 8, fontSize: 13, color: C.text }}>
-                    This booking cannot be changed because there is too little notice or multiple attendees.
+                    {blockReason(editingBooking)}
                     {adminPhone && <> Text Diana at <strong>{adminPhone}</strong> for assistance.</>}
                   </div>
                 </>
@@ -1940,7 +1941,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
             <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.1)", zIndex: 200 }} onClick={() => setBlockedAlertOpen(false)} />
             <div style={{ ...S.card, maxWidth: 380, width: "90%", margin: 0, position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 201 }} onClick={e => e.stopPropagation()}>
               <h3 style={{ ...S.h3, marginBottom: 10 }}>Change Not Allowed</h3>
-              <p style={{ ...S.p, marginBottom: 4 }}>You cannot make this change — too little notice or multiple attendees.</p>
+              <p style={{ ...S.p, marginBottom: 4 }}>{blockedAlertReason}</p>
               {adminPhone && <p style={{ ...S.p, marginBottom: 16 }}>Text Diana at <strong>{adminPhone}</strong> for assistance.</p>}
               <button style={S.btn} onClick={() => setBlockedAlertOpen(false)}>OK</button>
             </div>
@@ -2101,7 +2102,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
           <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.1)", zIndex: 200 }} onClick={() => setBlockedAlertOpen(false)} />
           <div style={{ ...S.card, maxWidth: 380, width: "90%", margin: 0, position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)", zIndex: 201 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ ...S.h3, marginBottom: 10 }}>Change Not Allowed</h3>
-            <p style={{ ...S.p, marginBottom: 4 }}>You cannot make this change — too little notice or multiple attendees.</p>
+            <p style={{ ...S.p, marginBottom: 4 }}>{blockedAlertReason}</p>
             {adminPhone && (
               <p style={{ ...S.p, marginBottom: 16 }}>Text Diana at <strong>{adminPhone}</strong> for assistance.</p>
             )}

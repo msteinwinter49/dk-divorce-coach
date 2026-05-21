@@ -170,10 +170,11 @@ function buildBookingDescription(booking, sessionType, status) {
   return lines.join("\n");
 }
 
-function buildBookingSummary(groupName, attendeeCount) {
+function buildBookingSummary(groupName, attendeeCount, status) {
   const name = (groupName || "").trim() || "Client";
   const suffix = attendeeCount > 1 ? ` (${attendeeCount})` : "";
-  return `Coaching: ${name}${suffix}`;
+  const prefix = status === "tentative" ? "DKDC Request" : "DKDC Session";
+  return `${prefix}: ${name}${suffix}`;
 }
 
 // Create or update the Google Calendar event for a booking.
@@ -189,7 +190,7 @@ export async function syncBookingToGoogle(refreshToken, booking, clientProfile, 
   const st = sessionType || booking.session_types || null;
 
   const requestBody = {
-    summary: buildBookingSummary(groupName, attendeeCount || 1),
+    summary: buildBookingSummary(groupName, attendeeCount || 1, status),
     description: buildBookingDescription(booking, st, status),
     start: { dateTime: new Date(booking.start_time).toISOString() },
     end: { dateTime: new Date(booking.end_time).toISOString() },
