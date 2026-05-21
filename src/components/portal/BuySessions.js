@@ -20,13 +20,14 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null); // { ok, balance_after } | { ok:false, error }
   const [balanceMinutes, setBalanceMinutes] = useState(null);
+  const [groupHourlyRate, setGroupHourlyRate] = useState(null);
 
   const clientId = viewAsClient?.id || null;
 
   const refreshBalance = useCallback(() => {
     if (!user) return;
     const balanceUrl = clientId ? `/api/purchases?client_id=${clientId}` : "/api/purchases";
-    fetch(balanceUrl).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
+    fetch(balanceUrl).then(r => r.json()).then(b => { setBalanceMinutes(b?.balance_minutes ?? 0); setGroupHourlyRate(b?.hourly_rate ?? null); }).catch(() => {});
   }, [user, clientId]);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
       setSessionTypes(Array.isArray(t) ? t : []);
       setCard(c?.card || null);
       setBalanceMinutes(b?.balance_minutes ?? 0);
+      setGroupHourlyRate(b?.hourly_rate ?? null);
       setLoading(false);
     });
   }, [user, clientId]);
@@ -69,6 +71,10 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
   const balanceSubtitle = balanceMinutes != null
     ? <p style={{ ...S.p, fontSize: 20, color: C.muted, marginTop: 4, marginBottom: 0 }}>Available to schedule: {fmtBalance(balanceMinutes)}</p>
     : null;
+
+  const effectiveCents = (p) => groupHourlyRate
+    ? Math.round(p.duration_min * p.package_size / 60 * groupHourlyRate * 100)
+    : p.price_cents;
 
   const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min)))
     .filter(d => sessionTypes.some(st => st.duration === d))
@@ -173,8 +179,8 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
           <p style={{ ...S.p, fontSize: 14 }}>{sessionLabel(chosenDuration)} — {chosenDuration} min sessions.</p>
           <div style={{ display: "grid", gap: 10 }}>
             {packagesForDuration(chosenDuration).map(p => {
-              const perSession = p.price_cents / p.package_size / 100;
-              const total = p.price_cents / 100;
+              const perSession = effectiveCents(p) / p.package_size / 100;
+              const total = effectiveCents(p) / 100;
               return (
                 <button
                   key={p.id}
@@ -204,7 +210,7 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
             <Row label="Total time" value={(() => { const total = chosenPackage.duration_min * chosenPackage.package_size; const h = Math.floor(total / 60); const m = total % 60; if (h === 0) return `${m} minute${m !== 1 ? "s" : ""}`; if (m === 0) return `${h} hour${h !== 1 ? "s" : ""}`; return `${h} hour${h !== 1 ? "s" : ""} and ${m} minute${m !== 1 ? "s" : ""}`; })()} />
             <Row label="Sessions expire" value={expiryPreview(chosenPackage.expires_months)} />
             <Row label="Payment method" value={`${card.brand?.toUpperCase() || "CARD"} ···· ${card.last4}`} />
-            <Row label="Total" value={`$${fmtUSD(chosenPackage.price_cents / 100)}`} bold />
+            <Row label="Total" value={`$${fmtUSD(effectiveCents(chosenPackage) / 100)}`} bold />
           </div>
           {readOnly && (
             <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>

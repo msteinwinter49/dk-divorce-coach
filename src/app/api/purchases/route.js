@@ -38,8 +38,13 @@ export async function GET(request) {
   const admin = adminSupabase();
   const targetId = clientId || user.id;
 
-  const groupId = await getGroupId(admin, targetId);
-  if (!groupId) return NextResponse.json({ balance_minutes: 0 });
+  const { data: membership } = await admin
+    .from("group_members")
+    .select("group_id, groups(hourly_rate)")
+    .eq("client_id", targetId)
+    .maybeSingle();
+  const groupId = membership?.group_id ?? null;
+  if (!groupId) return NextResponse.json({ balance_minutes: 0, hourly_rate: null });
 
   const { data } = await admin
     .from("group_balances")
@@ -47,7 +52,10 @@ export async function GET(request) {
     .eq("group_id", groupId)
     .maybeSingle();
 
-  return NextResponse.json({ balance_minutes: data?.balance_minutes ?? 0 });
+  return NextResponse.json({
+    balance_minutes: data?.balance_minutes ?? 0,
+    hourly_rate: membership?.groups?.hourly_rate ?? null,
+  });
 }
 
 // POST — purchase a pricing_matrix package. Charges card on file.
