@@ -179,11 +179,22 @@ export default function AdminSettings({ setPage }) {
 
   // --- Package sizes ---
   const togglePackageSize = async (n) => {
-    const next = packageSizes.includes(n)
-      ? packageSizes.filter(x => x !== n)
-      : [...packageSizes, n].sort((a, b) => a - b);
+    const adding = !packageSizes.includes(n);
+    const next = adding
+      ? [...packageSizes, n].sort((a, b) => a - b)
+      : packageSizes.filter(x => x !== n);
     setPackageSizes(next);
     await saveSetting("package_sizes", next.join(","));
+    // Cascade to pricing matrix: deactivate all rows for removed size;
+    // reactivate rows-with-price for re-added size.
+    await fetch("/api/pricing-matrix", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ package_size: n, is_active: adding }),
+    });
+    // Refresh pricing rows so the matrix reflects the updated is_active values.
+    const pm = await fetch("/api/pricing-matrix").then(r => r.json()).catch(() => []);
+    if (Array.isArray(pm)) setPricingRows(pm);
   };
 
   // --- Pricing matrix ---
@@ -632,7 +643,7 @@ export default function AdminSettings({ setPage }) {
       <div style={S.card}>
         <h3 style={S.h3}>Client experience</h3>
         <p style={{ ...S.p, fontSize: 13 }}>Preview what new clients see when they click their invitation link.</p>
-        <button style={S.btnSmOut} onClick={() => setPage("Preview Intake")}>Preview intake form</button>
+        <button style={S.btnSmOut} onClick={() => { setPage("Preview Intake"); setTimeout(() => window.scrollTo(0, 0), 0); }}>Preview intake form</button>
       </div>
     </div>
   );
