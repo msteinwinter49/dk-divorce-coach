@@ -3,7 +3,6 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { C, S } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
-import Statement from "./Statement";
 
 function formatPhoneInput(value) {
   const digits = (value || "").replace(/\D/g, "").slice(0, 10);
@@ -13,7 +12,7 @@ function formatPhoneInput(value) {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
+export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewStatement }) {
   const mobile = useIsMobile();
   // Invite form state
   const [email, setEmail] = useState("");
@@ -48,6 +47,13 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [phoneBlurred, setPhoneBlurred] = useState(false);
   const [emailBlurred, setEmailBlurred] = useState(false);
+  const [editBackupPhone, setEditBackupPhone] = useState("");
+  const [editAddressLine1, setEditAddressLine1] = useState("");
+  const [editAddressLine2, setEditAddressLine2] = useState("");
+  const [editAddressZip, setEditAddressZip] = useState("");
+  const [editAddressCity, setEditAddressCity] = useState("");
+  const [editAddressState, setEditAddressState] = useState("");
+  const [editZipLooking, setEditZipLooking] = useState(false);
   const phoneRef = useRef(null);
   const emailRef = useRef(null);
   const [adjustMinutes, setAdjustMinutes] = useState("");
@@ -81,6 +87,12 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
     setEditFirst(c.first_name || "");
     setEditLast(c.last_name || "");
     setEditPhone(formatPhoneInput(c.phone || ""));
+    setEditBackupPhone(formatPhoneInput(c.backup_phone || ""));
+    setEditAddressLine1(c.address_line1 || "");
+    setEditAddressLine2(c.address_line2 || "");
+    setEditAddressZip(c.address_zip || "");
+    setEditAddressCity(c.address_city || "");
+    setEditAddressState(c.address_state || "");
     setEditContactEmail(c.preferred_email || c.email || "");
     setEditTimezone(c.timezone || "America/New_York");
     setEditHourlyRate(c.group_hourly_rate != null ? String(c.group_hourly_rate) : "");
@@ -91,6 +103,23 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
     setMagicResult(null);
     setPhoneBlurred(false);
     setEmailBlurred(false);
+  };
+
+  const handleEditZipBlur = async (zip) => {
+    if (zip.length !== 5 || !/^\d{5}$/.test(zip)) return;
+    setEditZipLooking(true);
+    try {
+      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      if (res.ok) {
+        const data = await res.json();
+        const place = data.places?.[0];
+        if (place) {
+          setEditAddressCity(place["place name"] || "");
+          setEditAddressState(place["state abbreviation"] || "");
+        }
+      }
+    } catch { /* leave city/state as-is */ }
+    setEditZipLooking(false);
   };
 
   const closeDetail = () => {
@@ -108,6 +137,12 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
     setConfirmClose(false);
     setPhoneBlurred(false);
     setEmailBlurred(false);
+    setEditBackupPhone("");
+    setEditAddressLine1("");
+    setEditAddressLine2("");
+    setEditAddressZip("");
+    setEditAddressCity("");
+    setEditAddressState("");
     setEditHourlyRate("");
     setHourlyRateResult(null);
     setEditGroupId("");
@@ -121,6 +156,12 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
       editFirst !== (detail.first_name || "") ||
       editLast !== (detail.last_name || "") ||
       phoneDigits !== (detail.phone || "").replace(/\D/g, "") ||
+      editBackupPhone.replace(/\D/g, "") !== (detail.backup_phone || "").replace(/\D/g, "") ||
+      editAddressLine1 !== (detail.address_line1 || "") ||
+      editAddressLine2 !== (detail.address_line2 || "") ||
+      editAddressZip !== (detail.address_zip || "") ||
+      editAddressCity !== (detail.address_city || "") ||
+      editAddressState !== (detail.address_state || "") ||
       editContactEmail !== (detail.preferred_email || detail.email || "") ||
       editTimezone !== (detail.timezone || "America/New_York");
     if (dirty) { setConfirmClose(true); } else { closeDetail(); }
@@ -255,6 +296,12 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
       first_name: editFirst,
       last_name: editLast,
       phone: phoneDigits,
+      backup_phone: editBackupPhone.replace(/\D/g, "") || null,
+      address_line1: editAddressLine1 || null,
+      address_line2: editAddressLine2 || null,
+      address_zip: editAddressZip || null,
+      address_city: editAddressCity || null,
+      address_state: editAddressState || null,
       preferred_email: editContactEmail,
       timezone: editTimezone,
     };
@@ -270,10 +317,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
       return;
     }
     setDetailSuccess("Saved.");
-    // Update local list + the modal's own snapshot.
-    setClients(prev => prev.map(c => c.id === detail.id
-      ? { ...c, first_name: data.first_name, last_name: data.last_name, full_name: data.full_name, phone: data.phone, preferred_email: data.preferred_email, timezone: data.timezone }
-      : c));
+    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, ...data } : c));
     setDetail(d => d ? { ...d, ...data } : d);
   };
 
@@ -637,7 +681,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
             <div style={{ overflowY: "auto", flex: 1 }}>
 
             <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-              <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "").replace(/\D/g,"") || editContactEmail !== (d.preferred_email || d.email || "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
+              <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "").replace(/\D/g,"") || editBackupPhone.replace(/\D/g,"") !== (d.backup_phone || "").replace(/\D/g,"") || editAddressLine1 !== (d.address_line1 || "") || editAddressLine2 !== (d.address_line2 || "") || editAddressZip !== (d.address_zip || "") || editAddressCity !== (d.address_city || "") || editAddressState !== (d.address_state || "") || editContactEmail !== (d.preferred_email || d.email || "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <label style={{ ...S.label, fontSize: 16 }}>First name</label>
@@ -660,6 +704,33 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
                   {phoneBlurred && editPhone && editPhone.replace(/\D/g, "").length !== 10 && (
                     <p style={{ fontSize: 13, color: "#c0392b", margin: "4px 0 0" }}>Enter a 10-digit phone number</p>
                   )}
+                </div>
+                <div>
+                  <label style={{ ...S.label, fontSize: 16 }}>Backup phone</label>
+                  <input
+                    style={{ ...S.input, marginBottom: 0 }}
+                    value={editBackupPhone}
+                    onChange={e => setEditBackupPhone(formatPhoneInput(e.target.value))}
+                    placeholder="(555) 555-5555"
+                  />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={{ ...S.label, fontSize: 16 }}>Mailing address</label>
+                  <input style={{ ...S.input, marginBottom: 8 }} placeholder="Address line 1" value={editAddressLine1} onChange={e => setEditAddressLine1(e.target.value)} />
+                  <input style={{ ...S.input, marginBottom: 8 }} placeholder="Address line 2" value={editAddressLine2} onChange={e => setEditAddressLine2(e.target.value)} />
+                  <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 72px", gap: 8 }}>
+                    <div>
+                      <input
+                        style={{ ...S.input, marginBottom: 0 }}
+                        placeholder="ZIP" value={editAddressZip} maxLength={5}
+                        onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 5); setEditAddressZip(v); }}
+                        onBlur={e => handleEditZipBlur(e.target.value)}
+                      />
+                      {editZipLooking && <p style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Looking up…</p>}
+                    </div>
+                    <input style={{ ...S.input, marginBottom: 0 }} placeholder="City" value={editAddressCity} onChange={e => setEditAddressCity(e.target.value)} />
+                    <input style={{ ...S.input, marginBottom: 0 }} placeholder="ST" maxLength={2} value={editAddressState} onChange={e => setEditAddressState(e.target.value.toUpperCase().slice(0, 2))} />
+                  </div>
                 </div>
                 <div>
                   <label style={{ ...S.label, fontSize: 16 }}>Contact email</label>
@@ -745,7 +816,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
                 <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Adjust Group Balance{(adjustMinutes || adjustNote) ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null}</h3>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div>
-                    <label style={{ ...S.label, marginBottom: 4, fontSize: 16 }}>Minutes</label>
+                    <label style={{ ...S.label, marginBottom: 4, fontSize: 16 }}>N/C Minutes</label>
                     <input
                       style={{ ...S.input, width: 120, marginBottom: 0, borderColor: adjustMinutes && parseInt(adjustMinutes, 10) <= 0 ? "#c0392b" : undefined }}
                       type="text"
@@ -854,10 +925,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup }) {
             {detail.role !== "admin" && detail.group_id && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
                 <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Statement</h3>
-                <Statement
-                  groupId={detail.group_id}
-                  isAdmin={true}
-                />
+                <button style={S.btn} onClick={() => { closeDetail(); onViewStatement?.(detail); }}>View statement →</button>
               </div>
             )}
 

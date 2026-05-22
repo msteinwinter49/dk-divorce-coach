@@ -38,6 +38,7 @@ export default function App() {
   });
   const [viewAsClient, setViewAsClient] = useState(null);
   const [groupDetailId, setGroupDetailId] = useState(null);
+  const [adminStatementClient, setAdminStatementClient] = useState(null);
   const [profileFocus, setProfileFocus] = useState(null);
   const [bookingActive, setBookingActive] = useState(false);
   const inPortal = !!user;
@@ -75,6 +76,9 @@ export default function App() {
       if (page === "Contact") return <ContactPage />;
       return <LoginPage setPage={setPage} />;
     }
+    if (isAdmin && page === "Preview Intake") {
+      return <ClientIntake preview onClosePreview={() => setPage("Admin Settings")} />;
+    }
     // Force profile setup on first login
     if (needsProfile) {
       if (profile?.role === "client") {
@@ -99,7 +103,15 @@ export default function App() {
     if (isAdmin && page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
     if (isAdmin && !viewAsClient) {
       if (page === "Admin") return <Admin setPage={setPage} />;
-      if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} onOpenGroup={handleOpenGroup} />;
+      if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} onOpenGroup={handleOpenGroup} onViewStatement={(client) => { setAdminStatementClient(client); setPage("Admin Statement"); }} />;
+      if (page === "Admin Statement" && adminStatementClient) return (
+        <div style={{ minHeight: "calc(100vh - 64px)", padding: "2rem 1rem 5rem", maxWidth: 800, margin: "0 auto" }}>
+          <button style={{ background: "none", border: "none", cursor: "pointer", color: "#4AAFA0", fontSize: 13, padding: 0, marginBottom: 12, fontFamily: "inherit" }} onClick={() => { setPage("Admin Clients"); setAdminStatementClient(null); }}>← Back to Clients</button>
+          <h1 style={{ fontSize: 26, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>{adminStatementClient.first_name} {adminStatementClient.last_name} — Statement</h1>
+          <p style={{ fontSize: 15, color: "#5F5E5A", marginBottom: 24 }}>Session and purchase history.</p>
+          <Statement groupId={adminStatementClient.group_id} isAdmin={true} />
+        </div>
+      );
       if (page === "Admin Groups") return <Groups setPage={setPage} initialGroupId={groupDetailId} onGroupOpened={() => setGroupDetailId(null)} />;
       if (page === "Admin Settings") return <AdminSettings setPage={setPage} />;
     }

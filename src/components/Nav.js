@@ -23,7 +23,7 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, b
     ...clientLinks,
     ["Profile","Profile"],
   ] : [
-    ...(isAdmin ? clientLinks.map(l => l[0] === "Schedule" ? ["Admin Schedule","Schedule"] : l) : clientLinks),
+    ...(isAdmin ? clientLinks.filter(l => l[0] !== "Statement").map(l => l[0] === "Schedule" ? ["Admin Schedule","Schedule"] : l) : clientLinks),
     ["Profile","Profile"],
     ...(isAdmin ? [["Admin","Admin"]] : []),
   ];

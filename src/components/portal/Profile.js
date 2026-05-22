@@ -4,15 +4,31 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { loadStripe } from "@stripe/stripe-js";
+import { useSmsEnabled } from "@/lib/hooks";
 import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
+const TA = {
+  width: "100%", padding: "10px 12px", fontSize: 14,
+  border: "0.5px solid #d0d0d0", borderRadius: 6, outline: "none",
+  resize: "vertical", minHeight: 80, marginBottom: "0.75rem",
+  fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box",
+};
+
 export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled }) {
   const { user, profile, refreshProfile } = useAuth();
+  const smsEnabled = useSmsEnabled();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [backupPhone, setBackupPhone] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [addressZip, setAddressZip] = useState("");
+  const [addressCity, setAddressCity] = useState("");
+  const [addressState, setAddressState] = useState("");
+  const [zipLooking, setZipLooking] = useState(false);
   const [preferredEmail, setPreferredEmail] = useState("");
   const [notificationPref, setNotificationPref] = useState("email");
   const [reminderPref, setReminderPref] = useState("both");
@@ -20,6 +36,18 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+
+  const [bgOccupation, setBgOccupation] = useState("");
+  const [bgEducation, setBgEducation] = useState("");
+  const [bgRelationship, setBgRelationship] = useState("");
+  const [bgTherapist, setBgTherapist] = useState("");
+  const [bgLiving, setBgLiving] = useState("");
+  const [bgBrings, setBgBrings] = useState("");
+  const [bgGoals, setBgGoals] = useState("");
+  const [bgOther, setBgOther] = useState("");
+  const [bgSaving, setBgSaving] = useState(false);
+  const [bgError, setBgError] = useState(null);
+  const [bgSuccess, setBgSuccess] = useState(false);
 
   const [pwNew, setPwNew] = useState("");
   const [pwConfirm, setPwConfirm] = useState("");
@@ -75,23 +103,35 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   };
 
+  const populateFrom = (src, emailFallback) => {
+    setFirstName(src.first_name || "");
+    setLastName(src.last_name || "");
+    setPhone(formatPhone(src.phone || ""));
+    setBackupPhone(formatPhone(src.backup_phone || ""));
+    setAddressLine1(src.address_line1 || "");
+    setAddressLine2(src.address_line2 || "");
+    setAddressZip(src.address_zip || "");
+    setAddressCity(src.address_city || "");
+    setAddressState(src.address_state || "");
+    setPreferredEmail(src.preferred_email || emailFallback || "");
+    setNotificationPref(src.notification_preference || "email");
+    setReminderPref(src.reminder_preference || "both");
+    setTimezone(src.timezone || detectTz());
+    setBgOccupation(src.bg_occupation || "");
+    setBgEducation(src.bg_education || "");
+    setBgRelationship(src.bg_relationship || "");
+    setBgTherapist(src.bg_therapist || "");
+    setBgLiving(src.bg_living || "");
+    setBgBrings(src.bg_brings || "");
+    setBgGoals(src.bg_goals || "");
+    setBgOther(src.bg_other || "");
+  };
+
   useEffect(() => {
     if (viewAsClient) {
-      setFirstName(viewAsClient.first_name || "");
-      setLastName(viewAsClient.last_name || "");
-      setPhone(formatPhone(viewAsClient.phone || ""));
-      setPreferredEmail(viewAsClient.preferred_email || viewAsClient.email || "");
-      setNotificationPref(viewAsClient.notification_preference || "email");
-      setReminderPref(viewAsClient.reminder_preference || "both");
-      setTimezone(viewAsClient.timezone || "America/New_York");
+      populateFrom(viewAsClient, viewAsClient.email);
     } else if (profile) {
-      setFirstName(profile.first_name || "");
-      setLastName(profile.last_name || "");
-      setPhone(formatPhone(profile.phone || ""));
-      setPreferredEmail(profile.preferred_email || user?.email || "");
-      setNotificationPref(profile.notification_preference || "email");
-      setReminderPref(profile.reminder_preference || "both");
-      setTimezone(profile.timezone || detectTz());
+      populateFrom(profile, user?.email);
     } else if (user) {
       setPreferredEmail(user.email || "");
     }
@@ -100,16 +140,42 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   const resetProfile = () => {
     const src = viewAsClient || profile;
     if (!src) return;
-    setFirstName(src.first_name || "");
-    setLastName(src.last_name || "");
-    setPhone(formatPhone(src.phone || ""));
-    setPreferredEmail(src.preferred_email || (viewAsClient ? viewAsClient.email : user?.email) || "");
-    setNotificationPref(src.notification_preference || "email");
-    setReminderPref(src.reminder_preference || "both");
-    setTimezone(src.timezone || detectTz());
+    populateFrom(src, viewAsClient ? viewAsClient.email : user?.email);
     setError(null);
     setSuccess(false);
   };
+
+  const handleZipBlur = async (zip) => {
+    if (zip.length !== 5 || !/^\d{5}$/.test(zip)) return;
+    setZipLooking(true);
+    try {
+      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      if (res.ok) {
+        const data = await res.json();
+        const place = data.places?.[0];
+        if (place) {
+          setAddressCity(place["place name"] || "");
+          setAddressState(place["state abbreviation"] || "");
+        }
+      }
+    } catch { /* leave city/state as-is */ }
+    setZipLooking(false);
+  };
+
+  const profilePayload = () => ({
+    first_name: firstName.trim(),
+    last_name: lastName.trim(),
+    phone: phone.trim() || null,
+    backup_phone: backupPhone.trim() || null,
+    address_line1: addressLine1.trim() || null,
+    address_line2: addressLine2.trim() || null,
+    address_zip: addressZip.trim() || null,
+    address_city: addressCity.trim() || null,
+    address_state: addressState.trim() || null,
+    notification_preference: notificationPref,
+    reminder_preference: reminderPref,
+    timezone,
+  });
 
   const handleSave = async () => {
     if (!firstName.trim() || !lastName.trim()) {
@@ -121,50 +187,31 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
     setSuccess(false);
 
     if (viewAsClient) {
-      // Admin saving client profile via API
+      const payload = {
+        id: viewAsClient.id,
+        preferred_email: preferredEmail.trim() || viewAsClient.email,
+        ...profilePayload(),
+      };
       const res = await fetch("/api/clients", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: viewAsClient.id,
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-          phone: phone.trim() || null,
-          preferred_email: preferredEmail.trim() || viewAsClient.email,
-          notification_preference: notificationPref,
-          reminder_preference: reminderPref,
-          timezone,
-        }),
+        body: JSON.stringify(payload),
       });
       setSaving(false);
       if (!res.ok) {
         setError("Could not save profile. Please try again.");
       } else {
         setSuccess(true);
-        // Update viewAsClient in memory so nav/banner reflect changes
-        Object.assign(viewAsClient, {
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-          phone: phone.trim() || null,
-          preferred_email: preferredEmail.trim() || viewAsClient.email,
-          notification_preference: notificationPref,
-          reminder_preference: reminderPref,
-          timezone,
-        });
+        Object.assign(viewAsClient, payload);
       }
     } else {
       const supabase = createClient();
       const { error: updateError } = await supabase
         .from("profiles")
         .update({
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
           full_name: `${firstName.trim()} ${lastName.trim()}`,
-          phone: phone.trim() || null,
           preferred_email: preferredEmail.trim() || user.email,
-          notification_preference: notificationPref,
-          reminder_preference: reminderPref,
-          timezone,
+          ...profilePayload(),
         })
         .eq("id", user.id);
 
@@ -175,6 +222,34 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
         setSuccess(true);
         if (onSaved) onSaved();
       }
+    }
+  };
+
+  const handleBgSave = async () => {
+    setBgSaving(true);
+    setBgError(null);
+    setBgSuccess(false);
+    const bgPayload = {
+      bg_occupation: bgOccupation.trim() || null,
+      bg_education: bgEducation.trim() || null,
+      bg_relationship: bgRelationship.trim() || null,
+      bg_therapist: bgTherapist.trim() || null,
+      bg_living: bgLiving.trim() || null,
+      bg_brings: bgBrings.trim() || null,
+      bg_goals: bgGoals.trim() || null,
+      bg_other: bgOther.trim() || null,
+    };
+    const res = await fetch("/api/clients", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: viewAsClient.id, ...bgPayload }),
+    });
+    setBgSaving(false);
+    if (!res.ok) {
+      setBgError("Could not save. Please try again.");
+    } else {
+      setBgSuccess(true);
+      Object.assign(viewAsClient, bgPayload);
     }
   };
 
@@ -201,17 +276,35 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
             <input style={S.input} placeholder="Smith" value={lastName} onChange={e => setLastName(e.target.value)} />
           </div>
         </div>
+        <label style={S.label}>Mailing address</label>
+        <input style={S.input} placeholder="Address line 1" value={addressLine1} onChange={e => setAddressLine1(e.target.value)} />
+        <input style={S.input} placeholder="Address line 2 (apt, suite, etc.)" value={addressLine2} onChange={e => setAddressLine2(e.target.value)} />
+        <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 80px", gap: 12, marginBottom: "0.75rem" }}>
+          <div>
+            <input
+              style={{ ...S.input, marginBottom: 0 }}
+              placeholder="ZIP" value={addressZip} maxLength={5}
+              onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 5); setAddressZip(v); }}
+              onBlur={e => handleZipBlur(e.target.value)}
+            />
+            {zipLooking && <p style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Looking up…</p>}
+          </div>
+          <input style={{ ...S.input, marginBottom: 0 }} placeholder="City" value={addressCity} onChange={e => setAddressCity(e.target.value)} />
+          <input style={{ ...S.input, marginBottom: 0 }} placeholder="ST" maxLength={2} value={addressState} onChange={e => setAddressState(e.target.value.toUpperCase().slice(0, 2))} />
+        </div>
         <label style={S.label}>Mobile number</label>
         <input style={S.input} placeholder="(555) 012-3456" type="tel" value={phone} onChange={e => setPhone(formatPhone(e.target.value))} />
+        <label style={S.label}>Backup phone number</label>
+        <input style={S.input} placeholder="(555) 012-3456" type="tel" value={backupPhone} onChange={e => setBackupPhone(formatPhone(e.target.value))} />
         <label style={S.label}>Preferred email address</label>
         <input style={S.input} placeholder="jane@example.com" type="email" value={preferredEmail} onChange={e => setPreferredEmail(e.target.value)} />
 
         <label style={S.label}>Notification preference</label>
-        <p style={{ fontSize: 12, color: C.muted, marginBottom: "0.5rem", marginTop: "-0.25rem", lineHeight: 1.5 }}>If you opt-in to receive notifications regarding your schedule by text (SMS), msg and data rates may apply. Msg frequency depends on your use of the website. You can opt-out any time by returning and selecting &ldquo;Email only&rdquo;.</p>
+        {smsEnabled && <p style={{ fontSize: 12, color: C.muted, marginBottom: "0.5rem", marginTop: "-0.25rem", lineHeight: 1.5 }}>If you opt-in to receive notifications regarding your schedule by text (SMS), msg and data rates may apply. Msg frequency depends on your use of the website. You can opt-out any time by returning and selecting &ldquo;Email only&rdquo;.</p>}
         <select style={{ ...S.input, cursor: "pointer" }} value={notificationPref} onChange={e => setNotificationPref(e.target.value)}>
           <option value="email">Email only</option>
-          <option value="text">Text only</option>
-          <option value="both">Email and text</option>
+          {smsEnabled && <option value="text">Text only</option>}
+          {smsEnabled && <option value="both">Email and text</option>}
         </select>
 
         <label style={S.label}>Session reminders</label>
@@ -241,6 +334,44 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
           <button style={S.btnSmOut} onClick={resetProfile} disabled={saving}>Discard changes</button>
         </div>
       </div>
+
+      {/* Background — admin view only */}
+      {viewAsClient && (
+        <div style={{ ...S.card, marginTop: "1rem" }}>
+          <h3 style={{ ...S.h3, fontWeight: 700 }}>Background</h3>
+          <p style={{ ...S.p, fontSize: 13, marginBottom: 16 }}>Help me get to know a bit about you.</p>
+
+          <label style={S.label}>What is your current occupation?</label>
+          <textarea style={TA} value={bgOccupation} onChange={e => setBgOccupation(e.target.value)} />
+
+          <label style={S.label}>What is your highest level of education?</label>
+          <textarea style={TA} value={bgEducation} onChange={e => setBgEducation(e.target.value)} />
+
+          <label style={S.label}>If you are in a relationship, please describe its nature.</label>
+          <textarea style={TA} value={bgRelationship} onChange={e => setBgRelationship(e.target.value)} />
+
+          <label style={S.label}>Are you currently seeing an individual therapist?</label>
+          <textarea style={TA} value={bgTherapist} onChange={e => setBgTherapist(e.target.value)} />
+
+          <label style={S.label}>Describe your current living situation: alone or with what others?</label>
+          <textarea style={TA} value={bgLiving} onChange={e => setBgLiving(e.target.value)} />
+
+          <label style={S.label}>What brings you to coaching now?</label>
+          <textarea style={TA} value={bgBrings} onChange={e => setBgBrings(e.target.value)} />
+
+          <label style={S.label}>What are your goals for coaching?</label>
+          <textarea style={TA} value={bgGoals} onChange={e => setBgGoals(e.target.value)} />
+
+          <label style={{ ...S.label, marginBottom: 4 }}>What else would you like me to know?</label>
+          <textarea style={{ ...TA, marginBottom: "0.75rem" }} value={bgOther} onChange={e => setBgOther(e.target.value)} />
+
+          {bgError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{bgError}</p>}
+          {bgSuccess && <p style={{ fontSize: 13, color: C.teal, marginBottom: 12 }}>Saved.</p>}
+          <button style={S.btn} onClick={handleBgSave} disabled={bgSaving}>
+            {bgSaving ? "Saving…" : "Save background"}
+          </button>
+        </div>
+      )}
 
       {/* Change password — only show after profile is set up, not in admin view mode */}
       {!viewAsClient && !isFirstLogin && (

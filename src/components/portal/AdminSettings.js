@@ -627,6 +627,13 @@ export default function AdminSettings({ setPage }) {
           <button style={S.btn} onClick={() => window.location.href = "/api/calendar/auth"}>Connect Google Calendar</button>
         )}
       </div>
+
+      {/* Client experience preview */}
+      <div style={S.card}>
+        <h3 style={S.h3}>Client experience</h3>
+        <p style={{ ...S.p, fontSize: 13 }}>Preview what new clients see when they click their invitation link.</p>
+        <button style={S.btnSmOut} onClick={() => setPage("Preview Intake")}>Preview intake form</button>
+      </div>
     </div>
   );
 }
