@@ -68,10 +68,13 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
   const [reminderPref, setReminderPref] = useState("both");
   const [timezone, setTimezone] = useState(detectTz);
 
+  const [disclaimerAgreed, setDisclaimerAgreed] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [errors, setErrors] = useState({});
 
+  const disclaimerRef = useRef(null);
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
   const emailRef = useRef(null);
@@ -99,6 +102,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
 
   const handleSubmit = async () => {
     const e = {};
+    if (!disclaimerAgreed) e.disclaimer = "You must agree to the terms before continuing.";
     if (!firstName.trim()) e.firstName = "First name is required.";
     if (!lastName.trim()) e.lastName = "Last name is required.";
     const emailVal = preferredEmail.trim() || user?.email || "";
@@ -113,8 +117,8 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
 
     if (Object.keys(e).length > 0) {
       setErrors(e);
-      const first = e.firstName ? firstNameRef : e.lastName ? lastNameRef : e.email ? emailRef :
-        e.phone ? phoneRef : e.password ? passwordRef : confirmPasswordRef;
+      const first = e.disclaimer ? disclaimerRef : e.firstName ? firstNameRef : e.lastName ? lastNameRef :
+        e.email ? emailRef : e.phone ? phoneRef : e.password ? passwordRef : confirmPasswordRef;
       first.current?.focus();
       return;
     }
@@ -193,6 +197,30 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
       </div>
       <h1 style={{ ...S.h1, fontSize: 26 }}>Welcome! Let&apos;s get you set up.</h1>
       <p style={S.p}>Complete your registration to access your coaching portal.</p>
+
+      {/* Disclaimer */}
+      <div style={{ ...S.card, borderColor: errors.disclaimer ? "#c0392b" : undefined }}>
+        <h3 style={S.h3}>Disclaimer</h3>
+        <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>Please read and check the box below.</p>
+        <ul style={{ margin: "0 0 16px 0", paddingLeft: 20, fontSize: 14, color: C.text, lineHeight: 1.7 }}>
+          <li>This coaching service is not a substitute for professional therapy or legal advice.</li>
+          <li>All discussions are confidential but may be subject to legal exceptions.</li>
+          <li>The coach is licensed as a therapist and lawyer, but services provided here are distinct from those professions.</li>
+          <li>Clients are encouraged to seek specialized help for mental health or legal issues.</li>
+          <li>Participation in coaching does not establish a therapist-client or attorney-client relationship.</li>
+        </ul>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 14, color: errors.disclaimer ? "#c0392b" : C.text }}>
+          <input
+            ref={disclaimerRef}
+            type="checkbox"
+            checked={disclaimerAgreed}
+            onChange={e => { setDisclaimerAgreed(e.target.checked); setErrors(v => ({ ...v, disclaimer: null })); }}
+            style={{ marginTop: 2, flexShrink: 0 }}
+          />
+          I have read, understand, and agree to these terms.
+        </label>
+        {errors.disclaimer && <p style={{ ...ERR, marginTop: 8, marginBottom: 0 }}>{errors.disclaimer}</p>}
+      </div>
 
       {/* Password */}
       <div style={S.card}>

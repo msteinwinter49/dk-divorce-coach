@@ -67,14 +67,33 @@ export default function App() {
     setPage("Admin Groups");
   };
 
+  const disclaimerFooter = (
+    <div style={{ borderTop: `0.5px solid ${C.border}`, padding: "1rem 1.25rem", textAlign: "center" }}>
+      <p style={{ fontSize: 13, color: C.hint, lineHeight: 1.6, maxWidth: 680, margin: "0 auto 0.75rem" }}>
+        <strong>Disclaimer:</strong> Divorce coaching only. Not therapy, mental health treatment, or legal advice. Although Diana Kierein is a licensed LICSW and attorney in Massachusetts, no clinical or attorney-client relationship is created through coaching.
+      </p>
+      <a href="/privacy" style={{ color: C.muted, fontSize: 13, padding: "4px 8px", textDecoration: "underline" }}>Privacy Policy</a>
+      <span style={{ color: C.hint, fontSize: 13 }}>·</span>
+      <a href="/terms" style={{ color: C.muted, fontSize: 13, padding: "4px 8px", textDecoration: "underline" }}>Terms &amp; Conditions</a>
+    </div>
+  );
+
+  const portalDisclaimerFooter = (
+    <div style={{ borderTop: `0.5px solid ${C.border}`, padding: "1rem 1.25rem", textAlign: "center" }}>
+      <p style={{ fontSize: 13, color: C.hint, lineHeight: 1.6, maxWidth: 680, margin: "0 auto" }}>
+        <strong>Disclaimer:</strong> Divorce coaching only. Not therapy, mental health treatment, or legal advice. Although Diana Kierein is a licensed LICSW and attorney in Massachusetts, no clinical or attorney-client relationship is created through coaching.
+      </p>
+    </div>
+  );
+
   const renderPage = () => {
-    if (page === "Privacy") return <PrivacyPage setPage={setPage} />;
-    if (page === "Terms") return <TermsPage setPage={setPage} />;
+    if (page === "Privacy") return <><PrivacyPage setPage={setPage} />{disclaimerFooter}</>;
+    if (page === "Terms") return <><TermsPage setPage={setPage} />{disclaimerFooter}</>;
     if (!inPortal) {
-      if (page === "Home") return <HomePage setPage={setPage} />;
-      if (page === "About") return <AboutPage />;
-      if (page === "Contact") return <ContactPage />;
-      return <LoginPage setPage={setPage} />;
+      if (page === "Home") return <><HomePage setPage={setPage} />{disclaimerFooter}</>;
+      if (page === "About") return <><AboutPage />{disclaimerFooter}</>;
+      if (page === "Contact") return <><ContactPage />{disclaimerFooter}</>;
+      return <><LoginPage setPage={setPage} />{disclaimerFooter}</>;
     }
     if (isAdmin && page === "Preview Intake") {
       return <ClientIntake preview onClosePreview={() => setPage("Admin Settings")} />;
@@ -86,17 +105,18 @@ export default function App() {
       }
       return <Profile onSaved={() => { refreshProfile(); setPage("Portal Home"); }} />;
     }
-    if (page === "Profile") return <Profile onSaved={refreshProfile} viewAsClient={viewAsClient} scrollTo={profileFocus} onScrolled={() => setProfileFocus(null)} />;
-    if (page === "Portal Home") return <PortalHome setPage={setPage} viewAsClient={viewAsClient} setProfileFocus={setProfileFocus} />;
-    if (page === "Documents") return <Documents viewAsClient={viewAsClient} />;
+    if (page === "Profile") return <><Profile onSaved={refreshProfile} viewAsClient={viewAsClient} scrollTo={profileFocus} onScrolled={() => setProfileFocus(null)} />{portalDisclaimerFooter}</>;
+    if (page === "Portal Home") return <><PortalHome setPage={setPage} viewAsClient={viewAsClient} setProfileFocus={setProfileFocus} />{portalDisclaimerFooter}</>;
+    if (page === "Documents") return <><Documents viewAsClient={viewAsClient} />{portalDisclaimerFooter}</>;
     if (page === "Schedule") return <Schedule setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} setBookingActive={setBookingActive} />;
-    if (page === "Buy Sessions") return <BuySessions setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />;
+    if (page === "Buy Sessions") return <><BuySessions setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />{portalDisclaimerFooter}</>;
     if (page === "Messages") return <Messages viewAsClient={viewAsClient} />;
     if (page === "Statement") return (
       <div style={{ minHeight: "calc(100vh - 64px)", padding: "2rem 1rem 5rem", maxWidth: 800, margin: "0 auto" }}>
         <h1 style={{ fontSize: 26, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>Statement</h1>
         <p style={{ fontSize: 15, color: "#5F5E5A", marginBottom: 24 }}>Your session and purchase history.</p>
         <Statement />
+        {portalDisclaimerFooter}
       </div>
     );
     if (isAdmin && page === "Admin Schedule") return <AdminSchedule setPage={setPage} />;
@@ -115,7 +135,7 @@ export default function App() {
       if (page === "Admin Groups") return <Groups setPage={setPage} initialGroupId={groupDetailId} onGroupOpened={() => setGroupDetailId(null)} />;
       if (page === "Admin Settings") return <AdminSettings setPage={setPage} />;
     }
-    return <PortalHome setPage={setPage} viewAsClient={viewAsClient} />;
+    return <><PortalHome setPage={setPage} viewAsClient={viewAsClient} />{portalDisclaimerFooter}</>;
   };
 
   if (loading) return null;

@@ -63,15 +63,6 @@ export default function HomePage({ setPage }) {
         <button style={S.btn} onClick={() => setPage("Contact")}>Book a discovery session</button>
       </div>
 
-      <div style={{ borderTop:`0.5px solid ${C.border}`, padding:"1.25rem 1rem", textAlign:"center" }}>
-        <a href="/privacy" style={{ color:C.muted, fontSize:13, padding:"4px 8px", textDecoration:"underline" }}>
-          Privacy Policy
-        </a>
-        <span style={{ color:C.hint, fontSize:13 }}>·</span>
-        <a href="/terms" style={{ color:C.muted, fontSize:13, padding:"4px 8px", textDecoration:"underline" }}>
-          Terms &amp; Conditions
-        </a>
-      </div>
     </div>
   );
 }
