@@ -70,7 +70,7 @@ export default function App() {
   const disclaimerFooter = (
     <div style={{ borderTop: `0.5px solid ${C.border}`, padding: "1rem 1.25rem", textAlign: "center" }}>
       <p style={{ fontSize: 13, color: C.hint, lineHeight: 1.6, maxWidth: 680, margin: "0 auto 0.75rem" }}>
-        <strong>Disclaimer:</strong> Divorce coaching only. Not therapy, mental health treatment, or legal advice. Although Diana Kierein is a licensed LICSW and attorney in Massachusetts, no clinical or attorney-client relationship is created through coaching.
+        <strong>Disclaimer:</strong> Coaching Services only. Services will not be therapeutic, mental health or legal advice. No therapist-client or attorney-client relationship is created through coaching services.
       </p>
       <a href="/privacy" style={{ color: C.muted, fontSize: 13, padding: "4px 8px", textDecoration: "underline" }}>Privacy Policy</a>
       <span style={{ color: C.hint, fontSize: 13 }}>·</span>
@@ -81,7 +81,7 @@ export default function App() {
   const portalDisclaimerFooter = (
     <div style={{ borderTop: `0.5px solid ${C.border}`, padding: "1rem 1.25rem", textAlign: "center" }}>
       <p style={{ fontSize: 13, color: C.hint, lineHeight: 1.6, maxWidth: 680, margin: "0 auto" }}>
-        <strong>Disclaimer:</strong> Divorce coaching only. Not therapy, mental health treatment, or legal advice. Although Diana Kierein is a licensed LICSW and attorney in Massachusetts, no clinical or attorney-client relationship is created through coaching.
+        <strong>Disclaimer:</strong> Coaching Services only. Services will not be therapeutic, mental health or legal advice. No therapist-client or attorney-client relationship is created through coaching services.
       </p>
     </div>
   );

@@ -205,7 +205,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
         <ul style={{ margin: "0 0 16px 0", paddingLeft: 20, fontSize: 14, color: C.text, lineHeight: 1.7 }}>
           <li>This coaching service is not a substitute for professional therapy or legal advice.</li>
           <li>All discussions are confidential but may be subject to legal exceptions.</li>
-          <li>The coach is licensed as a therapist and lawyer, but services provided here are distinct from those professions.</li>
+          <li>The coach is licensed as a therapist and lawyer. This coaching service will not include therapy or legal advice.</li>
           <li>Clients are encouraged to seek specialized help for mental health or legal issues.</li>
           <li>Participation in coaching does not establish a therapist-client or attorney-client relationship.</li>
         </ul>
