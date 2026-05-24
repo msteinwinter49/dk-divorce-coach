@@ -134,7 +134,7 @@ export async function DELETE(request) {
     await admin.from("messages").delete().or(`sender_id.eq.${client_id},conversation_id.eq.${client_id}`);
 
     if (profile?.stripe_customer_id) {
-      try { await stripe.customers.delete(profile.stripe_customer_id); } catch { /* non-fatal */ }
+      try { await stripe.customers.del(profile.stripe_customer_id); } catch { /* non-fatal */ }
     }
 
     await admin.auth.admin.deleteUser(client_id);

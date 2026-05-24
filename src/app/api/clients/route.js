@@ -192,7 +192,7 @@ export async function DELETE(request) {
   // Delete Stripe customer if present
   if (profile?.stripe_customer_id) {
     try {
-      await stripe.customers.delete(profile.stripe_customer_id);
+      await stripe.customers.del(profile.stripe_customer_id);
     } catch (err) {
       return NextResponse.json({ error: `Stripe error: ${err.message}` }, { status: 500 });
     }
