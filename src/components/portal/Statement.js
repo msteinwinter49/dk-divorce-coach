@@ -72,21 +72,17 @@ function buildPrintHtml(rows, groupName, start, end, balanceForward) {
   const title = groupName ? `Statement — ${groupName}` : "Statement";
   const dateRange = `${fmtDate(start + "T00:00:00")} – ${fmtDate(end + "T00:00:00")}`;
 
-  return `<!DOCTYPE html><html><head><title>Statement</title>
-    <style>
-      * { box-sizing: border-box; }
-      @page { margin: 24px; }
-      body { font-family: system-ui, sans-serif; color: #2C2C2A; margin: 0; padding: 80px 24px 24px; }
-      table { width: 100%; border-collapse: collapse; }
-      .hdr { position: fixed; top: 0; left: 0; right: 0; width: 100%; height: 72px; background: #fff; border-bottom: 1px solid rgba(0,0,0,0.15); padding: 10px 24px 8px; }
-    </style>
+  const thead = `<thead>
+    <tr><td colspan="5" style="padding:10px 7px 2px;font-size:16px;font-weight:700;text-align:center;background:#fff">DK Divorce Coach</td></tr>
+    <tr><td colspan="5" style="padding:2px 7px;font-size:13px;font-weight:600;background:#fff">${title}</td></tr>
+    <tr><td colspan="5" style="padding:2px 7px 10px;font-size:12px;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.15);background:#fff">${dateRange}</td></tr>
+    ${headerRow}
+  </thead>`;
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement</title>
+    <style>* { box-sizing: border-box; } @page { margin: 0.25in; } body { font-family: system-ui, sans-serif; color: #2C2C2A; margin: 0; padding: 0; } table { width: 100%; border-collapse: collapse; } thead { display: table-header-group; }</style>
   </head><body>
-    <div class="hdr">
-      <div style="font-size:16px;font-weight:700;margin-bottom:2px;text-align:center">DK Divorce Coach</div>
-      <div style="font-size:13px;font-weight:600;text-align:left">${title}</div>
-      <div style="font-size:12px;color:#5F5E5A;text-align:left">${dateRange}</div>
-    </div>
-    <table><thead>${headerRow}</thead><tbody>${forwardRow}${bodyRows}</tbody></table>
+    <table>${thead}<tbody>${forwardRow}${bodyRows}</tbody></table>
   </body></html>`;
 }
 

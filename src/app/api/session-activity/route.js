@@ -52,7 +52,7 @@ export async function GET(request) {
   // Bookings where this client is requester or participant
   let query = admin
     .from("bookings")
-    .select("id, date, time_slot, start_time, end_time, status, user_id, participant_ids, session_types(label, duration_minutes)")
+    .select("id, date, time_slot, start_time, end_time, status, user_id, participant_ids, session_types(label, duration)")
     .or(`user_id.eq.${clientId},participant_ids.cs.{${clientId}}`)
     .order("start_time", { ascending: false });
 
@@ -93,7 +93,7 @@ export async function GET(request) {
       end_time: b.end_time || null,
       time_slot: b.time_slot,
       session_type: b.session_types?.label ?? null,
-      duration_minutes: b.session_types?.duration_minutes ?? null,
+      duration_minutes: b.session_types?.duration ?? null,
       status: b.status,
       attendee_count: allParticipantIds.length,
       attendee_names: attendeeNames,

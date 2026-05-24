@@ -62,50 +62,41 @@ function buildPrintHtml(rows, clientName, groupName, start, end) {
   const thL = "text-align:left;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1);background:#f7f7f5";
   const thC = "text-align:center;padding:8px 7px;font-size:12px;font-weight:600;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.1);background:#f7f7f5";
 
-  const headerRow = `<tr>
-    <th style="${thL}">Date</th>
-    <th style="${thL}">Start</th>
-    <th style="${thL}">End</th>
-    <th style="${thL}">Session Type</th>
-    <th style="${thL}">Status</th>
-    <th style="${thC}">Attendees</th>
-    <th style="${thL}">Names</th>
-  </tr>`;
-
-  const bodyRows = rows.map(r => {
-    const tdBase = "padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)";
-    return `<tr>
-      <td style="${tdBase}">${fmtDate(r.date)}</td>
-      <td style="${tdBase}">${fmtTime(r.start_time, r.time_slot)}</td>
-      <td style="${tdBase}">${r.end_time ? fmtTime(r.end_time) : "—"}</td>
-      <td style="${tdBase}">${r.session_type || "—"}</td>
-      <td style="${tdBase}">${statusBadge(r.status)}</td>
-      <td style="${tdBase};text-align:center">${r.attendee_count}</td>
-      <td style="${tdBase};color:#5F5E5A">${r.attendee_names?.join(", ") || "—"}</td>
-    </tr>`;
-  }).join("");
-
   const title = `Session Activity — ${clientName}${groupName ? ` (${groupName})` : ""}`;
   const dateRange = start && end
     ? `${fmtDate(start)} – ${fmtDate(end)}`
     : start ? `From ${fmtDate(start)}` : end ? `Through ${fmtDate(end)}` : "All time";
 
-  return `<!DOCTYPE html><html><head><title>Session Activity</title>
-    <style>
-      * { box-sizing: border-box; }
-      @page { margin: 24px; size: landscape; }
-      body { font-family: system-ui, sans-serif; color: #2C2C2A; margin: 0; padding: 80px 24px 24px; }
-      table { width: 100%; border-collapse: collapse; }
-      .hdr { position: fixed; top: 0; left: 0; right: 0; width: 100%; height: 72px; background: #fff; border-bottom: 1px solid rgba(0,0,0,0.15); padding: 10px 24px 8px; }
-    </style>
-  </head><body>
-    <div class="hdr">
-      <div style="font-size:16px;font-weight:700;margin-bottom:2px;text-align:center">DK Divorce Coach</div>
-      <div style="font-size:13px;font-weight:600;text-align:left">${title}</div>
-      <div style="font-size:12px;color:#5F5E5A;text-align:left">${dateRange}</div>
-    </div>
-    <table><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table>
-  </body></html>`;
+  const thead = `<thead>
+    <tr><td colspan="7" style="padding:10px 7px 2px;font-size:16px;font-weight:700;text-align:center;background:#fff">DK Divorce Coach</td></tr>
+    <tr><td colspan="7" style="padding:2px 7px;font-size:13px;font-weight:600;background:#fff">${title}</td></tr>
+    <tr><td colspan="7" style="padding:2px 7px 10px;font-size:12px;color:#5F5E5A;border-bottom:1px solid rgba(0,0,0,0.15);background:#fff">${dateRange}</td></tr>
+    <tr>
+      <th style="${thL}">Date</th>
+      <th style="${thL}">Start</th>
+      <th style="${thL}">End</th>
+      <th style="${thL}">Session Type</th>
+      <th style="${thL}">Status</th>
+      <th style="${thC}">Attendees</th>
+      <th style="${thL}">Names</th>
+    </tr>
+  </thead>`;
+
+  const tdBase = "padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)";
+  const bodyRows = rows.map(r => `<tr>
+    <td style="${tdBase}">${fmtDate(r.date)}</td>
+    <td style="${tdBase}">${fmtTime(r.start_time, r.time_slot)}</td>
+    <td style="${tdBase}">${r.end_time ? fmtTime(r.end_time) : "—"}</td>
+    <td style="${tdBase}">${r.session_type || "—"}</td>
+    <td style="${tdBase}">${statusBadge(r.status)}</td>
+    <td style="${tdBase};text-align:center">${r.attendee_count}</td>
+    <td style="${tdBase};color:#5F5E5A">${r.attendee_names?.join(", ") || "—"}</td>
+  </tr>`).join("");
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Session Activity</title>
+    <style>* { box-sizing: border-box; } @page { size: landscape; margin: 0.25in; } body { font-family: system-ui, sans-serif; color: #2C2C2A; margin: 0; padding: 0; } table { width: 100%; border-collapse: collapse; } thead { display: table-header-group; }</style>
+    <script>window.onload = function() { window.print(); }<\/script>
+  </head><body><table>${thead}<tbody>${bodyRows}</tbody></table></body></html>`;
 }
 
 export default function SessionActivity({ clientId }) {
@@ -136,11 +127,11 @@ export default function SessionActivity({ clientId }) {
   }, [clientId, start, end]);
 
   const handlePrint = () => {
-    const win = window.open("", "_blank");
-    win.document.write(buildPrintHtml(rows, clientName, groupName, start, end));
-    win.document.close();
-    win.focus();
-    win.print();
+    const html = buildPrintHtml(rows, clientName, groupName, start, end);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    win.addEventListener("unload", () => URL.revokeObjectURL(url));
   };
 
   const thStyle = { textAlign: "left", padding: "8px 7px", fontSize: 12, fontWeight: 600, color: C.muted, borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap", background: "#f7f7f5" };

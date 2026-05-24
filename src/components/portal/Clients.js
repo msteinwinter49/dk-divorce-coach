@@ -978,11 +978,13 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
               </div>
             )}
 
-            {detail.role !== "admin" && detail.group_id && (
+            {detail.group_id && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
                 <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Reports</h3>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button style={S.btn} onClick={() => { closeDetail(); onViewStatement?.(detail); }}>View statement →</button>
+                  {detail.role !== "admin" && (
+                    <button style={S.btn} onClick={() => { closeDetail(); onViewStatement?.(detail); }}>View statement →</button>
+                  )}
                   <button style={{ ...S.btn, background: C.teal }} onClick={() => { closeDetail(); onViewSessions?.(detail); }}>View session activity →</button>
                 </div>
               </div>
