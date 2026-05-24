@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
-import { C } from "@/lib/constants";
+import { C, S } from "@/lib/constants";
 import Nav from "@/components/Nav";
 import HomePage from "@/components/HomePage";
 import AboutPage from "@/components/AboutPage";
@@ -97,6 +97,17 @@ export default function App() {
     }
     if (isAdmin && page === "Preview Intake") {
       return <ClientIntake preview onClosePreview={() => setPage("Admin Settings")} />;
+    }
+    // Block archived clients from accessing the portal
+    if (inPortal && profile?.is_archived && !isAdmin) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem", gap: 16, textAlign: "center" }}>
+          <p style={{ fontSize: 18, color: C.text, maxWidth: 400, margin: 0 }}>
+            Your account has been deactivated. Please contact your coach for assistance.
+          </p>
+          <button onClick={handleLogout} style={{ ...S.btn, background: C.muted }}>Sign out</button>
+        </div>
+      );
     }
     // Force profile setup on first login
     if (needsProfile) {

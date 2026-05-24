@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { stripe } from "@/lib/stripe";
 
 export async function GET() {
   // Verify the caller is an admin
@@ -46,7 +47,7 @@ export async function GET() {
   ] = await Promise.all([
     adminClient
       .from("profiles")
-      .select("id, first_name, last_name, full_name, phone, backup_phone, address_line1, address_line2, address_zip, address_city, address_state, preferred_email, notification_preference, reminder_preference, timezone, role, created_at, bg_occupation, bg_education, bg_relationship, bg_therapist, bg_living, bg_brings, bg_goals, bg_other")
+      .select("id, first_name, last_name, full_name, phone, backup_phone, address_line1, address_line2, address_zip, address_city, address_state, preferred_email, notification_preference, reminder_preference, timezone, role, created_at, bg_occupation, bg_education, bg_relationship, bg_therapist, bg_living, bg_brings, bg_goals, bg_other, stripe_customer_id, is_archived")
       .order("created_at", { ascending: false }),
     adminClient.auth.admin.listUsers(),
     adminClient
@@ -73,6 +74,8 @@ export async function GET() {
       group_name: membership?.groups?.name ?? null,
       group_hourly_rate: membership?.groups?.hourly_rate ?? null,
       group_is_active: membership?.is_active ?? null,
+      stripe_customer_id: c.stripe_customer_id || null,
+      is_archived: c.is_archived ?? false,
     };
   });
 
@@ -106,7 +109,7 @@ export async function PATCH(request) {
     address_line1, address_line2, address_zip, address_city, address_state,
     preferred_email, notification_preference, reminder_preference, timezone,
     bg_occupation, bg_education, bg_relationship, bg_therapist,
-    bg_living, bg_brings, bg_goals, bg_other,
+    bg_living, bg_brings, bg_goals, bg_other, is_archived,
   } = await request.json();
   if (!id) return NextResponse.json({ error: "Client id is required" }, { status: 400 });
 
@@ -140,6 +143,7 @@ export async function PATCH(request) {
   if (bg_brings !== undefined) updates.bg_brings = bg_brings?.trim() || null;
   if (bg_goals !== undefined) updates.bg_goals = bg_goals?.trim() || null;
   if (bg_other !== undefined) updates.bg_other = bg_other?.trim() || null;
+  if (is_archived !== undefined) updates.is_archived = is_archived;
 
   const { data, error } = await adminClient
     .from("profiles")
@@ -150,4 +154,53 @@ export async function PATCH(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
+}
+
+// DELETE — fully delete a client and all their data
+export async function DELETE(request) {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { cookies: { getAll() { return cookieStore.getAll(); } } }
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const { data: callerProfile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (callerProfile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+
+  const { id } = await request.json();
+  if (!id) return NextResponse.json({ error: "Client id is required" }, { status: 400 });
+
+  const adminClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  // Fetch stripe_customer_id
+  const { data: profile } = await adminClient.from("profiles").select("stripe_customer_id").eq("id", id).single();
+
+  // Delete storage files
+  const { data: files } = await adminClient.storage.from("documents").list(id);
+  if (files?.length) {
+    await adminClient.storage.from("documents").remove(files.map(f => `${id}/${f.name}`));
+  }
+
+  // Delete messages
+  await adminClient.from("messages").delete().or(`sender_id.eq.${id},conversation_id.eq.${id}`);
+
+  // Delete Stripe customer if present
+  if (profile?.stripe_customer_id) {
+    try {
+      await stripe.customers.delete(profile.stripe_customer_id);
+    } catch (err) {
+      return NextResponse.json({ error: `Stripe error: ${err.message}` }, { status: 500 });
+    }
+  }
+
+  // Delete auth user — cascades profiles, documents, bookings, group_members, balance_ledger, purchases
+  const { error: deleteError } = await adminClient.auth.admin.deleteUser(id);
+  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
+
+  return NextResponse.json({ success: true });
 }

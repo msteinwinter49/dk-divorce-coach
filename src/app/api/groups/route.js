@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { stripe } from "@/lib/stripe";
 
 function adminSupabase() {
   return createClient(
@@ -84,25 +85,31 @@ export async function PATCH(request) {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const { id, name, hourly_rate } = await request.json();
+  const { id, name, hourly_rate, is_archived } = await request.json();
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
+  const admin = adminSupabase();
   const updates = {};
   if (name !== undefined) updates.name = name.trim();
   if (hourly_rate !== undefined) updates.hourly_rate = hourly_rate ? Number(hourly_rate) : null;
+  if (is_archived !== undefined) updates.is_archived = is_archived;
 
-  const { data, error } = await adminSupabase()
-    .from("groups")
-    .update(updates)
-    .eq("id", id)
-    .select()
-    .single();
+  const { data, error } = await admin.from("groups").update(updates).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Cascade archive/unarchive to all group members
+  if (is_archived !== undefined) {
+    const { data: memberRows } = await admin.from("group_members").select("client_id").eq("group_id", id);
+    const memberIds = (memberRows || []).map(m => m.client_id);
+    if (memberIds.length > 0) {
+      await admin.from("profiles").update({ is_archived }).in("id", memberIds);
+    }
+  }
 
   return NextResponse.json(data);
 }
 
-// DELETE — delete a group (only if it has no members)
+// DELETE — fully delete a group and all its members
 export async function DELETE(request) {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -112,14 +119,28 @@ export async function DELETE(request) {
 
   const admin = adminSupabase();
 
-  const { count } = await admin
-    .from("group_members")
-    .select("client_id", { count: "exact", head: true })
-    .eq("group_id", id);
-  if (count > 0) {
-    return NextResponse.json({ error: "Cannot delete a group that has members" }, { status: 409 });
+  // Get all members
+  const { data: memberRows } = await admin.from("group_members").select("client_id").eq("group_id", id);
+
+  // Fully delete each member
+  for (const { client_id } of memberRows || []) {
+    const { data: profile } = await admin.from("profiles").select("stripe_customer_id").eq("id", client_id).single();
+
+    const { data: files } = await admin.storage.from("documents").list(client_id);
+    if (files?.length) {
+      await admin.storage.from("documents").remove(files.map(f => `${client_id}/${f.name}`));
+    }
+
+    await admin.from("messages").delete().or(`sender_id.eq.${client_id},conversation_id.eq.${client_id}`);
+
+    if (profile?.stripe_customer_id) {
+      try { await stripe.customers.delete(profile.stripe_customer_id); } catch { /* non-fatal */ }
+    }
+
+    await admin.auth.admin.deleteUser(client_id);
   }
 
+  // Delete group record — cascades balance_ledger, purchases, remaining group_members
   const { error } = await admin.from("groups").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

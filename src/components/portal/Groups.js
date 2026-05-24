@@ -51,6 +51,15 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
   // Member actions
   const [removeConfirm, setRemoveConfirm] = useState(null);
 
+  // Archive / delete
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveResult, setArchiveResult] = useState(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
   const fetchGroups = async () => {
     setListLoading(true);
     const res = await fetch("/api/groups");
@@ -84,6 +93,10 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setPurchaseClientId("");
     setPurchaseDirty(false);
     setRemoveConfirm(null);
+    setArchiveResult(null);
+    setDeleteConfirmOpen(false);
+    setDeleteInput("");
+    setDeleteError(null);
 
     setMembersLoading(true);
     setMembers([]);
@@ -110,6 +123,10 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setModal(null);
     setMembers([]);
     setRemoveConfirm(null);
+    setArchiveResult(null);
+    setDeleteConfirmOpen(false);
+    setDeleteInput("");
+    setDeleteError(null);
   };
 
   const saveInfo = async () => {
@@ -199,6 +216,40 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
       }
       setRemoveConfirm(null);
     }
+  };
+
+  const handleGroupArchiveToggle = async () => {
+    if (!modal?.id) return;
+    setArchiveLoading(true);
+    setArchiveResult(null);
+    const newArchived = !modal.is_archived;
+    const res = await fetch("/api/groups", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: modal.id, is_archived: newArchived }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setArchiveLoading(false);
+    if (!res.ok) { setArchiveResult({ ok: false, error: data.error || "Could not update." }); return; }
+    setArchiveResult({ ok: true, archived: newArchived });
+    setModal(prev => ({ ...prev, is_archived: newArchived }));
+    setGroups(prev => prev.map(g => g.id === modal.id ? { ...g, is_archived: newArchived } : g));
+  };
+
+  const handleGroupDelete = async () => {
+    if (!modal?.id) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    const res = await fetch("/api/groups", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: modal.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setDeleteLoading(false);
+    if (!res.ok) { setDeleteError(data.error || "Delete failed."); return; }
+    setGroups(prev => prev.filter(g => g.id !== modal.id));
+    closeModal();
   };
 
   const isCreateMode = modal?.id == null;
@@ -383,7 +434,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
               </div>
 
               {/* Section 4: Members */}
-              <div style={{ ...sectionStyle, borderBottom: "none" }}>
+              <div style={sectionStyle}>
                 <h3 style={{ ...S.h3, fontSize: 17, marginBottom: 10 }}>Members</h3>
                 {membersLoading && <p style={{ fontSize: 15, color: C.muted }}>Loading…</p>}
                 {!membersLoading && members.length === 0 && (
@@ -430,6 +481,61 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
                   );
                 })}
               </div>
+
+              {/* Section 5: Account Status */}
+              <div style={{ ...sectionStyle, borderBottom: "none" }}>
+                <h3 style={{ ...S.h3, fontSize: 17, marginBottom: 10 }}>Account Status</h3>
+                {!deleteConfirmOpen && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      style={{ ...S.btnSmOut, border: `1px solid ${modal.is_archived ? C.teal : "#888"}`, color: modal.is_archived ? C.teal : "#888" }}
+                      onClick={handleGroupArchiveToggle}
+                      disabled={archiveLoading}
+                    >
+                      {archiveLoading ? "..." : modal.is_archived ? "Unarchive group" : "Archive group"}
+                    </button>
+                    <button
+                      style={{ ...S.btnSmOut, border: "1px solid #c0392b", color: "#c0392b" }}
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      Delete group permanently
+                    </button>
+                  </div>
+                )}
+                {archiveResult && (
+                  <p style={{ fontSize: 14, marginTop: 6, marginBottom: 0, color: archiveResult.ok ? C.teal : "#c0392b" }}>
+                    {archiveResult.ok
+                      ? archiveResult.archived ? "Group and all members archived." : "Group and all members unarchived."
+                      : archiveResult.error}
+                  </p>
+                )}
+                {deleteConfirmOpen && (
+                  <div style={{ background: "#fdf3f2", border: "1px solid rgba(192,57,43,0.3)", borderRadius: 8, padding: 14, marginTop: 8 }}>
+                    <p style={{ fontSize: 14, color: C.text, marginBottom: 8, marginTop: 0 }}>
+                      This permanently deletes the group and all its members. Type <strong>{modal.name}</strong> to confirm.
+                    </p>
+                    <input
+                      style={{ ...S.input, marginBottom: 8 }}
+                      placeholder="Type group name to confirm"
+                      value={deleteInput}
+                      onChange={e => setDeleteInput(e.target.value)}
+                    />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        style={{ ...S.btn, background: "#c0392b", opacity: deleteInput === modal.name ? 1 : 0.5 }}
+                        disabled={deleteInput !== modal.name || deleteLoading}
+                        onClick={handleGroupDelete}
+                      >
+                        {deleteLoading ? "Deleting..." : "Delete permanently"}
+                      </button>
+                      <button style={S.btnSmOut} onClick={() => { setDeleteConfirmOpen(false); setDeleteInput(""); setDeleteError(null); }}>
+                        Cancel
+                      </button>
+                    </div>
+                    {deleteError && <p style={{ fontSize: 14, color: "#c0392b", marginTop: 8, marginBottom: 0 }}>{deleteError}</p>}
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -444,7 +550,13 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
       </button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Groups</h1>
-        <button style={S.btn} onClick={openCreate}>+ New Group</button>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.muted, cursor: "pointer" }}>
+            <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} style={{ accentColor: C.teal }} />
+            Show archived
+          </label>
+          <button style={S.btn} onClick={openCreate}>+ New Group</button>
+        </div>
       </div>
 
       {listLoading && <p style={{ color: C.muted }}>Loading…</p>}
@@ -457,17 +569,20 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
         </div>
       )}
 
-      {groups.map(g => (
+      {groups.filter(g => showArchived || !g.is_archived).map(g => (
         <div
           key={g.id}
-          style={{ ...S.card, marginBottom: 10, cursor: "pointer", transition: "box-shadow 0.15s" }}
+          style={{ ...S.card, marginBottom: 10, cursor: "pointer", transition: "box-shadow 0.15s", opacity: g.is_archived ? 0.55 : 1 }}
           onClick={() => openGroup(g)}
           onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.12)"}
           onMouseLeave={e => e.currentTarget.style.boxShadow = ""}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
             <div>
-              <div style={{ fontSize: 17, fontWeight: 600, color: C.text, marginBottom: 4 }}>{g.name}</div>
+              <div style={{ fontSize: 17, fontWeight: 600, color: C.text, marginBottom: 4 }}>
+                {g.name}
+                {g.is_archived && <span style={{ fontSize: 11, marginLeft: 8, padding: "1px 6px", borderRadius: 10, background: "#f0f0f0", color: "#888" }}>archived</span>}
+              </div>
               <div style={{ fontSize: 13, color: C.muted }}>
                 {g.member_count} member{g.member_count !== 1 ? "s" : ""}
                 {" · "}

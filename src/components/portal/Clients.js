@@ -71,6 +71,13 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
   const [editGroupId, setEditGroupId] = useState("");
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupResult, setGroupResult] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const TIMEZONES = [
     { value: "America/New_York", label: "Eastern Time (New York)" },
@@ -103,6 +110,10 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setMagicResult(null);
     setPhoneBlurred(false);
     setEmailBlurred(false);
+    setArchiveError(null);
+    setDeleteConfirmOpen(false);
+    setDeleteInput("");
+    setDeleteError(null);
   };
 
   const handleEditZipBlur = async (zip) => {
@@ -147,6 +158,10 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setHourlyRateResult(null);
     setEditGroupId("");
     setGroupResult(null);
+    setArchiveError(null);
+    setDeleteConfirmOpen(false);
+    setDeleteInput("");
+    setDeleteError(null);
   };
 
   const requestClose = () => {
@@ -272,6 +287,39 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setGroupResult({ ok: true });
     setClients(prev => prev.map(c => c.id === detail.id ? { ...c, ...updates } : c));
     setDetail(d => d ? { ...d, ...updates } : d);
+  };
+
+  const handleArchiveToggle = async () => {
+    if (!detail) return;
+    setArchiveLoading(true);
+    setArchiveError(null);
+    const res = await fetch("/api/clients", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: detail.id, is_archived: !detail.is_archived }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setArchiveLoading(false);
+    if (!res.ok) { setArchiveError(data.error || "Could not update."); return; }
+    const newArchived = !detail.is_archived;
+    setDetail(d => d ? { ...d, is_archived: newArchived } : d);
+    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, is_archived: newArchived } : c));
+  };
+
+  const handleClientDelete = async () => {
+    if (!detail) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    const res = await fetch("/api/clients", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: detail.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setDeleteLoading(false);
+    if (!res.ok) { setDeleteError(data.error || "Delete failed."); return; }
+    setClients(prev => prev.filter(c => c.id !== detail.id));
+    closeDetail();
   };
 
   const saveDetail = async () => {
@@ -420,6 +468,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     let list = clients;
+    if (!showArchived) list = list.filter(c => !c.is_archived);
     if (q) {
       list = clients.filter(c =>
         (c.first_name || "").toLowerCase().includes(q) ||
@@ -443,7 +492,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
       if (va > vb) return sortAsc ? 1 : -1;
       return 0;
     });
-  }, [clients, search, sortField, sortAsc]);
+  }, [clients, search, sortField, sortAsc, showArchived]);
 
   const formatPhone = (value) => {
     if (!value) return "\u2014";
@@ -553,12 +602,18 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ ...S.h3, marginBottom: 0 }}>All clients ({filtered.length})</h3>
-          <input
-            style={{ ...S.input, marginBottom: 0, maxWidth: 260 }}
-            placeholder="Search by name, email, phone, or group..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.muted, cursor: "pointer" }}>
+              <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} style={{ accentColor: C.teal }} />
+              Show archived
+            </label>
+            <input
+              style={{ ...S.input, marginBottom: 0, maxWidth: 260 }}
+              placeholder="Search by name, email, phone, or group..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
         </div>
         {listLoading ? (
           <p style={{ ...S.p, textAlign: "center" }}>Loading clients...</p>
@@ -593,10 +648,11 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
                       onMouseEnter={(e) => { e.currentTarget.style.background = "#fafafa"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
-                    <td style={tdStyle}>
+                    <td style={{ ...tdStyle, opacity: c.is_archived ? 0.55 : 1 }}>
                       {c.first_name || c.last_name
                         ? `${c.first_name || ""} ${c.last_name || ""}`.trim()
                         : <span style={{ color: C.hint, fontStyle: "italic" }}>No name</span>}
+                      {c.is_archived && <span style={{ fontSize: 11, marginLeft: 6, padding: "1px 6px", borderRadius: 10, background: "#f0f0f0", color: "#888" }}>archived</span>}
                     </td>
                     <td style={tdStyle}>{c.email}</td>
                     <td style={tdStyle}>{formatPhone(c.phone)}</td>
@@ -951,6 +1007,59 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
                 <p style={{ fontSize: 16, color: magicResult.ok ? C.teal : "#c0392b", marginTop: 8, marginBottom: 0 }}>
                   {magicResult.text}
                 </p>
+              )}
+            </div>
+
+            <div style={{ padding: "16px 18px" }}>
+              <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Account Status</h3>
+              {!deleteConfirmOpen && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    style={{ ...S.btnSmOut, border: `1px solid ${detail.is_archived ? C.teal : "#888"}`, color: detail.is_archived ? C.teal : "#888" }}
+                    onClick={handleArchiveToggle}
+                    disabled={archiveLoading}
+                  >
+                    {archiveLoading ? "..." : detail.is_archived ? "Unarchive" : "Archive"}
+                  </button>
+                  <button
+                    style={{ ...S.btnSmOut, border: "1px solid #c0392b", color: "#c0392b" }}
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    Delete permanently
+                  </button>
+                </div>
+              )}
+              {archiveError && <p style={{ fontSize: 14, color: "#c0392b", marginTop: 6, marginBottom: 0 }}>{archiveError}</p>}
+              {deleteConfirmOpen && (
+                <div style={{ background: "#fdf3f2", border: "1px solid rgba(192,57,43,0.3)", borderRadius: 8, padding: 14 }}>
+                  {detail.stripe_customer_id && (
+                    <p style={{ fontSize: 14, color: "#c0392b", marginBottom: 8, marginTop: 0 }}>
+                      This client has a saved payment method. It will be permanently removed from Stripe.
+                    </p>
+                  )}
+                  <p style={{ fontSize: 14, color: C.text, marginBottom: 8, marginTop: 0 }}>
+                    This permanently deletes all data. Type <strong>{[detail.first_name, detail.last_name].filter(Boolean).join(" ") || detail.email}</strong> to confirm.
+                  </p>
+                  <input
+                    style={{ ...S.input, marginBottom: 8 }}
+                    placeholder="Type name to confirm"
+                    value={deleteInput}
+                    onChange={e => setDeleteInput(e.target.value)}
+                  />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      style={{ ...S.btn, background: "#c0392b", opacity: deleteInput === ([detail.first_name, detail.last_name].filter(Boolean).join(" ") || detail.email) ? 1 : 0.5 }}
+                      disabled={deleteInput !== ([detail.first_name, detail.last_name].filter(Boolean).join(" ") || detail.email) || deleteLoading}
+                      onClick={handleClientDelete}
+                    >
+                      {deleteLoading ? "Deleting..." : "Delete permanently"}
+                    </button>
+                    <button style={S.btnSmOut} onClick={() => { setDeleteConfirmOpen(false); setDeleteInput(""); setDeleteError(null); }}>
+                      Cancel
+                    </button>
+                  </div>
+                  {deleteError && <p style={{ fontSize: 14, color: "#c0392b", marginTop: 8, marginBottom: 0 }}>{deleteError}</p>}
+                </div>
               )}
             </div>
             </div>
