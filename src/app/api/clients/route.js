@@ -189,12 +189,14 @@ export async function DELETE(request) {
   // Delete messages
   await adminClient.from("messages").delete().or(`sender_id.eq.${id},conversation_id.eq.${id}`);
 
-  // Delete Stripe customer if present
+  // Delete Stripe customer if present (ignore "no such customer" — stale reference)
   if (profile?.stripe_customer_id) {
     try {
       await stripe.customers.del(profile.stripe_customer_id);
     } catch (err) {
-      return NextResponse.json({ error: `Stripe error: ${err.message}` }, { status: 500 });
+      if (err?.code !== "resource_missing") {
+        return NextResponse.json({ error: `Stripe error: ${err.message}` }, { status: 500 });
+      }
     }
   }
 
