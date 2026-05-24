@@ -24,6 +24,7 @@ import AdminSchedule from "@/components/portal/AdminSchedule";
 import AdminSettings from "@/components/portal/AdminSettings";
 import Groups from "@/components/portal/Groups";
 import Statement from "@/components/portal/Statement";
+import SessionActivity from "@/components/portal/SessionActivity";
 
 export default function App() {
   const { user, profile, loading, refreshProfile } = useAuth();
@@ -39,6 +40,7 @@ export default function App() {
   const [viewAsClient, setViewAsClient] = useState(null);
   const [groupDetailId, setGroupDetailId] = useState(null);
   const [adminStatementClient, setAdminStatementClient] = useState(null);
+  const [adminSessionClient, setAdminSessionClient] = useState(null);
   const [profileFocus, setProfileFocus] = useState(null);
   const [bookingActive, setBookingActive] = useState(false);
   const inPortal = !!user;
@@ -134,13 +136,21 @@ export default function App() {
     if (isAdmin && page === "Admin Calendar") return <AdminCalendar setPage={setPage} />;
     if (isAdmin && !viewAsClient) {
       if (page === "Admin") return <Admin setPage={setPage} />;
-      if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} onOpenGroup={handleOpenGroup} onViewStatement={(client) => { setAdminStatementClient(client); setPage("Admin Statement"); }} />;
+      if (page === "Admin Clients") return <Clients setPage={setPage} onViewAsClient={handleViewAsClient} onOpenGroup={handleOpenGroup} onViewStatement={(client) => { setAdminStatementClient(client); setPage("Admin Statement"); }} onViewSessions={(client) => { setAdminSessionClient(client); setPage("Admin Session Activity"); }} />;
       if (page === "Admin Statement" && adminStatementClient) return (
         <div style={{ minHeight: "calc(100vh - 64px)", padding: "2rem 1rem 5rem", maxWidth: 800, margin: "0 auto" }}>
           <button style={{ background: "none", border: "none", cursor: "pointer", color: "#4AAFA0", fontSize: 13, padding: 0, marginBottom: 12, fontFamily: "inherit" }} onClick={() => { setPage("Admin Clients"); setAdminStatementClient(null); }}>← Back to Clients</button>
           <h1 style={{ fontSize: 26, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>{adminStatementClient.first_name} {adminStatementClient.last_name} — Statement</h1>
           <p style={{ fontSize: 15, color: "#5F5E5A", marginBottom: 24 }}>Session and purchase history.</p>
           <Statement groupId={adminStatementClient.group_id} isAdmin={true} />
+        </div>
+      );
+      if (page === "Admin Session Activity" && adminSessionClient) return (
+        <div style={{ minHeight: "calc(100vh - 64px)", padding: "2rem 1rem 5rem", maxWidth: 1100, margin: "0 auto" }}>
+          <button style={{ background: "none", border: "none", cursor: "pointer", color: "#4AAFA0", fontSize: 13, padding: 0, marginBottom: 12, fontFamily: "inherit" }} onClick={() => { setPage("Admin Clients"); setAdminSessionClient(null); }}>← Back to Clients</button>
+          <h1 style={{ fontSize: 26, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>{adminSessionClient.first_name} {adminSessionClient.last_name} — Session Activity</h1>
+          <p style={{ fontSize: 15, color: "#5F5E5A", marginBottom: 24 }}>All sessions for this client.</p>
+          <SessionActivity clientId={adminSessionClient.id} />
         </div>
       );
       if (page === "Admin Groups") return <Groups setPage={setPage} initialGroupId={groupDetailId} onGroupOpened={() => setGroupDetailId(null)} />;

@@ -12,7 +12,7 @@ function formatPhoneInput(value) {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewStatement }) {
+export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewStatement, onViewSessions }) {
   const mobile = useIsMobile();
   // Invite form state
   const [email, setEmail] = useState("");
@@ -980,8 +980,11 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
 
             {detail.role !== "admin" && detail.group_id && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Statement</h3>
-                <button style={S.btn} onClick={() => { closeDetail(); onViewStatement?.(detail); }}>View statement →</button>
+                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Reports</h3>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button style={S.btn} onClick={() => { closeDetail(); onViewStatement?.(detail); }}>View statement →</button>
+                  <button style={{ ...S.btn, background: C.teal }} onClick={() => { closeDetail(); onViewSessions?.(detail); }}>View session activity →</button>
+                </div>
               </div>
             )}
 
