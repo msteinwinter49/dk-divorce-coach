@@ -273,17 +273,18 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
 
     return (
       <div
-        style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.18)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: mobile ? 0 : "2rem 1rem" }}
+        style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.18)" }}
         onMouseDown={e => { if (e.target === e.currentTarget) closeModal(); }}
       >
-        <div style={{ background: "#fff", borderRadius: mobile ? 0 : 12, boxShadow: "0 8px 40px rgba(0,0,0,0.18)", width: "100%", maxWidth: 560, minHeight: mobile ? "100dvh" : undefined, position: "relative" }}>
+        <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: `min(560px, calc(100vw - 24px))`, maxHeight: "85vh", background: "#fff", borderRadius: 12, boxShadow: "0 8px 40px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column" }}>
           {/* Header */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: `1px solid rgba(0,0,0,0.15)` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: `1px solid rgba(0,0,0,0.15)`, flexShrink: 0 }}>
             <h2 style={{ ...S.h3, fontSize: 20, marginBottom: 0 }}>
               {isCreateMode ? "New Group" : `Group Actions — ${modal.name || "Group"}`}
             </h2>
             <button onClick={closeModal} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: C.muted, lineHeight: 1, padding: "0 4px" }}>✕</button>
           </div>
+          <div style={{ overflowY: "auto", flex: 1 }}>
 
           {/* Section 1: Group Info */}
           <div style={sectionStyle}>
@@ -538,6 +539,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
               </div>
             </>
           )}
+          </div>
         </div>
       </div>
     );
