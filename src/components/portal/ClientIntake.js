@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
@@ -49,6 +49,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [backupPhone, setBackupPhone] = useState("");
+  const [age, setAge] = useState("");
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
   const [addressZip, setAddressZip] = useState("");
@@ -82,6 +83,61 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
   const backupPhoneRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmPasswordRef = useRef(null);
+  const ageRef = useRef(null);
+  const addressLine1Ref = useRef(null);
+  const addressZipRef = useRef(null);
+  const draftTimerRef = useRef(null);
+
+  // Restore draft on mount (skipped in preview mode)
+  useEffect(() => {
+    if (preview || !user?.id) return;
+    try {
+      const saved = localStorage.getItem(`intake_draft_${user.id}`);
+      if (!saved) return;
+      const d = JSON.parse(saved);
+      if (d.firstName)        setFirstName(d.firstName);
+      if (d.lastName)         setLastName(d.lastName);
+      if (d.phone)            setPhone(d.phone);
+      if (d.backupPhone)      setBackupPhone(d.backupPhone);
+      if (d.age)              setAge(d.age);
+      if (d.addressLine1)     setAddressLine1(d.addressLine1);
+      if (d.addressLine2)     setAddressLine2(d.addressLine2);
+      if (d.addressZip)       setAddressZip(d.addressZip);
+      if (d.addressCity)      setAddressCity(d.addressCity);
+      if (d.addressState)     setAddressState(d.addressState);
+      if (d.bgOccupation)     setBgOccupation(d.bgOccupation);
+      if (d.bgEducation)      setBgEducation(d.bgEducation);
+      if (d.bgRelationship)   setBgRelationship(d.bgRelationship);
+      if (d.bgTherapist)      setBgTherapist(d.bgTherapist);
+      if (d.bgLiving)         setBgLiving(d.bgLiving);
+      if (d.bgBrings)         setBgBrings(d.bgBrings);
+      if (d.bgGoals)          setBgGoals(d.bgGoals);
+      if (d.bgOther)          setBgOther(d.bgOther);
+      if (d.preferredEmail)   setPreferredEmail(d.preferredEmail);
+      if (d.notificationPref) setNotificationPref(d.notificationPref);
+      if (d.reminderPref)     setReminderPref(d.reminderPref);
+      if (d.timezone)         setTimezone(d.timezone);
+      if (d.disclaimerAgreed) setDisclaimerAgreed(d.disclaimerAgreed);
+    } catch {}
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced draft save (skipped in preview mode)
+  useEffect(() => {
+    if (preview || !user?.id) return;
+    clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(`intake_draft_${user.id}`, JSON.stringify({
+          firstName, lastName, age, phone, backupPhone,
+          addressLine1, addressLine2, addressZip, addressCity, addressState,
+          bgOccupation, bgEducation, bgRelationship, bgTherapist, bgLiving, bgBrings, bgGoals, bgOther,
+          preferredEmail, notificationPref, reminderPref, timezone, disclaimerAgreed,
+        }));
+      } catch {}
+    }, 800);
+  }, [user?.id, preview, firstName, lastName, phone, backupPhone, addressLine1, addressLine2, addressZip, addressCity, addressState, // eslint-disable-line react-hooks/exhaustive-deps
+     bgOccupation, bgEducation, bgRelationship, bgTherapist, bgLiving, bgBrings, bgGoals, bgOther,
+     preferredEmail, notificationPref, reminderPref, timezone, disclaimerAgreed]);
 
   const handleZipBlur = async (zip) => {
     if (zip.length !== 5 || !/^\d{5}$/.test(zip)) return;
@@ -107,8 +163,16 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     if (!lastName.trim()) e.lastName = "Last name is required.";
     const emailVal = preferredEmail.trim() || user?.email || "";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) e.email = "Please enter a valid email address.";
+    const ageNum = parseInt(age, 10);
+    if (!age.trim()) e.age = "Age is required.";
+    else if (isNaN(ageNum) || ageNum <= 0 || ageNum >= 111) e.age = "Please enter a valid age.";
+    if (!addressLine1.trim()) e.addressLine1 = "Address is required.";
+    const zipVal = addressZip.trim();
+    if (!zipVal) e.addressZip = "ZIP code is required.";
+    else if (!/^\d{5}$/.test(zipVal)) e.addressZip = "ZIP code must be 5 digits.";
     const phoneDigits = phone.replace(/\D/g, "");
-    if (phoneDigits && phoneDigits.length !== 10) e.phone = "Phone number must be 10 digits.";
+    if (!phoneDigits) e.phone = "Phone number is required.";
+    else if (phoneDigits.length !== 10) e.phone = "Phone number must be 10 digits.";
     const backupPhoneDigits = backupPhone.replace(/\D/g, "");
     if (backupPhoneDigits && backupPhoneDigits.length !== 10) e.backupPhone = "Phone number must be 10 digits.";
     if (!password) e.password = "Please set a password.";
@@ -118,6 +182,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     if (Object.keys(e).length > 0) {
       setErrors(e);
       const first = e.disclaimer ? disclaimerRef : e.firstName ? firstNameRef : e.lastName ? lastNameRef :
+        e.age ? ageRef : e.addressLine1 ? addressLine1Ref : e.addressZip ? addressZipRef :
         e.email ? emailRef : e.phone ? phoneRef : e.password ? passwordRef : confirmPasswordRef;
       first.current?.focus();
       return;
@@ -135,6 +200,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     const { error: profErr } = await supabase.from("profiles").update({
       first_name: firstName.trim(),
       last_name: lastName.trim(),
+      age: parseInt(age, 10),
       full_name: `${firstName.trim()} ${lastName.trim()}`,
       phone: phone.trim() || null,
       backup_phone: backupPhone.trim() || null,
@@ -170,6 +236,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
       }),
     }).catch(() => {});
 
+    try { localStorage.removeItem(`intake_draft_${user.id}`); } catch {}
     await refreshProfile();
     setSaving(false);
     if (onComplete) onComplete();
@@ -195,8 +262,10 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
         <span style={S.logoMain}>DK Divorce Coach</span>
         <span style={S.logoSub}>DIANA KIEREIN · CDC</span>
       </div>
-      <h1 style={{ ...S.h1, fontSize: 26 }}>Welcome! Let&apos;s get you set up.</h1>
-      <p style={S.p}>Complete your registration to access your coaching portal.</p>
+      <h1 style={{ ...S.h1, fontSize: 26 }}>Welcome! Please complete and submit this form to start using your coaching portal.</h1>
+      <p style={S.p}>You can leave this page before finishing and your work will be saved. Continue by returning to dkdivorcecoach.com on the SAME DEVICE.</p>
+
+      <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}><span style={{ color: "#c0392b" }}>*</span> required field</p>
 
       {/* Disclaimer */}
       <div style={{ ...S.card, borderColor: errors.disclaimer ? "#c0392b" : undefined }}>
@@ -217,7 +286,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
             onChange={e => { setDisclaimerAgreed(e.target.checked); setErrors(v => ({ ...v, disclaimer: null })); }}
             style={{ marginTop: 2, flexShrink: 0 }}
           />
-          I have read, understand, and agree to these terms.
+          I have read, understand, and agree to these terms. <span style={{ color: "#c0392b" }}>*</span>
         </label>
         {errors.disclaimer && <p style={{ ...ERR, marginTop: 8, marginBottom: 0 }}>{errors.disclaimer}</p>}
       </div>
@@ -226,7 +295,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
       <div style={S.card}>
         <h3 style={S.h3}>Set your password</h3>
         <p style={{ ...S.p, fontSize: 13 }}>You&apos;ll use this to sign in to your portal.</p>
-        <label style={S.label}>Password</label>
+        <label style={S.label}>Password <span style={{ color: "#c0392b" }}>*</span></label>
         <div style={{ position: "relative", marginBottom: errors.password ? 4 : "0.75rem" }}>
           <input
             ref={passwordRef}
@@ -255,7 +324,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
           </button>
         </div>
         {errors.password && <p style={ERR}>{errors.password}</p>}
-        <label style={S.label}>Confirm password</label>
+        <label style={S.label}>Confirm password <span style={{ color: "#c0392b" }}>*</span></label>
         <input
           ref={confirmPasswordRef}
           type={showPassword ? "text" : "password"}
@@ -272,7 +341,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
         <h3 style={S.h3}>Your information</h3>
         <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 12 }}>
           <div>
-            <label style={S.label}>First name</label>
+            <label style={S.label}>First name <span style={{ color: "#c0392b" }}>*</span></label>
             <input
               ref={firstNameRef}
               style={{ ...S.input, borderColor: errors.firstName ? "#c0392b" : undefined }}
@@ -282,7 +351,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
             {errors.firstName && <p style={ERR}>{errors.firstName}</p>}
           </div>
           <div>
-            <label style={S.label}>Last name</label>
+            <label style={S.label}>Last name <span style={{ color: "#c0392b" }}>*</span></label>
             <input
               ref={lastNameRef}
               style={{ ...S.input, borderColor: errors.lastName ? "#c0392b" : undefined }}
@@ -292,13 +361,26 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
             {errors.lastName && <p style={ERR}>{errors.lastName}</p>}
           </div>
         </div>
-        <label style={S.label}>Mailing address</label>
+        <label style={S.label}>Age <span style={{ color: "#c0392b" }}>*</span></label>
         <input
-          style={S.input}
+          ref={ageRef}
+          style={{ ...S.input, width: 100, borderColor: errors.age ? "#c0392b" : undefined }}
+          placeholder="e.g. 42"
+          type="text"
+          inputMode="numeric"
+          value={age}
+          onChange={e => { setAge(e.target.value); setErrors(v => ({ ...v, age: null })); }}
+        />
+        {errors.age && <p style={ERR}>{errors.age}</p>}
+        <label style={S.label}>Mailing address <span style={{ color: "#c0392b" }}>*</span></label>
+        <input
+          ref={addressLine1Ref}
+          style={{ ...S.input, borderColor: errors.addressLine1 ? "#c0392b" : undefined }}
           placeholder="Address line 1"
           value={addressLine1}
-          onChange={e => setAddressLine1(e.target.value)}
+          onChange={e => { setAddressLine1(e.target.value); setErrors(v => ({ ...v, addressLine1: null })); }}
         />
+        {errors.addressLine1 && <p style={ERR}>{errors.addressLine1}</p>}
         <input
           style={S.input}
           placeholder="Address line 2 (apt, suite, etc.)"
@@ -308,14 +390,16 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
         <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "100px 1fr 80px", gap: 12 }}>
           <div>
             <input
-              style={{ ...S.input, marginBottom: 0 }}
+              ref={addressZipRef}
+              style={{ ...S.input, marginBottom: 0, borderColor: errors.addressZip ? "#c0392b" : undefined }}
               placeholder="ZIP"
               value={addressZip}
               maxLength={5}
-              onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 5); setAddressZip(v); }}
+              onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 5); setAddressZip(v); setErrors(prev => ({ ...prev, addressZip: null })); }}
               onBlur={e => handleZipBlur(e.target.value)}
             />
             {zipLooking && <p style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Looking up…</p>}
+            {errors.addressZip && <p style={{ ...ERR, marginTop: 2 }}>{errors.addressZip}</p>}
           </div>
           <input
             style={{ ...S.input, marginBottom: 0 }}
@@ -332,7 +416,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
           />
         </div>
         <div style={{ marginBottom: "0.75rem" }} />
-        <label style={S.label}>Mobile number</label>
+        <label style={S.label}>Mobile number <span style={{ color: "#c0392b" }}>*</span></label>
         <input
           ref={phoneRef}
           style={{ ...S.input, borderColor: errors.phone ? "#c0392b" : undefined }}
@@ -348,7 +432,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
           onChange={e => { setBackupPhone(formatPhone(e.target.value)); setErrors(v => ({ ...v, backupPhone: null })); }}
         />
         {errors.backupPhone && <p style={ERR}>{errors.backupPhone}</p>}
-        <label style={S.label}>Preferred email address</label>
+        <label style={S.label}>Preferred email address <span style={{ color: "#c0392b" }}>*</span></label>
         <input
           ref={emailRef}
           style={{ ...S.input, borderColor: errors.email ? "#c0392b" : undefined }}
