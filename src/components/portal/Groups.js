@@ -48,9 +48,6 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
   const [purchaseClientId, setPurchaseClientId] = useState("");
   const [purchaseDirty, setPurchaseDirty] = useState(false);
 
-  // Member actions
-  const [removeConfirm, setRemoveConfirm] = useState(null);
-
   // Archive / delete
   const [showArchived, setShowArchived] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
@@ -92,7 +89,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setInfoResult(null);
     setPurchaseClientId("");
     setPurchaseDirty(false);
-    setRemoveConfirm(null);
+
     setArchiveResult(null);
     setDeleteConfirmOpen(false);
     setDeleteInput("");
@@ -122,7 +119,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
   const closeModal = () => {
     setModal(null);
     setMembers([]);
-    setRemoveConfirm(null);
+
     setArchiveResult(null);
     setDeleteConfirmOpen(false);
     setDeleteInput("");
@@ -198,23 +195,6 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
         const next = members.find(m => m.client_id !== clientId && m.is_active);
         setPurchaseClientId(next?.client_id || "");
       }
-    }
-  };
-
-  const removeMember = async (clientId) => {
-    const res = await fetch("/api/groups/members", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId }),
-    });
-    if (res.ok) {
-      setMembers(prev => prev.filter(m => m.client_id !== clientId));
-      setGroups(prev => prev.map(g => g.id === modal?.id ? { ...g, member_count: Math.max(0, g.member_count - 1) } : g));
-      if (purchaseClientId === clientId) {
-        const next = members.find(m => m.client_id !== clientId && m.is_active);
-        setPurchaseClientId(next?.client_id || "");
-      }
-      setRemoveConfirm(null);
     }
   };
 
@@ -449,35 +429,19 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
                   return (
                     <div key={m.client_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `0.5px solid ${C.border}` }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 15, fontWeight: 500, color: C.text }}>{name}</div>
+                        <div style={{ fontSize: 15, fontWeight: 500, color: C.text }}>{name}{m.profile?.is_archived ? <span style={{ fontSize: 12, fontWeight: 400, color: "#888", marginLeft: 6 }}>(archived)</span> : null}</div>
                         {email && <div style={{ fontSize: 13, color: C.muted }}>{email}</div>}
                       </div>
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.muted, cursor: "pointer", flexShrink: 0 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: m.profile?.is_archived ? C.muted : C.muted, cursor: m.profile?.is_archived ? "default" : "pointer", flexShrink: 0, opacity: m.profile?.is_archived ? 0.5 : 1 }}>
                         <input
                           type="checkbox"
                           checked={m.is_active}
                           onChange={e => toggleMember(m.client_id, e.target.checked)}
                           style={{ accentColor: C.teal }}
+                          disabled={!!m.profile?.is_archived}
                         />
-                        Active
+                        Show for scheduling
                       </label>
-                      {removeConfirm === m.client_id ? (
-                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                          <button
-                            style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: "1px solid #c0392b", background: "#c0392b", color: "#fff", cursor: "pointer", fontFamily: "inherit" }}
-                            onClick={() => removeMember(m.client_id)}
-                          >Confirm</button>
-                          <button
-                            style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", color: C.text, cursor: "pointer", fontFamily: "inherit" }}
-                            onClick={() => setRemoveConfirm(null)}
-                          >Cancel</button>
-                        </div>
-                      ) : (
-                        <button
-                          style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", color: C.muted, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}
-                          onClick={() => setRemoveConfirm(m.client_id)}
-                        >Remove</button>
-                      )}
                     </div>
                   );
                 })}

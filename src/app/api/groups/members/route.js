@@ -66,7 +66,7 @@ export async function GET(request) {
   if (clientIds.length) {
     const { data: profiles } = await admin
       .from("profiles")
-      .select("id, first_name, last_name, full_name, preferred_email")
+      .select("id, first_name, last_name, full_name, preferred_email, is_archived")
       .in("id", clientIds);
     const profileMap = {};
     (profiles || []).forEach(p => { profileMap[p.id] = p; });
