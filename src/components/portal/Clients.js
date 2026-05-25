@@ -15,6 +15,7 @@ function formatPhoneInput(value) {
 export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewStatement, onViewSessions }) {
   const mobile = useIsMobile();
   // Invite form state
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [inviteHourlyRate, setInviteHourlyRate] = useState("");
   const [inviteGroupId, setInviteGroupId] = useState(""); // "" = create new group
@@ -306,7 +307,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setClients(prev => prev.map(c => c.id === detail.id ? { ...c, is_archived: newArchived } : c));
   };
 
-  const handleClientDelete = async () => {
+const handleClientDelete = async () => {
     if (!detail) return;
     setDeleteLoading(true);
     setDeleteError(null);
@@ -408,7 +409,11 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
       setInviteError("Please enter an email address.");
       return;
     }
-    const isNewGroup = inviteGroupId === "";
+    if (!inviteGroupId) {
+      setInviteError("Please select or create a group.");
+      return;
+    }
+    const isNewGroup = inviteGroupId === "__new__";
     if (isNewGroup) {
       if (!inviteGroupName.trim()) {
         setInviteError("Please enter a group name.");
@@ -518,16 +523,23 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
 
       {/* Invite section */}
       <div style={{ ...S.card, marginBottom: "1.5rem" }}>
-        <h3 style={S.h3}>Invite a new client</h3>
-        <div style={{ display: "grid", gap: 10 }}>
+        <div
+          onClick={() => setInviteOpen(o => !o)}
+          style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}
+        >
+          <h3 style={{ ...S.h3, margin: 0 }}>Invite a new client</h3>
+          <span style={{ fontSize: 18, color: C.muted, transition: "transform 0.2s", display: "inline-block", transform: inviteOpen ? "rotate(180deg)" : "rotate(0deg)", lineHeight: 1 }}>▾</span>
+        </div>
+        {inviteOpen && <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
           <div>
-            <label style={S.label}>Group</label>
+            <label style={S.label}>Assign client to a group</label>
             <select
               style={{ ...S.input, marginBottom: 0, cursor: "pointer" }}
               value={inviteGroupId}
               onChange={e => setInviteGroupId(e.target.value)}
             >
-              <option value="">Create new group…</option>
+              <option value="" disabled>Select…</option>
+              <option value="__new__">Create a new group</option>
               {groups.map(g => (
                 <option key={g.id} value={g.id}>
                   {g.name}{g.hourly_rate ? ` ($${g.hourly_rate}/hr)` : ""}
@@ -535,10 +547,10 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
               ))}
             </select>
           </div>
-          {inviteGroupId === "" && (
+          {inviteGroupId === "__new__" && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 160 }}>
-                <label style={S.label}>Group name</label>
+                <label style={S.label}>New group name</label>
                 <input
                   style={{ ...S.input, marginBottom: 0 }}
                   placeholder="e.g. Smith Family"
@@ -593,9 +605,9 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
             />
             Grant admin access
           </label>
-        </div>
-        {inviteError && <p style={{ fontSize: 13, color: "#c0392b", marginTop: 8, marginBottom: 0 }}>{inviteError}</p>}
-        {inviteSuccess && <p style={{ fontSize: 13, color: C.teal, marginTop: 8, marginBottom: 0 }}>{inviteSuccess}</p>}
+          {inviteError && <p style={{ fontSize: 13, color: "#c0392b", marginTop: 8, marginBottom: 0 }}>{inviteError}</p>}
+          {inviteSuccess && <p style={{ fontSize: 13, color: C.teal, marginTop: 8, marginBottom: 0 }}>{inviteSuccess}</p>}
+        </div>}
       </div>
 
       {/* Client list */}
