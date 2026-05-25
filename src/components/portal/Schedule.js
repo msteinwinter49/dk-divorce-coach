@@ -86,6 +86,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const moveModalRef = useRef(null);
   const dragStateRef = useRef(null);
   const bookingPageInnerRef = useRef(null);
+  const popupScrollRef = useRef(null);
 
   // Drag-and-drop state (move existing bookings)
   const dragRef = useRef(null);
@@ -1100,7 +1101,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const hasUnsavedChanges = !bookingSuccess && (editingBooking
     ? (bookingDate !== origDate || selectedTime !== origTime || selectedType?.id !== editingBooking.session_type_id)
     : !!selectedType);
-  const tryClose = () => { if (hasUnsavedChanges) setShowCloseWarning(true); else closePopup(); };
+  const tryClose = () => { if (hasUnsavedChanges) { setShowCloseWarning(true); setTimeout(() => popupScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 0); } else closePopup(); };
 
   const renderBookingDayView = () => {
     const date = bookingDate || origDate;
@@ -1323,9 +1324,9 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
               ))}
             </div>
             {!editingBooking && !isAdminViewing && (() => {
-              const otherMembers = groupMembers.filter(m => m.is_active && m.client_id !== user?.id);
+              const otherMembers = groupMembers.filter(m => m.is_active && !m.profile?.is_archived && m.client_id !== user?.id);
               if (otherMembers.length === 0) return null;
-              const allMembers = groupMembers.filter(m => m.is_active);
+              const allMembers = groupMembers.filter(m => m.is_active && !m.profile?.is_archived);
               const allSelected = allMembers.every(m => selectedParticipants.includes(m.client_id));
               const someSelected = allMembers.some(m => selectedParticipants.includes(m.client_id) && m.client_id !== user?.id);
               const toggleParticipant = (id) => {
@@ -1504,7 +1505,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
         }} onClick={e => e.stopPropagation()}>
           <button onClick={tryClose} onMouseDown={e => e.stopPropagation()} aria-label="Close" style={{
             position: "absolute", top: 10, right: 10, background: "none", border: "none",
-            cursor: "pointer", fontSize: 18, color: C.muted, lineHeight: 1, padding: "4px 8px", zIndex: 1,
+            cursor: "pointer", fontSize: 18, color: C.muted, lineHeight: 1, padding: "4px 8px", zIndex: 10,
           }}>✕</button>
 
           {bookingSuccess ? (
@@ -1575,7 +1576,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
               })()}
               <p style={{ ...S.p, fontSize: 13 }}>{dateLabel}</p>
 
-              <div style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain", minHeight: 0 }}>
+              <div ref={popupScrollRef} style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain", minHeight: 0 }}>
               {editingBooking && isChangeBlocked(editingBooking) ? (
                 <>
                   <p style={{ ...S.p, fontSize: 13, marginBottom: 12 }}>
@@ -1675,9 +1676,9 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
 
               {/* Participant selection — only for clients with other active group members */}
               {!editingBooking && !isAdminViewing && (() => {
-                const otherMembers = groupMembers.filter(m => m.is_active && m.client_id !== user?.id);
+                const otherMembers = groupMembers.filter(m => m.is_active && !m.profile?.is_archived && m.client_id !== user?.id);
                 if (otherMembers.length === 0) return null;
-                const allMembers = groupMembers.filter(m => m.is_active);
+                const allMembers = groupMembers.filter(m => m.is_active && !m.profile?.is_archived);
                 const allSelected = allMembers.every(m => selectedParticipants.includes(m.client_id));
                 const someSelected = allMembers.some(m => selectedParticipants.includes(m.client_id) && m.client_id !== user?.id);
                 const toggleParticipant = (id) => {
