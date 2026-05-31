@@ -68,7 +68,7 @@ export async function POST(request) {
     ]);
     const contactEmail = setting?.value;
     if (contactEmail) {
-      const origin = new URL(request.url).origin;
+      const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
       const clientName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() || "A client";
       const { data: share } = await adminClient
         .from("document_shares")

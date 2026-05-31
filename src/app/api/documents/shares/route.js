@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -70,7 +71,7 @@ export async function POST(request) {
     shared_by: user.id,
     require_acknowledgment: !!require_acknowledgment,
     acknowledgment_label: require_acknowledgment
-      ? (acknowledgment_label?.trim() || "I have read and agree")
+      ? (acknowledgment_label?.trim() || null)
       : null,
   }));
 
@@ -80,6 +81,35 @@ export async function POST(request) {
     .select();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  try {
+    const [{ data: doc }, { data: clientProfiles }] = await Promise.all([
+      adminClient.from("documents").select("name").eq("id", document_id).single(),
+      adminClient.from("profiles").select("id, first_name, preferred_email").in("id", client_ids),
+    ]);
+    const docName = doc?.name || "a document";
+    const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const shareMap = Object.fromEntries((data || []).map(s => [s.client_id, s.id]));
+    await Promise.all((clientProfiles || []).map(async (client) => {
+      let email = client.preferred_email?.trim();
+      if (!email) {
+        const { data: authUser } = await adminClient.auth.admin.getUserById(client.id);
+        email = authUser?.user?.email;
+      }
+      const shareId = shareMap[client.id];
+      if (!email || !shareId) return;
+      return resend.emails.send({
+        from: "DK Divorce Coach <diana@dkdivorcecoach.com>",
+        to: email,
+        subject: `New document shared with you: ${docName}`,
+        html: `<p>Hi ${client.first_name || "there"},</p><p>A document has been shared with you: <strong>${docName}</strong>.</p><p><a href="${origin}/?doc_share=${shareId}">View document</a></p>`,
+      });
+    }));
+  } catch (err) {
+    console.error("share email error:", err);
+  }
+
   return NextResponse.json(data);
 }
 

@@ -103,7 +103,7 @@ export default function App() {
       if (page === "Home") return <><HomePage setPage={setPage} />{disclaimerFooter}</>;
       if (page === "About") return <><AboutPage />{disclaimerFooter}</>;
       if (page === "Contact") return <><ContactPage />{disclaimerFooter}</>;
-      return <><LoginPage setPage={setPage} />{disclaimerFooter}</>;
+      return <><LoginPage setPage={setPage} initialPage={page !== "Home" ? page : undefined} />{disclaimerFooter}</>;
     }
     if (isAdmin && page === "Preview Intake") {
       return <ClientIntake preview onClosePreview={() => setPage("Admin Settings")} />;

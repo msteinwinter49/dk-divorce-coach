@@ -74,6 +74,9 @@ export default function Documents({ viewAsClient, initialShareId }) {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState(null);
 
+  // Admin library search
+  const [librarySearch, setLibrarySearch] = useState("");
+
   // Admin shared docs table
   const [sharesSearch, setSharesSearch] = useState("");
   const [sharesStatus, setSharesStatus] = useState("all");
@@ -81,12 +84,18 @@ export default function Documents({ viewAsClient, initialShareId }) {
   const [sortAsc, setSortAsc] = useState(false);
   const [unshareLoading, setUnshareLoading] = useState(null);
 
+  // Admin viewer (practice library preview)
+  const [adminViewerDoc, setAdminViewerDoc] = useState(null);
+  const [adminViewerUrl, setAdminViewerUrl] = useState(null);
+  const [adminViewerLoading, setAdminViewerLoading] = useState(false);
+
   // Client viewer
   const [viewerShare, setViewerShare] = useState(null);
   const [viewerUrl, setViewerUrl] = useState(null);
   const [viewerLoading, setViewerLoading] = useState(false);
   const [ackLoading, setAckLoading] = useState(false);
   const [ackError, setAckError] = useState(null);
+  const [downloadHint, setDownloadHint] = useState(false);
 
   // Client upload
   const clientFileRef = useRef(null);
@@ -144,7 +153,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
   }, [allClients]);
 
   const modalClients = useMemo(() => (
-    shareGroupId ? allClients.filter(c => c.group_id === shareGroupId) : allClients
+    shareGroupId ? allClients.filter(c => c.group_id === shareGroupId) : []
   ), [allClients, shareGroupId]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -238,6 +247,15 @@ export default function Documents({ viewAsClient, initialShareId }) {
     setUnshareLoading(null);
   };
 
+  const openAdminViewer = async (doc) => {
+    setAdminViewerDoc(doc);
+    setAdminViewerUrl(null);
+    setAdminViewerLoading(true);
+    const res = await fetch(`/api/documents/${doc.id}/url`).then(r => r.json());
+    setAdminViewerUrl(res.url || null);
+    setAdminViewerLoading(false);
+  };
+
   const openViewer = async (share) => {
     setViewerShare(share);
     setViewerUrl(null);
@@ -257,6 +275,36 @@ export default function Documents({ viewAsClient, initialShareId }) {
     setOwnShares(prev => prev.map(s => s.id === viewerShare.id ? { ...s, acknowledged_at: now } : s));
     setViewerShare(prev => ({ ...prev, acknowledged_at: now }));
     setAckLoading(false);
+  };
+
+  const triggerDownload = async (url, name, ext) => {
+    const filename = ext ? `${name}.${ext}` : name;
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({ suggestedName: filename });
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        // unsupported or permission denied — fall through to legacy
+      }
+    }
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+    setDownloadHint(true);
+    setTimeout(() => setDownloadHint(false), 5000);
   };
 
   const handleClientUpload = async (e) => {
@@ -415,10 +463,11 @@ export default function Documents({ viewAsClient, initialShareId }) {
               </div>
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                 {viewerUrl && (
-                  <a href={viewerUrl} download target="_blank" rel="noreferrer"
-                    style={{ ...S.btnSmOut, textDecoration: "none", padding: "6px 12px", fontSize: 12 }}>
+                  <button
+                    style={{ ...S.btnSmOut, padding: "6px 12px", fontSize: 12 }}
+                    onClick={() => triggerDownload(viewerUrl, viewerShare.documents?.name || "document", viewerShare.documents?.file_extension)}>
                     Download
-                  </a>
+                  </button>
                 )}
                 <button onClick={() => setViewerShare(null)}
                   style={{ background: "none", border: `0.5px solid ${C.border}`, borderRadius: 8, fontSize: 20, lineHeight: 1, cursor: "pointer", color: C.muted, padding: "4px 10px", fontFamily: "inherit" }}>
@@ -426,6 +475,11 @@ export default function Documents({ viewAsClient, initialShareId }) {
                 </button>
               </div>
             </div>
+            {downloadHint && (
+              <div style={{ padding: "7px 14px", background: "#f0faf4", borderBottom: `0.5px solid #a7d7b8`, fontSize: 12, color: "#2d6a4f", flexShrink: 0 }}>
+                File saved — check your Downloads folder.
+              </div>
+            )}
             <div style={{ flex: 1, overflow: "hidden", background: "#f0f0f0", position: "relative" }}>
               {viewerLoading && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.hint, fontSize: 14 }}>
@@ -438,7 +492,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
                 if (viewerUrl) return (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12 }}>
                     <p style={{ fontSize: 14, color: C.muted }}>Preview not available for this file type.</p>
-                    <a href={viewerUrl} download target="_blank" rel="noreferrer" style={{ ...S.btn, textDecoration: "none", fontSize: 13 }}>Download file</a>
+                    <button style={{ ...S.btn, fontSize: 13 }} onClick={() => triggerDownload(viewerUrl, viewerShare.documents?.name || "document", viewerShare.documents?.file_extension)}>Download file</button>
                   </div>
                 );
                 return (
@@ -449,7 +503,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
               })()}
             </div>
             {viewerShare.require_acknowledgment && !viewerShare.acknowledged_at && (
-              <div style={{ padding: "12px 16px", background: "#fffbea", borderTop: "1px solid #fbbf24", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+              <div style={{ padding: "12px 16px", background: "#fffbea", borderTop: "1px solid #fbbf24", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, color: "#92400e" }}>
                   {viewerShare.acknowledgment_label || "I have read and agree"}
                 </span>
@@ -476,17 +530,31 @@ export default function Documents({ viewAsClient, initialShareId }) {
       {/* Practice Library */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
         <h2 style={{ ...S.h2, marginBottom: 0, fontSize: 17 }}>Practice Library</h2>
-        <button style={S.btnSm} onClick={() => adminFileRef.current?.click()} disabled={uploading}>
-          {uploading ? "Uploading…" : "+ Upload file"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <input
+            value={librarySearch}
+            onChange={e => setLibrarySearch(e.target.value)}
+            placeholder="Search…"
+            style={{ ...S.input, marginBottom: 0, fontSize: 13, padding: "7px 10px", width: 200 }}
+          />
+          <button style={S.btnSm} onClick={() => adminFileRef.current?.click()} disabled={uploading}>
+            {uploading ? "Uploading…" : "+ Upload file"}
+          </button>
+        </div>
       </div>
       {uploadError && <p style={{ color: "#c0392b", fontSize: 13, marginBottom: 8 }}>{uploadError}</p>}
 
-      {docs.length === 0 ? (
-        <div style={{ ...S.card, textAlign: "center", color: C.hint, marginBottom: "2rem" }}>No documents uploaded yet.</div>
-      ) : (
+      {(() => {
+        const filteredDocs = librarySearch
+          ? docs.filter(d => d.name.toLowerCase().includes(librarySearch.toLowerCase()))
+          : docs;
+        return filteredDocs.length === 0 ? (
+          <div style={{ ...S.card, textAlign: "center", color: C.hint, marginBottom: "2rem" }}>
+            {docs.length === 0 ? "No documents uploaded yet." : "No documents match your search."}
+          </div>
+        ) : (
         <div style={{ ...S.card, padding: 0, overflow: "hidden", marginBottom: "2rem" }}>
-          {docs.map((doc, i) => {
+          {filteredDocs.map((doc, i) => {
             const shareCount = doc.document_shares?.[0]?.count ?? 0;
             return (
               <div key={doc.id} style={{ padding: "12px 16px", borderBottom: i < docs.length - 1 ? `0.5px solid ${C.border}` : "none", display: "flex", alignItems: "center", gap: 10, flexWrap: mobile ? "wrap" : "nowrap" }}>
@@ -510,6 +578,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button style={S.btnSmOut} onClick={() => openAdminViewer(doc)}>View</button>
                   <button style={S.btnSmOut} onClick={() => openShareModal(doc)}>Share</button>
                   <button style={S.btnSmOut} onClick={() => { setRenameId(doc.id); setRenameName(doc.name); }}>Rename</button>
                   {deleteConfirmId === doc.id ? (
@@ -527,7 +596,8 @@ export default function Documents({ viewAsClient, initialShareId }) {
             );
           })}
         </div>
-      )}
+        );
+      })()}
 
       {/* Shared Documents */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
@@ -584,17 +654,19 @@ export default function Documents({ viewAsClient, initialShareId }) {
                       transition: "background 0.4s",
                     }}
                   >
-                    <td style={{ padding: "10px 12px", maxWidth: 200 }}>
+                    <td style={{ padding: "10px 12px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {share.client_upload && (
                           <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 4, background: C.purpleLight, color: C.purple, fontWeight: 600, flexShrink: 0 }}>Upload</span>
                         )}
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.text }}>
+                        <span title={share.documents?.name} style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.text }}>
                           {share.documents?.name || "—"}
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: "10px 12px", color: C.text, whiteSpace: "nowrap" }}>{clientName}</td>
+                    <td style={{ padding: "10px 12px" }}>
+                      <span title={clientName} style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.text, display: "block" }}>{clientName}</span>
+                    </td>
                     <td style={{ padding: "10px 12px" }}>
                       {share.require_acknowledgment
                         ? <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#fef3c7", color: "#92400e", fontWeight: 500 }}>Ack</span>
@@ -609,19 +681,78 @@ export default function Documents({ viewAsClient, initialShareId }) {
                     </td>
                     <td style={{ padding: "10px 12px", color: C.hint, whiteSpace: "nowrap" }}>{formatDate(share.shared_at)}</td>
                     <td style={{ padding: "10px 12px" }}>
-                      <button
-                        style={{ ...S.btnSmOut, fontSize: 11, padding: "4px 10px" }}
-                        onClick={() => handleUnshare(share.id)}
-                        disabled={unshareLoading === share.id}
-                      >
-                        {unshareLoading === share.id ? "…" : "Unshare"}
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          style={{ ...S.btnSmOut, fontSize: 11, padding: "4px 10px" }}
+                          onClick={() => openAdminViewer(share.documents)}
+                        >
+                          View
+                        </button>
+                        <button
+                          style={{ ...S.btnSmOut, fontSize: 11, padding: "4px 10px" }}
+                          onClick={() => handleUnshare(share.id)}
+                          disabled={unshareLoading === share.id}
+                        >
+                          {unshareLoading === share.id ? "…" : "Unshare"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Admin viewer modal */}
+      {adminViewerDoc && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 100, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "#fff", borderBottom: `0.5px solid ${C.border}`, flexShrink: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: 12 }}>
+              {adminViewerDoc.name}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              {adminViewerUrl && (
+                <button
+                  style={{ ...S.btnSmOut, padding: "6px 12px", fontSize: 12 }}
+                  onClick={() => triggerDownload(adminViewerUrl, adminViewerDoc.name, adminViewerDoc.file_extension)}>
+                  Download
+                </button>
+              )}
+              <button onClick={() => setAdminViewerDoc(null)}
+                style={{ background: "none", border: `0.5px solid ${C.border}`, borderRadius: 8, fontSize: 20, lineHeight: 1, cursor: "pointer", color: C.muted, padding: "4px 10px", fontFamily: "inherit" }}>
+                ×
+              </button>
+            </div>
+          </div>
+          {downloadHint && (
+            <div style={{ padding: "7px 14px", background: "#f0faf4", borderBottom: `0.5px solid #a7d7b8`, fontSize: 12, color: "#2d6a4f", flexShrink: 0 }}>
+              File saved — check your Downloads folder.
+            </div>
+          )}
+          <div style={{ flex: 1, overflow: "hidden", background: "#f0f0f0", position: "relative" }}>
+            {adminViewerLoading && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.hint, fontSize: 14 }}>
+                Loading…
+              </div>
+            )}
+            {!adminViewerLoading && (() => {
+              const src = viewerSrc(adminViewerUrl, adminViewerDoc.file_extension);
+              if (src) return <iframe src={src} style={{ width: "100%", height: "100%", border: "none" }} title="Document viewer" />;
+              if (adminViewerUrl) return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12 }}>
+                  <p style={{ fontSize: 14, color: C.muted }}>Preview not available for this file type.</p>
+                  <button style={{ ...S.btn, fontSize: 13 }} onClick={() => triggerDownload(adminViewerUrl, adminViewerDoc.name, adminViewerDoc.file_extension)}>Download file</button>
+                </div>
+              );
+              return (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                  <p style={{ fontSize: 14, color: C.hint }}>Unable to load document.</p>
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -634,39 +765,40 @@ export default function Documents({ viewAsClient, initialShareId }) {
               <button onClick={() => setShareDoc(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: C.hint, lineHeight: 1, padding: "0 4px" }}>×</button>
             </div>
 
-            <label style={S.label}>Filter by group</label>
+            <label style={S.label}>Group <span style={{ color: "#c0392b" }}>*</span></label>
             <select
               style={{ ...S.input, cursor: "pointer" }}
               value={shareGroupId}
               onChange={e => { setShareGroupId(e.target.value); setShareClientIds([]); }}
             >
-              <option value="">All clients</option>
+              <option value="">— Select a group —</option>
               {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-              <label style={{ ...S.label, marginBottom: 0 }}>Select clients</label>
-              {modalClients.length > 0 && (
-                <button
-                  style={{ fontSize: 11, color: C.teal, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
-                  onClick={() => setShareClientIds(
-                    shareClientIds.length === modalClients.length ? [] : modalClients.map(c => c.id)
-                  )}
-                >
-                  {shareClientIds.length === modalClients.length ? "Deselect all" : "Select all"}
-                </button>
-              )}
-            </div>
+            <label style={{ ...S.label, marginBottom: 6 }}>Clients</label>
             <div style={{ border: `0.5px solid ${C.border}`, borderRadius: 8, overflow: "hidden", marginBottom: "0.75rem", maxHeight: 200, overflowY: "auto" }}>
-              {modalClients.length === 0 ? (
-                <p style={{ padding: 12, fontSize: 13, color: C.hint, margin: 0 }}>No active clients.</p>
-              ) : modalClients.map((c, i) => (
+              {!shareGroupId ? (
+                <p style={{ padding: 12, fontSize: 13, color: C.hint, margin: 0 }}>Select a group above to see clients.</p>
+              ) : modalClients.length === 0 ? (
+                <p style={{ padding: 12, fontSize: 13, color: C.hint, margin: 0 }}>No active clients in this group.</p>
+              ) : (<>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: `0.5px solid ${C.border}`, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+                  <input
+                    type="checkbox"
+                    checked={shareClientIds.length === modalClients.length}
+                    onChange={() => setShareClientIds(shareClientIds.length === modalClients.length ? [] : modalClients.map(c => c.id))}
+                    style={{ accentColor: C.teal }}
+                  />
+                  <span style={{ color: C.text }}>All</span>
+                </label>
+                {modalClients.map((c, i) => (
                 <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: i < modalClients.length - 1 ? `0.5px solid ${C.border}` : "none", cursor: "pointer", fontSize: 13 }}>
                   <input type="checkbox" checked={shareClientIds.includes(c.id)} onChange={() => setShareClientIds(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])} style={{ accentColor: C.teal }} />
                   <span style={{ color: C.text }}>{`${c.first_name || ""} ${c.last_name || ""}`.trim() || c.email}</span>
                   {c.group_name && <span style={{ fontSize: 11, color: C.hint }}>({c.group_name})</span>}
                 </label>
               ))}
+              </>)}
             </div>
 
             <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, cursor: "pointer", marginBottom: "0.75rem" }}>
@@ -675,13 +807,16 @@ export default function Documents({ viewAsClient, initialShareId }) {
             </label>
             {shareRequireAck && (
               <>
-                <label style={S.label}>Acknowledgment label</label>
-                <input
+                <label style={S.label}>Acknowledgment text</label>
+                <select
                   value={shareAckLabel}
                   onChange={e => setShareAckLabel(e.target.value)}
-                  placeholder="I have read and agree"
-                  style={S.input}
-                />
+                  style={{ ...S.input, cursor: "pointer" }}
+                >
+                  <option value="">— Select —</option>
+                  <option value="By clicking I acknowledge I have read this document.">By clicking I acknowledge I have read this document.</option>
+                  <option value="By clicking I acknowledge I have read this document and agree to the terms.">By clicking I acknowledge I have read this document and agree to the terms.</option>
+                </select>
               </>
             )}
 

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { C, S } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage({ setPage }) {
+export default function LoginPage({ setPage, initialPage }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
@@ -24,7 +24,7 @@ export default function LoginPage({ setPage }) {
     if (authError) {
       setError(authError.message);
     } else {
-      setPage("Portal Home");
+      setPage(initialPage || "Portal Home");
     }
   };
 

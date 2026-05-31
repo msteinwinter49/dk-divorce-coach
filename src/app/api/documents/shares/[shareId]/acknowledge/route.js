@@ -46,7 +46,7 @@ export async function POST(request, { params }) {
     ]);
     const contactEmail = setting?.value;
     if (contactEmail) {
-      const origin = new URL(request.url).origin;
+      const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
       const clientName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() || "A client";
       const docName = share.documents?.name || "a document";
       const resend = new Resend(process.env.RESEND_API_KEY);

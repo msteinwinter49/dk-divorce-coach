@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(request) {
   const { email, makeAdmin, group_id, group_name, hourly_rate } = await request.json();
-  const origin = new URL(request.url).origin;
+  const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
 
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });

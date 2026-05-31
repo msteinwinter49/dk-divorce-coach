@@ -29,6 +29,7 @@ export async function GET(request) {
   const { data, error } = await adminClient
     .from("documents")
     .select("*, document_shares(count)")
+    .not("storage_path", "ilike", "clients/%")
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
