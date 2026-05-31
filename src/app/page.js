@@ -34,8 +34,16 @@ export default function App() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("google_connected") === "true") return "Admin Settings";
+      if (params.get("doc_share") || params.get("admin_doc")) return "Documents";
     }
     return "Home";
+  });
+  const [initialDocShareId] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("doc_share") || params.get("admin_doc") || null;
+    }
+    return null;
   });
   const [viewAsClient, setViewAsClient] = useState(null);
   const [groupDetailId, setGroupDetailId] = useState(null);
@@ -120,7 +128,7 @@ export default function App() {
     }
     if (page === "Profile") return <><Profile onSaved={refreshProfile} viewAsClient={viewAsClient} scrollTo={profileFocus} onScrolled={() => setProfileFocus(null)} />{portalDisclaimerFooter}</>;
     if (page === "Portal Home") return <><PortalHome setPage={setPage} viewAsClient={viewAsClient} setProfileFocus={setProfileFocus} />{portalDisclaimerFooter}</>;
-    if (page === "Documents") return <><Documents viewAsClient={viewAsClient} />{portalDisclaimerFooter}</>;
+    if (page === "Documents") return <><Documents viewAsClient={viewAsClient} initialShareId={initialDocShareId} />{portalDisclaimerFooter}</>;
     if (page === "Schedule") return <Schedule setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} setBookingActive={setBookingActive} />;
     if (page === "Buy Sessions") return <><BuySessions setPage={setPage} setProfileFocus={setProfileFocus} viewAsClient={viewAsClient} />{portalDisclaimerFooter}</>;
     if (page === "Messages") return <Messages viewAsClient={viewAsClient} />;
