@@ -677,7 +677,7 @@ export default function AdminSchedule({ setPage }) {
     const d = new Date(currentDate);
     if (view === "day") d.setDate(d.getDate() + dir);
     else if (view === "week") d.setDate(d.getDate() + dir * 7);
-    else d.setMonth(d.getMonth() + dir);
+    else { d.setDate(1); d.setMonth(d.getMonth() + dir); }
     setCurrentDate(d);
   };
 

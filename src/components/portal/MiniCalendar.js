@@ -40,6 +40,7 @@ export default function MiniCalendar({ currentDate, onSelectDate, view }) {
 
   const navMonth = (dir) => {
     const d = new Date(currentDate);
+    d.setDate(1);
     d.setMonth(d.getMonth() + dir);
     onSelectDate(d);
   };
