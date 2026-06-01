@@ -39,7 +39,10 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
   const [editLast, setEditLast] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editContactEmail, setEditContactEmail] = useState("");
+  const [editAge, setEditAge] = useState("");
   const [editTimezone, setEditTimezone] = useState("America/New_York");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [bgOpen, setBgOpen] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
   const [detailError, setDetailError] = useState(null);
   const [detailSuccess, setDetailSuccess] = useState(null);
@@ -102,6 +105,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setEditAddressCity(c.address_city || "");
     setEditAddressState(c.address_state || "");
     setEditContactEmail(c.preferred_email || c.email || "");
+    setEditAge(c.age != null ? String(c.age) : "");
     setEditTimezone(c.timezone || "America/New_York");
     setEditHourlyRate(c.group_hourly_rate != null ? String(c.group_hourly_rate) : "");
     setEditGroupId(c.group_id || "");
@@ -155,9 +159,12 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setEditAddressZip("");
     setEditAddressCity("");
     setEditAddressState("");
+    setEditAge("");
     setEditHourlyRate("");
     setHourlyRateResult(null);
     setEditGroupId("");
+    setProfileOpen(false);
+    setBgOpen(false);
     setGroupResult(null);
     setArchiveError(null);
     setDeleteConfirmOpen(false);
@@ -179,6 +186,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
       editAddressCity !== (detail.address_city || "") ||
       editAddressState !== (detail.address_state || "") ||
       editContactEmail !== (detail.preferred_email || detail.email || "") ||
+      editAge !== (detail.age != null ? String(detail.age) : "") ||
       editTimezone !== (detail.timezone || "America/New_York");
     if (dirty) { setConfirmClose(true); } else { closeDetail(); }
   };
@@ -352,6 +360,7 @@ const handleClientDelete = async () => {
       address_city: editAddressCity || null,
       address_state: editAddressState || null,
       preferred_email: editContactEmail,
+      age: editAge !== "" ? parseInt(editAge) || null : null,
       timezone: editTimezone,
     };
     const res = await fetch("/api/clients", {
@@ -749,8 +758,16 @@ const handleClientDelete = async () => {
             <div style={{ overflowY: "auto", flex: 1 }}>
 
             <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-              <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "").replace(/\D/g,"") || editBackupPhone.replace(/\D/g,"") !== (d.backup_phone || "").replace(/\D/g,"") || editAddressLine1 !== (d.address_line1 || "") || editAddressLine2 !== (d.address_line2 || "") || editAddressZip !== (d.address_zip || "") || editAddressCity !== (d.address_city || "") || editAddressState !== (d.address_state || "") || editContactEmail !== (d.preferred_email || d.email || "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button
+                onClick={() => setProfileOpen(o => !o)}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%" }}
+              >
+                <h3 style={{ ...S.h3, fontSize: 21, margin: 0, lineHeight: 1 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "").replace(/\D/g,"") || editBackupPhone.replace(/\D/g,"") !== (d.backup_phone || "").replace(/\D/g,"") || editAddressLine1 !== (d.address_line1 || "") || editAddressLine2 !== (d.address_line2 || "") || editAddressZip !== (d.address_zip || "") || editAddressCity !== (d.address_city || "") || editAddressState !== (d.address_state || "") || editContactEmail !== (d.preferred_email || d.email || "") || editAge !== (d.age != null ? String(d.age) : "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, transform: profileOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
+                  <path d="M6 9l6 6 6-6" stroke={C.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              {profileOpen && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
                 <div>
                   <label style={{ ...S.label, fontSize: 16 }}>First name</label>
                   <input style={{ ...S.input, marginBottom: 0 }} value={editFirst} onChange={e => setEditFirst(e.target.value)} />
@@ -814,6 +831,18 @@ const handleClientDelete = async () => {
                     <p style={{ fontSize: 13, color: "#c0392b", margin: "4px 0 0" }}>Enter a valid email address</p>
                   )}
                 </div>
+                <div>
+                  <label style={{ ...S.label, fontSize: 16 }}>Age</label>
+                  <input
+                    style={{ ...S.input, marginBottom: 0 }}
+                    type="number"
+                    min="0"
+                    max="120"
+                    placeholder="—"
+                    value={editAge}
+                    onChange={e => setEditAge(e.target.value)}
+                  />
+                </div>
                 <div style={{ gridColumn: "1 / -1" }}>
                   <label style={{ ...S.label, fontSize: 16 }}>Timezone</label>
                   <select style={{ ...S.input, marginBottom: 0, cursor: "pointer" }} value={editTimezone} onChange={e => setEditTimezone(e.target.value)}>
@@ -829,14 +858,48 @@ const handleClientDelete = async () => {
                   <label style={{ ...S.label, fontSize: 16 }}>Login email (not editable)</label>
                   <input style={{ ...S.input, marginBottom: 0, background: "#fafafa", color: C.muted }} value={detail.email || ""} readOnly />
                 </div>
-              </div>
-              {detailError && <p style={{ fontSize: 16, color: "#c0392b", marginTop: 10, marginBottom: 0 }}>{detailError}</p>}
-              {detailSuccess && <p style={{ fontSize: 16, color: C.teal, marginTop: 10, marginBottom: 0 }}>{detailSuccess}</p>}
-              <div style={{ marginTop: 12 }}>
+              </div>}
+              {profileOpen && detailError && <p style={{ fontSize: 16, color: "#c0392b", marginTop: 10, marginBottom: 0 }}>{detailError}</p>}
+              {profileOpen && detailSuccess && <p style={{ fontSize: 16, color: C.teal, marginTop: 10, marginBottom: 0 }}>{detailSuccess}</p>}
+              {profileOpen && <div style={{ marginTop: 12 }}>
                 <button style={S.btn} onClick={saveDetail} disabled={detailSaving || (editPhone && editPhone.replace(/\D/g, "").length !== 10) || (editContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editContactEmail))}>
                   {detailSaving ? "Saving..." : "Save"}
                 </button>
-              </div>
+              </div>}
+            </div>
+
+            <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
+              <button
+                onClick={() => setBgOpen(o => !o)}
+                style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%" }}
+              >
+                <h3 style={{ ...S.h3, fontSize: 21, margin: 0, lineHeight: 1 }}>Background</h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, transform: bgOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
+                  <path d="M6 9l6 6 6-6" stroke={C.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              {bgOpen && (() => {
+                const BG_FIELDS = [
+                  ["What is your current occupation?", detail.bg_occupation],
+                  ["What is your highest level of education?", detail.bg_education],
+                  ["If you are in a relationship, please describe its nature.", detail.bg_relationship],
+                  ["Are you currently seeing an individual therapist?", detail.bg_therapist],
+                  ["Describe your current living situation: alone or with what others?", detail.bg_living],
+                  ["What brings you to coaching now?", detail.bg_brings],
+                  ["What are your goals for coaching?", detail.bg_goals],
+                  ["What else would you like me to know?", detail.bg_other],
+                ];
+                return (
+                  <div style={{ marginTop: 12 }}>
+                    {BG_FIELDS.map(([q, a]) => (
+                      <div key={q} style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.muted, marginBottom: 2 }}>{q}</div>
+                        <div style={{ fontSize: 15, color: a ? C.text : C.hint }}>{a || "—"}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
 
             <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
@@ -881,7 +944,7 @@ const handleClientDelete = async () => {
 
             {detail.role !== "admin" && (
               <div style={{ padding: "16px 18px", borderBottom: "1px solid rgba(0,0,0,0.2)" }}>
-                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Adjust Group Balance{(adjustMinutes || adjustNote) ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null}</h3>
+                <h3 style={{ ...S.h3, fontSize: 21, marginBottom: 10 }}>Adjust Group Available Time{(adjustMinutes || adjustNote) ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null}</h3>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div>
                     <label style={{ ...S.label, marginBottom: 4, fontSize: 16 }}>N/C Minutes</label>

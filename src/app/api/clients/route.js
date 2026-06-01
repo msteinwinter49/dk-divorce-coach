@@ -47,7 +47,7 @@ export async function GET() {
   ] = await Promise.all([
     adminClient
       .from("profiles")
-      .select("id, first_name, last_name, full_name, phone, backup_phone, address_line1, address_line2, address_zip, address_city, address_state, preferred_email, notification_preference, reminder_preference, timezone, role, created_at, bg_occupation, bg_education, bg_relationship, bg_therapist, bg_living, bg_brings, bg_goals, bg_other, stripe_customer_id, is_archived")
+      .select("id, first_name, last_name, full_name, phone, backup_phone, address_line1, address_line2, address_zip, address_city, address_state, preferred_email, notification_preference, reminder_preference, timezone, age, role, created_at, bg_occupation, bg_education, bg_relationship, bg_therapist, bg_living, bg_brings, bg_goals, bg_other, stripe_customer_id, is_archived")
       .order("created_at", { ascending: false }),
     adminClient.auth.admin.listUsers(),
     adminClient
@@ -107,7 +107,7 @@ export async function PATCH(request) {
   const {
     id, first_name, last_name, phone, backup_phone,
     address_line1, address_line2, address_zip, address_city, address_state,
-    preferred_email, notification_preference, reminder_preference, timezone,
+    preferred_email, notification_preference, reminder_preference, timezone, age,
     bg_occupation, bg_education, bg_relationship, bg_therapist,
     bg_living, bg_brings, bg_goals, bg_other, is_archived,
   } = await request.json();
@@ -135,6 +135,7 @@ export async function PATCH(request) {
   if (notification_preference !== undefined) updates.notification_preference = notification_preference;
   if (reminder_preference !== undefined) updates.reminder_preference = reminder_preference;
   if (timezone !== undefined) updates.timezone = timezone;
+  if (age !== undefined) updates.age = age !== "" && age != null ? parseInt(age) || null : null;
   if (bg_occupation !== undefined) updates.bg_occupation = bg_occupation?.trim() || null;
   if (bg_education !== undefined) updates.bg_education = bg_education?.trim() || null;
   if (bg_relationship !== undefined) updates.bg_relationship = bg_relationship?.trim() || null;
