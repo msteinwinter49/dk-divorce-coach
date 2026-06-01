@@ -75,7 +75,8 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
         setAdminStats({ w1, w2, w3, w4 });
         setLoading(false);
       }).catch(() => setLoading(false));
-    } else {
+    } else if (viewAsClient) {
+      // Admin viewing as client — keep separate calls (infrequent, admin path)
       const in12mo = new Date(today);
       in12mo.setFullYear(in12mo.getFullYear() + 1);
       const end12moStr = in12mo.toLocaleDateString("en-CA");
@@ -94,6 +95,30 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
           setLoading(false);
         })
         .catch(() => setLoading(false));
+
+      fetch(`/api/purchases?client_id=${targetId}`).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
+    } else {
+      // Client viewing own portal — single combined request
+      const in12mo = new Date(today);
+      in12mo.setFullYear(in12mo.getFullYear() + 1);
+      const end12moStr = in12mo.toLocaleDateString("en-CA");
+
+      fetch(`/api/portal-home?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`)
+        .then(r => r.json())
+        .then(data => {
+          const bookings = Array.isArray(data.bookings) ? data.bookings : [];
+          const end30d = new Date(today);
+          end30d.setDate(end30d.getDate() + 30);
+          const end30dStr = end30d.toLocaleDateString("en-CA");
+          const booked = bookings.filter(b => b.status === "booked").sort((a, b) => a.start_time < b.start_time ? -1 : 1);
+          if (booked.length > 0) setNextBooking(booked[0]);
+          setBookedCount(booked.filter(b => b.date <= end30dStr).length);
+          setRequestedCount(bookings.filter(b => b.status === "requested" && b.date <= end30dStr).length);
+          setBalanceMinutes(data.balance_minutes ?? 0);
+          setHasCard(!!data.card);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
     }
 
     supabase.from("documents")
@@ -101,21 +126,19 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
       .eq("user_id", targetId)
       .then(({ count }) => setDocCount(count || 0));
 
-    const balUrl = viewAsClient ? `/api/purchases?client_id=${targetId}` : "/api/purchases";
-    fetch(balUrl).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
-
     supabase.from("messages")
       .select("id", { count: "exact", head: true })
       .eq("conversation_id", targetId)
       .neq("sender_id", targetId)
       .then(({ count }) => setUnreadCount(count || 0));
 
-    if (!viewAsClient && targetProfile?.role === "client") {
-      fetch("/api/stripe/card").then(r => r.json()).then(d => setHasCard(!!d.card)).catch(() => setHasCard(false));
+    if (viewAsClient) {
+      // Admin "view as client" — no card check needed (admin doesn't manage their own card here)
+      setHasCard(null);
     }
   }, [targetId]);
 
-  const allReady = !loading && balanceMinutes !== null;
+  const allReady = !loading && (isAdmin || balanceMinutes !== null);
   const [showSpinner, setShowSpinner] = useState(false);
   useEffect(() => {
     if (allReady) { setShowSpinner(false); return; }

@@ -42,14 +42,12 @@ export async function GET() {
 
   const [
     { data: clients, error },
-    { data: { users } },
     { data: memberships },
   ] = await Promise.all([
     adminClient
       .from("profiles")
       .select("id, first_name, last_name, full_name, phone, backup_phone, address_line1, address_line2, address_zip, address_city, address_state, preferred_email, notification_preference, reminder_preference, timezone, age, role, created_at, bg_occupation, bg_education, bg_relationship, bg_therapist, bg_living, bg_brings, bg_goals, bg_other, stripe_customer_id, is_archived")
       .order("created_at", { ascending: false }),
-    adminClient.auth.admin.listUsers(),
     adminClient
       .from("group_members")
       .select("client_id, group_id, is_active, groups(id, name, hourly_rate)"),
@@ -59,9 +57,6 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const emailMap = {};
-  (users || []).forEach(u => { emailMap[u.id] = u.email; });
-
   const membershipMap = {};
   (memberships || []).forEach(m => { membershipMap[m.client_id] = m; });
 
@@ -69,7 +64,7 @@ export async function GET() {
     const membership = membershipMap[c.id];
     return {
       ...c,
-      email: emailMap[c.id] || c.preferred_email || "",
+      email: c.preferred_email || "",
       group_id: membership?.group_id ?? null,
       group_name: membership?.groups?.name ?? null,
       group_hourly_rate: membership?.groups?.hourly_rate ?? null,

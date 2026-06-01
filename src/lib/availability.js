@@ -83,23 +83,8 @@ async function getLocalEventsBusyByDate(supabase, startDate, endDate) {
 // event in the local events table AND in Google after sync) and that's fine.
 async function getGoogleBusyByDate(supabase, startDate, endDate) {
   try {
-    const { data: tokenRow } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "google_refresh_token")
-      .single();
-    const token = tokenRow?.value;
-    if (!token) return {};
-
-    const { listEvents } = await import("./google-calendar.js");
-    const onNewToken = async (newToken) => {
-      await supabase.from("settings").upsert({
-        key: "google_refresh_token",
-        value: newToken,
-        updated_at: new Date().toISOString(),
-      });
-    };
-    const events = await listEvents(token, startDate, endDate, onNewToken);
+    const { getGoogleEvents } = await import("./google-events-cache.js");
+    const events = await getGoogleEvents(supabase, startDate, endDate);
 
     const busy = {};
     const push = (dateKey, startMin, endMin) => {

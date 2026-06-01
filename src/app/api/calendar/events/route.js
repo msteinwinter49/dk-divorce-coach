@@ -96,14 +96,14 @@ export async function GET(request) {
     _synced: !!e.google_calendar_event_id,
   }));
 
-  // 2. Google Calendar events (if connected)
+  // 2. Google Calendar events (if connected) — served from cache when fresh
   let googleEvents = [];
   let googleDisconnected = false;
   const token = await getGoogleToken(ctx.adminClient);
   if (token) {
     try {
-      const { listEvents } = await import("@/lib/google-calendar");
-      googleEvents = await listEvents(token, start, end, makeSaveToken(ctx.adminClient));
+      const { getGoogleEvents } = await import("@/lib/google-events-cache");
+      googleEvents = await getGoogleEvents(ctx.adminClient, start, end);
     } catch (e) {
       console.error("Google Calendar fetch error:", e?.message || e);
       if (isAuthError(e)) {
