@@ -35,16 +35,14 @@ const WEEK_ROW_H = 44;
 const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-// Source colors. Coaching uses a green in the same family as Available so
-// the two read as related (available slot → confirmed coaching session).
 const SRC = {
   coaching: "#2e7d32",       // dark green (readable on light bg)
-  coachingBg: "#c8e6c9",     // mid-light green (distinct from Available's paler tint)
+  coachingBg: "#c8e6c9",     // mid-light green
   sp: "#6b46c1",
   spBg: "#ede9fe",
   personal: "#B8860B",
   personalBg: "#FFF8E7",
-  available: "#d4edda",      // pale green
+  available: "#dbeafe",      // blue — matches client view
   requested: "#c0392b",
   requestedBg: "#fdecea",
 };
@@ -1535,7 +1533,7 @@ export default function AdminSchedule({ setPage }) {
         <div ref={weekHeaderRef} style={{ position: "sticky", top: 0, zIndex: 20, overflowX: mobile ? "auto" : "hidden", overscrollBehavior: "none", scrollSnapType: mobile ? "x mandatory" : "none", scrollPaddingLeft: 70, background: "#fafafa", scrollbarWidth: "none", msOverflowStyle: "none" }}
           onScroll={(e) => { if (weekBodyRef.current) weekBodyRef.current.scrollLeft = e.target.scrollLeft; }}>
           <div style={{ display: "flex", minWidth: minW }}>
-            <div style={{ width: 70, flexShrink: 0, height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, position: "sticky", left: 0, background: "#fafafa", zIndex: 1 }} />
+            <div style={{ width: 70, flexShrink: 0, alignSelf: "stretch", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, position: "sticky", left: 0, background: "#fafafa", zIndex: 1 }} />
             {days.map((d, i) => (
               <div
                 key={i}
@@ -1564,7 +1562,7 @@ export default function AdminSchedule({ setPage }) {
           <div style={{ display: "flex", minWidth: minW }}>
             <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>
               {HOURS.map(h => (
-                <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 }}>
                   {formatHour(h)}
                 </div>
               ))}
@@ -2862,7 +2860,7 @@ export default function AdminSchedule({ setPage }) {
     return (
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 18, marginBottom: 10, fontSize: 13, color: C.muted }}>
         <span style={{ fontWeight: 600, color: C.text }}>Key:</span>
-        {swatch("#7cb342", SRC.available, "Available")}
+        {swatch("#3b82f6", SRC.available, "Available")}
         {swatch(SRC.coaching, SRC.coachingBg, "Coaching")}
         {swatch(SRC.requested, SRC.requestedBg, "Requested")}
         {swatch(SRC.sp, SRC.spBg, "SimplePractice")}

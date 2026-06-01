@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { C, S } from "@/lib/constants";
@@ -51,6 +51,9 @@ export default function App() {
   const [adminSessionClient, setAdminSessionClient] = useState(null);
   const [profileFocus, setProfileFocus] = useState(null);
   const [bookingActive, setBookingActive] = useState(false);
+
+  useEffect(() => { window.scrollTo(0, 0); }, [page]);
+
   const inPortal = !!user;
   const isAdmin = profile?.role === "admin";
   const needsProfile = inPortal && profile && !profile.first_name;

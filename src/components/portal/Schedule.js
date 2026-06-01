@@ -921,7 +921,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
         <div ref={weekHeaderRef} style={{ position: "sticky", top: 0, zIndex: 20, overflowX: mobile ? "auto" : "hidden", overscrollBehavior: "none", scrollSnapType: mobile ? "x mandatory" : "none", scrollPaddingLeft: 70, background: "#fafafa", scrollbarWidth: "none", msOverflowStyle: "none" }}
           onScroll={(e) => { if (weekBodyRef.current) weekBodyRef.current.scrollLeft = e.target.scrollLeft; }}>
           <div style={{ display: "flex", minWidth: minW }}>
-            <div style={{ width: 70, flexShrink: 0, height: 36, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, position: "sticky", left: 0, background: "#fafafa", zIndex: 1 }} />
+            <div style={{ width: 70, flexShrink: 0, alignSelf: "stretch", borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, position: "sticky", left: 0, background: "#fafafa", zIndex: 1 }} />
             {days.map((d, i) => (
               <div
                 key={i}
@@ -950,7 +950,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
           <div style={{ display: "flex", minWidth: minW }}>
             <div style={{ width: 70, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, background: "#fff" }}>
               {HOURS.map(h => (
-                <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div key={h} style={{ height: WEEK_ROW_H, fontSize: 12, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 2 }}>
                   {formatHour(h)}
                 </div>
               ))}

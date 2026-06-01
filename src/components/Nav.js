@@ -98,9 +98,9 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, b
         <>
           <div
             onClick={closeMenu}
-            style={{ position: "fixed", inset: 0, top: 44, background: "rgba(0,0,0,0.3)", zIndex: 19 }}
+            style={{ position: "fixed", inset: 0, top: 44, background: "rgba(0,0,0,0.3)", zIndex: 29 }}
           />
-          <div style={{ position: "fixed", top: 44, right: "1rem", width: "max-content", background: "#fff", zIndex: 20, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ position: "fixed", top: 44, right: "1rem", width: "max-content", background: "#fff", zIndex: 30, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", borderRadius: 8, overflow: "hidden" }}>
             {portalLinks.map(([p]) => (
               <button key={p}
                 onClick={() => { setPage(p); closeMenu(); }}
