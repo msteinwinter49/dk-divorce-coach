@@ -407,7 +407,11 @@ export default function AdminSchedule({ setPage }) {
     const m = currentDate.getMonth();
     const first = new Date(y, m, 1);
     const last = new Date(y, m + 2, 0); // last day of next month
-    return { start: dateStr(first), end: dateStr(last) };
+    // If the visible week starts before the 1st of this month (cross-month week
+    // e.g. June 29–30 visible when currentDate is July), extend back to cover it.
+    const weekStart = startOfWeek(currentDate);
+    const rangeStart = weekStart < first ? weekStart : first;
+    return { start: dateStr(rangeStart), end: dateStr(last) };
   }, [currentDate]);
 
   const loadData = useCallback(async () => {
