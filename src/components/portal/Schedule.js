@@ -61,6 +61,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const [noChangeMessage, setNoChangeMessage] = useState(false);
   const [showCloseWarning, setShowCloseWarning] = useState(false);
   const [showDayView, setShowDayView] = useState(false);
+  const [dayViewDate, setDayViewDate] = useState(null);
   const [popupPos, setPopupPos] = useState(null); // { x, y } px when dragged; null = centered
   const [cancelModalPos, setCancelModalPos] = useState(null);
   const [moveModalPos, setMoveModalPos] = useState(null);
@@ -130,6 +131,27 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   }, [getRange]);
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
+
+  // When the day-picker opens or navigates to a new month, fetch availability for
+  // that month so blue slots appear on all days, not just the main schedule's range.
+  const dayViewMonth = dayViewDate ? dayViewDate.slice(0, 7) : null;
+  useEffect(() => {
+    if (!dayViewMonth) return;
+    const [y, m] = dayViewMonth.split("-").map(Number);
+    const first = new Date(y, m - 1, 1);
+    const last = new Date(y, m, 0);
+    const start = dateStr(startOfWeek(first));
+    const end = dateStr(addDays(startOfWeek(last), 6));
+    fetch(`/api/availability?start=${start}&end=${end}`)
+      .then(r => r.json())
+      .then(res => {
+        if (res && !res.error) {
+          const { __increment, ...slots } = res;
+          setAvailability(prev => ({ ...prev, ...slots }));
+        }
+      })
+      .catch(() => {});
+  }, [dayViewMonth]);
 
   // Load group members once for participant selection (clients only, not admin-viewing)
   useEffect(() => {
@@ -1109,14 +1131,18 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const tryClose = () => { if (hasUnsavedChanges) { setShowCloseWarning(true); setTimeout(() => popupScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 0); } else closePopup(); };
 
   const renderBookingDayView = () => {
-    const date = bookingDate || origDate;
+    const date = dayViewDate || bookingDate || origDate;
     if (!date) return null;
     const totalH = HOURS.length * DAY_ROW_H;
     const dayDate = new Date(date + "T12:00:00");
     const firstMin = HOURS[0] * 60;
     const overlayItems = getBookingsForDateOverlay(date, DAY_ROW_H);
 
-    const handleSlotClick = (timeStr) => { setSelectedTime(timeStr); setShowDayView(false); };
+    const handleSlotClick = (timeStr) => {
+      if (dayViewDate && dayViewDate !== bookingDate) setBookingDate(dayViewDate);
+      setSelectedTime(timeStr);
+      setShowDayView(false);
+    };
 
     const renderAvailBar = (item) => {
       const blocks = [];
@@ -1166,17 +1192,19 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     };
 
     return (
-      <div style={{ paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))" }}>
-        <div style={{ padding: "12px 16px 10px", display: "flex", alignItems: "center", gap: 14, borderBottom: `0.5px solid ${C.border}` }}>
-          <button onClick={() => setShowDayView(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.teal, fontWeight: 500, padding: 0, flexShrink: 0 }}>
+      <div>
+        <div style={{ marginBottom: 10 }}>
+          <button onClick={() => setShowDayView(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.teal, fontWeight: 500, padding: 0 }}>
             ← Back to Booking
           </button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-            {DAYS_SHORT[dayDate.getDay()]}, {MONTHS[dayDate.getMonth()]} {dayDate.getDate()}
-          </span>
         </div>
-        <p style={{ fontSize: 12, color: C.muted, margin: "8px 16px 4px" }}>Tap a blue slot to set your start time</p>
-        <div style={{ display: "flex" }}>
+        <div style={{ position: "sticky", top: "var(--nav-height, 56px)", background: "#fff", zIndex: 10, paddingBottom: 8, borderBottom: `0.5px solid ${C.border}`, marginBottom: 4 }}>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <MiniCalendar currentDate={dayDate} onSelectDate={(d) => setDayViewDate(dateStr(d))} view="day" />
+          </div>
+          <p style={{ fontSize: 12, color: C.muted, margin: "6px 0 0", textAlign: "center" }}>Tap a blue slot to set your start time</p>
+        </div>
+        <div style={{ display: "flex", paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))" }}>
           <div style={{ width: 60, flexShrink: 0 }}>
             {HOURS.map(h => (
               <div key={h} style={{ height: DAY_ROW_H, padding: "8px 4px", fontSize: 11, color: C.hint, borderBottom: `0.5px solid ${C.gridLine}`, borderRight: `0.5px solid ${C.gridLine}`, boxSizing: "border-box" }}>
@@ -1234,12 +1262,12 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
             </p>
           );
         })()}
-        <button onClick={() => setShowDayView(true)} style={{
+        <button onClick={() => { setDayViewDate(bookingDate || origDate); setShowDayView(true); }} style={{
           display: "flex", alignItems: "center", gap: 6, marginBottom: 12,
           background: "none", border: "none", cursor: "pointer", padding: 0,
         }}>
           <span style={{ ...S.p, fontSize: 13, margin: 0 }}>{dateLabel}</span>
-          <span style={{ fontSize: 13, color: C.teal, fontWeight: 500 }}>· Tap to View</span>
+          <span style={{ fontSize: 13, color: C.teal, fontWeight: 500 }}>· Tap to view or change day</span>
         </button>
 
         {editingBooking && isChangeBlocked(editingBooking) ? (
