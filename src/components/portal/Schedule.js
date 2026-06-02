@@ -876,7 +876,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
         {/* Sticky day header */}
         <div style={{ position: "sticky", top: mobile ? 44 : 56, zIndex: 20, background: "#fafafa", display: "flex", borderTop: `0.5px solid ${C.gridLine}`, borderBottom: `0.5px solid ${C.gridLine}` }}>
           <div style={{ width: 70, flexShrink: 0, height: 36, borderRight: `0.5px solid ${C.gridLine}` }} />
-          <div style={{ flex: 1, height: 36, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: isToday ? C.teal : C.text }}>
+          <div style={{ flex: 1, height: 36, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: isToday ? C.teal : C.text, background: isToday ? "#FEF9C3" : "transparent" }}>
             {DAYS_SHORT[currentDate.getDay()]} {currentDate.getDate()}
           </div>
         </div>
@@ -932,6 +932,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                   borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none",
                   fontWeight: sameDay(d, new Date()) ? 600 : 400,
                   color: sameDay(d, new Date()) ? C.teal : C.text,
+                  background: sameDay(d, new Date()) ? "#FEF9C3" : "transparent",
                   cursor: "pointer",
                   scrollSnapAlign: mobile ? "start" : "none",
                 }}
@@ -1028,12 +1029,16 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                   cursor: hasAvail && !isPast ? "pointer" : "default",
                   background: hasAvail && !isPast ? "#eff6ff" : "transparent",
                 }} onClick={() => hasAvail && !isPast && openBookingPopup(date)}>
-                  <div style={{
-                    fontSize: 13, marginBottom: 4,
-                    fontWeight: sameDay(day, new Date()) ? 600 : 400,
-                    color: sameDay(day, new Date()) ? C.teal : hasAvail && !isPast ? "#3b82f6" : C.text,
-                  }}>
-                    {day.getDate()}
+                  <div style={{ marginBottom: 4 }}>
+                    <span style={{
+                      fontSize: 13, display: "inline-block", minWidth: 20, textAlign: "center",
+                      borderRadius: 4, padding: "1px 3px",
+                      background: sameDay(day, new Date()) ? "#FEF9C3" : "transparent",
+                      fontWeight: sameDay(day, new Date()) ? 600 : 400,
+                      color: sameDay(day, new Date()) ? C.text : hasAvail && !isPast ? "#3b82f6" : C.text,
+                    }}>
+                      {day.getDate()}
+                    </span>
                   </div>
                   {dayBookings.map(b => {
                     const canEdit = !readOnly && ["requested", "booked"].includes(b.status);
@@ -2027,8 +2032,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                   <MiniCalendar currentDate={currentDate} onSelectDate={(d) => { setCurrentDate(d); closePopup(); }} view={view} />
                   <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
                     <button style={{ ...S.btnSmOut, marginRight: 10 }} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
-                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
-                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                    <button onClick={() => navigate(-1)} title={`Previous ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                    <button onClick={() => navigate(1)} title={`Next ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
                     <select value={view} onChange={e => { setView(e.target.value); closePopup(); }} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
                       <option value="day">Day</option>
                       <option value="week">Week</option>
@@ -2040,8 +2045,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
               {mobile && (
                 <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 4, marginBottom: 8 }}>
                   <button style={{ ...S.btnSmOut, marginRight: 10 }} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
-                  <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
-                  <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                  <button onClick={() => navigate(-1)} title={`Previous ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                  <button onClick={() => navigate(1)} title={`Next ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
                   <select value={view} onChange={e => { setView(e.target.value); closePopup(); }} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
                     <option value="day">Day</option>
                     <option value="week">Week</option>
@@ -2063,8 +2068,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
                   </div>
                   <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
                   <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
-                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
-                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                    <button onClick={() => navigate(-1)} title={`Previous ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                    <button onClick={() => navigate(1)} title={`Next ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
                     <select value={view} onChange={e => { setView(e.target.value); closePopup(); }} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
                       <option value="day">Day</option>
                       <option value="week">Week</option>
@@ -2076,8 +2081,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
               {mobile && (
                 <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 4, marginBottom: 8 }}>
                   <button style={{ ...S.btnSmOut, marginRight: 10 }} onClick={() => { setCurrentDate(new Date()); closePopup(); }}>Today</button>
-                  <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
-                  <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                  <button onClick={() => navigate(-1)} title={`Previous ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                  <button onClick={() => navigate(1)} title={`Next ${view}`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
                   <select value={view} onChange={e => { setView(e.target.value); closePopup(); }} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
                     <option value="day">Day</option>
                     <option value="week">Week</option>

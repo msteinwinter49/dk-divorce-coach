@@ -78,7 +78,7 @@ export default function MiniCalendar({ currentDate, onSelectDate, view }) {
                   borderRadius: view === "day" ? 4 : 0,
                   ...(view === "week" && di === 0 ? { borderRadius: "4px 0 0 4px" } : {}),
                   ...(view === "week" && di === 6 ? { borderRadius: "0 4px 4px 0" } : {}),
-                  background: selected ? C.tealLight : "transparent",
+                  background: isToday ? "#FEF9C3" : selected ? C.tealLight : "transparent",
                   color: !isCurrentMonth ? C.hint : selected ? C.teal : C.text,
                   fontWeight: isToday ? 700 : selected ? 500 : 400,
                   opacity: isCurrentMonth ? 1 : 0.4,
