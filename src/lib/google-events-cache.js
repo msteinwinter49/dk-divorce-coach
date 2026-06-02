@@ -150,19 +150,22 @@ export async function getGoogleEvents(supabase, startDate, endDate) {
   }
 }
 
+const BUSINESS_TZ = "America/New_York";
+
 // Filter a raw event list to those that overlap [startDate, endDate].
+// Compares dates in business timezone so events after 8 PM ET don't
+// shift into the next UTC calendar day.
 function filterToRange(events, startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T23:59:59Z`);
   return events.filter(ev => {
     if (ev.start?.date) {
-      // All-day: start_date <= endDate && end_date >= startDate
       return ev.start.date <= endDate && (ev.end?.date || ev.start.date) >= startDate;
     }
     if (ev.start?.dateTime) {
-      const evStart = new Date(ev.start.dateTime);
-      const evEnd = ev.end?.dateTime ? new Date(ev.end.dateTime) : evStart;
-      return evStart <= end && evEnd >= start;
+      const startInET = new Date(ev.start.dateTime).toLocaleDateString("en-CA", { timeZone: BUSINESS_TZ });
+      const endInET = ev.end?.dateTime
+        ? new Date(ev.end.dateTime).toLocaleDateString("en-CA", { timeZone: BUSINESS_TZ })
+        : startInET;
+      return startInET <= endDate && endInET >= startDate;
     }
     return false;
   });

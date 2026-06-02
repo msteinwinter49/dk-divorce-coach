@@ -976,12 +976,14 @@ export default function AdminSchedule({ setPage }) {
     }
     for (const ev of googleEvents) {
       if (!ev.start?.dateTime) continue;
-      const eDate = ev.start.dateTime.split("T")[0];
-      if (eDate !== date) continue;
-      const s = new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes();
-      const eMin = ev.end?.dateTime
-        ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
-        : s + 60;
+      const sp = partsInBusinessTz(new Date(ev.start.dateTime));
+      if (sp.date !== date) continue;
+      const s = sp.hour * 60 + sp.minute;
+      let eMin = s + 60;
+      if (ev.end?.dateTime) {
+        const ep = partsInBusinessTz(new Date(ev.end.dateTime));
+        eMin = ep.hour * 60 + ep.minute;
+      }
       ivs.push([s, eMin]);
     }
     ivs.sort((a, b) => a[0] - b[0]);
@@ -1109,12 +1111,14 @@ export default function AdminSchedule({ setPage }) {
     return googleEvents.some(ev => {
       if (ev.id === dragId) return false;
       if (!ev.start?.dateTime) return false;
-      const eDate = ev.start.dateTime.split("T")[0];
-      if (eDate !== date) return false;
-      const eStart = new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes();
-      const eEnd = ev.end?.dateTime
-        ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
-        : eStart + 60;
+      const sp = partsInBusinessTz(new Date(ev.start.dateTime));
+      if (sp.date !== date) return false;
+      const eStart = sp.hour * 60 + sp.minute;
+      let eEnd = eStart + 60;
+      if (ev.end?.dateTime) {
+        const ep = partsInBusinessTz(new Date(ev.end.dateTime));
+        eEnd = ep.hour * 60 + ep.minute;
+      }
       return startMin < eEnd && endMin > eStart;
     });
   };
@@ -1250,12 +1254,14 @@ export default function AdminSchedule({ setPage }) {
     if (isHourBooking(date, hour)) return true;
     return googleEvents.some(e => {
       if (!e.start?.dateTime) return false;
-      const eDate = e.start.dateTime.split("T")[0];
-      if (eDate !== date) return false;
-      const eStart = new Date(e.start.dateTime).getHours() * 60 + new Date(e.start.dateTime).getMinutes();
-      const eEnd = e.end?.dateTime
-        ? new Date(e.end.dateTime).getHours() * 60 + new Date(e.end.dateTime).getMinutes()
-        : eStart + 60;
+      const sp = partsInBusinessTz(new Date(e.start.dateTime));
+      if (sp.date !== date) return false;
+      const eStart = sp.hour * 60 + sp.minute;
+      let eEnd = eStart + 60;
+      if (e.end?.dateTime) {
+        const ep = partsInBusinessTz(new Date(e.end.dateTime));
+        eEnd = ep.hour * 60 + ep.minute;
+      }
       return eStart < hourEnd && eEnd > hourStart;
     });
   };
@@ -1325,11 +1331,14 @@ export default function AdminSchedule({ setPage }) {
     });
     googleEvents.forEach(ev => {
       if (!ev.start?.dateTime) return;
-      const eDate = ev.start.dateTime.split("T")[0];
-      if (eDate !== date) return;
-      const startMin = new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes();
-      const endD = ev.end?.dateTime ? new Date(ev.end.dateTime) : null;
-      const endMin = endD ? endD.getHours() * 60 + endD.getMinutes() : startMin + 60;
+      const sp = partsInBusinessTz(new Date(ev.start.dateTime));
+      if (sp.date !== date) return;
+      const startMin = sp.hour * 60 + sp.minute;
+      let endMin = startMin + 60;
+      if (ev.end?.dateTime) {
+        const ep = partsInBusinessTz(new Date(ev.end.dateTime));
+        endMin = ep.hour * 60 + ep.minute;
+      }
       items.push({
         kind: "event", data: ev,
         top: ((startMin - firstHour * 60) / 60) * rowH,
@@ -1344,7 +1353,11 @@ export default function AdminSchedule({ setPage }) {
     bookings.filter(b => (b.date || dateStr(new Date(b.start_time))) === date);
 
   const getEventsForDate = (date) =>
-    googleEvents.filter(e => (e.start?.dateTime || e.start?.date || "").split("T")[0] === date);
+    googleEvents.filter(e => {
+      if (e.start?.date) return e.start.date === date;
+      if (e.start?.dateTime) return partsInBusinessTz(new Date(e.start.dateTime)).date === date;
+      return false;
+    });
 
   // --- Render helpers ---
 
