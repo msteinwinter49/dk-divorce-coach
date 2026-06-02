@@ -2928,28 +2928,28 @@ export default function AdminSchedule({ setPage }) {
                 <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>{renderSearchIconButton()}</div>
                   <MiniCalendar currentDate={currentDate} onSelectDate={(d) => setCurrentDate(d)} view={view} />
-                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
-                    <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
-                    {["day", "week", "month"].map(v => (
-                      <button key={v}
-                        style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                        onClick={() => setView(v)}>
-                        {v.charAt(0).toUpperCase() + v.slice(1)}
-                      </button>
-                    ))}
+                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
+                    <button style={{ ...S.btnSmOut, marginRight: 10 }} onClick={() => setCurrentDate(new Date())}>Today</button>
+                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                    <select value={view} onChange={e => setView(e.target.value)} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month">Month</option>
+                    </select>
                   </div>
                 </div>
               )}
               {mobile && (
-                <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 4, marginBottom: 8 }}>
                   <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
-                  {["day", "week", "month"].map(v => (
-                    <button key={v}
-                      style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                      onClick={() => setView(v)}>
-                      {v.charAt(0).toUpperCase() + v.slice(1)}
-                    </button>
-                  ))}
+                  <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                  <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                  <select value={view} onChange={e => setView(e.target.value)} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
+                    <option value="day">Day</option>
+                    <option value="week">Week</option>
+                    <option value="month">Month</option>
+                  </select>
                 </div>
               )}
             </>
@@ -2958,42 +2958,34 @@ export default function AdminSchedule({ setPage }) {
               {mobile ? (
                 <div style={{ position: "relative", display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 6 }}>
                   <div style={{ position: "absolute", left: 0 }}>{renderSearchIconButton()}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&lsaquo;</button>
-                    <span style={{ fontSize: 18, color: C.text, fontWeight: 600 }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
-                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&rsaquo;</button>
-                  </div>
+                  <span style={{ fontSize: 18, color: C.text, fontWeight: 600 }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>{renderSearchIconButton()}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&lsaquo;</button>
-                    <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
-                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 28, lineHeight: 1, color: C.text, fontWeight: 700, padding: "0 6px", fontFamily: "inherit" }}>&rsaquo;</button>
-                  </div>
-                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
-                    <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
-                    {["day", "week", "month"].map(v => (
-                      <button key={v}
-                        style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                        onClick={() => setView(v)}>
-                        {v.charAt(0).toUpperCase() + v.slice(1)}
-                      </button>
-                    ))}
+                  <span style={{ fontSize: 18, color: C.text, fontWeight: 600, textAlign: "center" }}>{`${MONTHS[currentDate.getMonth()]} ${currentDate.getFullYear()}`}</span>
+                  <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4 }}>
+                    <button style={{ ...S.btnSmOut, marginRight: 10 }} onClick={() => setCurrentDate(new Date())}>Today</button>
+                    <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                    <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                    <select value={view} onChange={e => setView(e.target.value)} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month">Month</option>
+                    </select>
                   </div>
                 </div>
               )}
               {mobile && (
-                <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 4, marginBottom: 8 }}>
                   <button style={S.btnSmOut} onClick={() => setCurrentDate(new Date())}>Today</button>
-                  {["day", "week", "month"].map(v => (
-                    <button key={v}
-                      style={{ ...S.btnSmOut, ...(view === v ? { background: C.teal, color: "#fff", border: `0.5px solid ${C.teal}` } : {}) }}
-                      onClick={() => setView(v)}>
-                      {v.charAt(0).toUpperCase() + v.slice(1)}
-                    </button>
-                  ))}
+                  <button onClick={() => navigate(-1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&lsaquo;</button>
+                  <button onClick={() => navigate(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 40, fontWeight: 300, lineHeight: 1, color: C.muted, padding: "0 2px", fontFamily: "inherit", display: "inline-flex", alignItems: "center", transform: "translateY(-5px)" }}>&rsaquo;</button>
+                  <select value={view} onChange={e => setView(e.target.value)} style={{ ...S.btnSmOut, paddingRight: 6, marginLeft: 10 }}>
+                    <option value="day">Day</option>
+                    <option value="week">Week</option>
+                    <option value="month">Month</option>
+                  </select>
                 </div>
               )}
             </>
