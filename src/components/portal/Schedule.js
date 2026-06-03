@@ -111,47 +111,46 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     return { start: dateStr(startOfWeek(first)), end: dateStr(addDays(startOfWeek(last), 6)) };
   }, [view, currentDate]);
 
+  // Tracks whether the wide availability window has been fetched this session.
+  // Resets on user change so a re-login gets fresh data.
+  const availLoadedRef = useRef(false);
+  useEffect(() => { availLoadedRef.current = false; }, [user]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     const { start, end } = getRange();
+
+    // Availability: fetch a wide window once on mount (prev month → end of month+2).
+    // Subsequent navigations reuse the cached state — no re-fetch needed.
+    let availPromise;
+    if (!availLoadedRef.current) {
+      const now = new Date();
+      const aStart = dateStr(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      const aEnd = dateStr(new Date(now.getFullYear(), now.getMonth() + 3, 0));
+      availPromise = fetch(`/api/availability?start=${aStart}&end=${aEnd}`).then(r => r.json()).catch(() => ({}));
+    } else {
+      availPromise = Promise.resolve(null);
+    }
+
     const [availRes, bookingsRes, typesRes] = await Promise.all([
-      fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
+      availPromise,
       fetch(`/api/bookings?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
       fetch("/api/session-types").then(r => r.json()).catch(() => []),
     ]);
-    const availData = availRes && !availRes.error ? availRes : {};
-    // The API returns scheduling_increment alongside the date-keyed slots under
-    // the special key __increment. Strip it before storing per-date availability.
-    const { __increment, ...slotsByDate } = availData;
-    setAvailability(slotsByDate);
+
+    if (availRes !== null) {
+      availLoadedRef.current = true;
+      const { __increment, ...slotsByDate } = availRes && !availRes.error ? availRes : {};
+      setAvailability(slotsByDate);
+      if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
+    }
+
     setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
     setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
-    if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
     setLoading(false);
   }, [getRange]);
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
-
-  // When the day-picker opens or navigates to a new month, fetch availability for
-  // that month so blue slots appear on all days, not just the main schedule's range.
-  const dayViewMonth = dayViewDate ? dayViewDate.slice(0, 7) : null;
-  useEffect(() => {
-    if (!dayViewMonth) return;
-    const [y, m] = dayViewMonth.split("-").map(Number);
-    const first = new Date(y, m - 1, 1);
-    const last = new Date(y, m, 0);
-    const start = dateStr(startOfWeek(first));
-    const end = dateStr(addDays(startOfWeek(last), 6));
-    fetch(`/api/availability?start=${start}&end=${end}`)
-      .then(r => r.json())
-      .then(res => {
-        if (res && !res.error) {
-          const { __increment, ...slots } = res;
-          setAvailability(prev => ({ ...prev, ...slots }));
-        }
-      })
-      .catch(() => {});
-  }, [dayViewMonth]);
 
   // Load group members once for participant selection (clients only, not admin-viewing)
   useEffect(() => {

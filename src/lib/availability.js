@@ -39,7 +39,7 @@ async function getLocalEventsBusyByDate(supabase, startDate, endDate) {
   try {
     const { data: events } = await supabase
       .from("events")
-      .select("date, start_time, end_time")
+      .select("date, start_time, end_time, all_day")
       .gte("date", startDate)
       .lte("date", endDate);
 
@@ -50,6 +50,15 @@ async function getLocalEventsBusyByDate(supabase, startDate, endDate) {
     };
 
     for (const ev of events || []) {
+      if (ev.all_day) {
+        // end_time stored as exclusive midnight UTC: (start_date + N days)T00:00:00Z
+        const startD = new Date(`${ev.date}T00:00:00Z`);
+        const endExclusive = new Date(ev.end_time);
+        for (let d = new Date(startD); d < endExclusive; d.setUTCDate(d.getUTCDate() + 1)) {
+          push(d.toISOString().slice(0, 10), 0, 24 * 60);
+        }
+        continue;
+      }
       if (!ev.start_time || !ev.end_time) continue;
       const startParts = partsInTimezone(new Date(ev.start_time), BUSINESS_TIMEZONE);
       const endParts = partsInTimezone(new Date(ev.end_time), BUSINESS_TIMEZONE);

@@ -323,6 +323,12 @@ export async function DELETE(request) {
         console.error("Google Calendar delete sync error:", e);
       }
     }
+    // Evict from cache immediately so the deleted event doesn't re-appear
+    // before the 5-min TTL expires (dedup relies on the local row being present).
+    await ctx.adminClient
+      .from("google_events_cache")
+      .delete()
+      .eq("google_event_id", event.google_calendar_event_id);
   }
 
   return NextResponse.json({ success: true });
