@@ -2002,7 +2002,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   return (
     <div style={S.page}>
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
         <div>
           <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Schedule</h1>
           {balanceMinutes != null && (() => {
@@ -2015,6 +2015,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
             return <p style={{ ...S.p, fontSize: 20, color: C.muted, marginTop: 2, marginBottom: 0 }}>Available to schedule: {label}</p>;
           })()}
         </div>
+        <button title="Refresh schedule" onClick={() => { availLoadedRef.current = false; loadData(); }} disabled={loading} style={{ background: "none", border: "none", cursor: loading ? "default" : "pointer", fontSize: 22, color: loading ? C.hint : C.muted, padding: "4px 2px", lineHeight: 1, marginTop: 2 }}>↻</button>
       </div>
 
       {!readOnly && !isAdminViewing && balanceMinutes !== null && balanceMinutes < 0 && (

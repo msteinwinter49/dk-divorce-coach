@@ -2991,6 +2991,7 @@ export default function AdminSchedule({ setPage }) {
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ ...S.h1, fontSize: 26, marginBottom: 0 }}>Schedule</h1>
+        <button title="Refresh schedule" onClick={loadData} disabled={loading} style={{ background: "none", border: "none", cursor: loading ? "default" : "pointer", fontSize: 22, color: loading ? C.hint : C.muted, padding: "4px 2px", lineHeight: 1 }}>↻</button>
       </div>
 
       {renderConflictBanner()}

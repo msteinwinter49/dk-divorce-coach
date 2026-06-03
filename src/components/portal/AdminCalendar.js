@@ -1406,7 +1406,7 @@ export default function AdminCalendar({ setPage }) {
           <button style={S.btnSmOut} onClick={() => navigate(1)}>&rsaquo;</button>
           <span style={{ fontSize: 14, color: C.text, fontWeight: 500, minWidth: 180, textAlign: "center" }}>{headerLabel()}</span>
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {["day", "week", "month"].map(v => (
             <button
               key={v}
@@ -1416,6 +1416,7 @@ export default function AdminCalendar({ setPage }) {
               {v.charAt(0).toUpperCase() + v.slice(1)}
             </button>
           ))}
+          <button title="Refresh calendar" onClick={loadData} disabled={loading} style={{ background: "none", border: "none", cursor: loading ? "default" : "pointer", fontSize: 22, color: loading ? C.hint : C.muted, padding: "4px 2px", lineHeight: 1, marginLeft: 4 }}>↻</button>
         </div>
       </div>
 
