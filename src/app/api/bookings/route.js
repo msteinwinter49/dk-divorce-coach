@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
+import { retryWithBackoff, sendSyncFailureEmail } from "@/lib/gcal-sync-utils";
 
 // Convert browser's getTimezoneOffset() value to ISO offset string like "-04:00"
 function buildTzOffset(tz_offset) {
@@ -46,7 +47,7 @@ async function syncBookingGoogle(adminClient, booking, clientProfile, status, ac
     if (action === "delete") {
       if (!booking.google_calendar_event_id) return;
       const { deleteEvent } = await import("@/lib/google-calendar");
-      await withTimeout(deleteEvent(token, booking.google_calendar_event_id), 8000, "gcal delete");
+      await retryWithBackoff(() => withTimeout(deleteEvent(token, booking.google_calendar_event_id), 8000, "gcal delete"));
       await adminClient
         .from("bookings")
         .update({ google_calendar_event_id: null })
@@ -55,11 +56,11 @@ async function syncBookingGoogle(adminClient, booking, clientProfile, status, ac
     }
 
     const { syncBookingToGoogle } = await import("@/lib/google-calendar");
-    const gEvent = await withTimeout(
+    const gEvent = await retryWithBackoff(() => withTimeout(
       syncBookingToGoogle(token, booking, clientProfile, status, sessionType, undefined, groupName, attendeeCount),
       8000,
       "gcal upsert"
-    );
+    ));
     if (gEvent?.id && gEvent.id !== booking.google_calendar_event_id) {
       await adminClient
         .from("bookings")
@@ -68,6 +69,15 @@ async function syncBookingGoogle(adminClient, booking, clientProfile, status, ac
     }
   } catch (e) {
     console.error(`[gcal] booking sync ${action} failed:`, e?.message || e);
+    const clientName = clientProfile ? `${clientProfile.first_name || ""} ${clientProfile.last_name || ""}`.trim() : null;
+    const actionLabel = action === "delete" ? "DELETE" : booking.google_calendar_event_id ? "UPDATE" : "CREATE";
+    await sendSyncFailureEmail(adminClient, {
+      action: actionLabel,
+      resource: "booking",
+      summary: clientName || undefined,
+      date: booking.start_time ? booking.start_time.slice(0, 10) : undefined,
+      error: e?.message || String(e),
+    });
   }
 }
 

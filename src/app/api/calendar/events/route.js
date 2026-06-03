@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { retryWithBackoff, sendSyncFailureEmail } from "@/lib/gcal-sync-utils";
 
 // Convert browser's getTimezoneOffset() to an ISO offset string like "-04:00"
 function buildTzOffset(tz_offset) {
@@ -189,11 +190,11 @@ export async function POST(request) {
   if (token) {
     try {
       const { createEvent } = await import("@/lib/google-calendar");
-      const gEvent = await createEvent(token, all_day
+      const gEvent = await retryWithBackoff(() => createEvent(token, all_day
         ? { summary, all_day: true, start_date: date, end_date_exclusive: endDateExclusive, status: "confirmed" }
         : { summary, start: startISO, end: endISO, status: "confirmed" },
         makeSaveToken(ctx.adminClient)
-      );
+      ));
       await ctx.adminClient
         .from("events")
         .update({ google_calendar_event_id: gEvent.id })
@@ -201,6 +202,7 @@ export async function POST(request) {
       event.google_calendar_event_id = gEvent.id;
     } catch (e) {
       console.error("Google Calendar sync error (event still saved locally):", e);
+      await sendSyncFailureEmail(ctx.adminClient, { action: "CREATE", resource: "event", summary, date, error: e?.message || String(e) });
     }
   }
 
@@ -276,9 +278,10 @@ export async function PATCH(request) {
           if (updates.start_time) gUpdates.start = { dateTime: updates.start_time };
           if (updates.end_time) gUpdates.end = { dateTime: updates.end_time };
         }
-        await updateEvent(token, event.google_calendar_event_id, gUpdates, makeSaveToken(ctx.adminClient));
+        await retryWithBackoff(() => updateEvent(token, event.google_calendar_event_id, gUpdates, makeSaveToken(ctx.adminClient)));
       } catch (e) {
         console.error("Google Calendar update sync error:", e);
+        await sendSyncFailureEmail(ctx.adminClient, { action: "UPDATE", resource: "event", summary: event.summary, date: event.date, error: e?.message || String(e) });
       }
     }
   }
@@ -318,9 +321,10 @@ export async function DELETE(request) {
     if (token) {
       try {
         const { deleteEvent } = await import("@/lib/google-calendar");
-        await deleteEvent(token, event.google_calendar_event_id, makeSaveToken(ctx.adminClient));
+        await retryWithBackoff(() => deleteEvent(token, event.google_calendar_event_id, makeSaveToken(ctx.adminClient)));
       } catch (e) {
         console.error("Google Calendar delete sync error:", e);
+        await sendSyncFailureEmail(ctx.adminClient, { action: "DELETE", resource: "event", error: e?.message || String(e) });
       }
     }
     // Evict from cache immediately so the deleted event doesn't re-appear
@@ -329,6 +333,7 @@ export async function DELETE(request) {
       .from("google_events_cache")
       .delete()
       .eq("google_event_id", event.google_calendar_event_id);
+
   }
 
   return NextResponse.json({ success: true });
