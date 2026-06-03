@@ -290,6 +290,8 @@ export default function AdminSchedule({ setPage }) {
   const [bookTime, setBookTime] = useState("");
   const [eventTitle, setEventTitle] = useState("");
   const [eventEndTime, setEventEndTime] = useState("");
+  const [eventAllDay, setEventAllDay] = useState(false);
+  const [eventAllDayDays, setEventAllDayDays] = useState(1);
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -723,11 +725,22 @@ export default function AdminSchedule({ setPage }) {
 
   const openEditEventModal = (event) => {
     setEventTitle(event.summary || "");
-    setBookDate(event.start?.dateTime ? dateStr(new Date(event.start.dateTime)) : "");
-    const startD = event.start?.dateTime ? new Date(event.start.dateTime) : null;
-    const endD = event.end?.dateTime ? new Date(event.end.dateTime) : null;
-    setBookTime(startD ? `${String(startD.getHours()).padStart(2, "0")}:${String(startD.getMinutes()).padStart(2, "0")}` : "");
-    setEventEndTime(endD ? `${String(endD.getHours()).padStart(2, "0")}:${String(endD.getMinutes()).padStart(2, "0")}` : "");
+    const isAllDay = !!event.start?.date;
+    setEventAllDay(isAllDay);
+    if (isAllDay) {
+      setBookDate(event.start.date);
+      const startMs = new Date(`${event.start.date}T00:00:00Z`).getTime();
+      const endMs = event.end?.date ? new Date(`${event.end.date}T00:00:00Z`).getTime() : startMs + 86400000;
+      setEventAllDayDays(Math.max(1, Math.round((endMs - startMs) / 86400000)));
+      setBookTime("");
+      setEventEndTime("");
+    } else {
+      setBookDate(event.start?.dateTime ? dateStr(new Date(event.start.dateTime)) : "");
+      const startD = event.start?.dateTime ? new Date(event.start.dateTime) : null;
+      const endD = event.end?.dateTime ? new Date(event.end.dateTime) : null;
+      setBookTime(startD ? `${String(startD.getHours()).padStart(2, "0")}:${String(startD.getMinutes()).padStart(2, "0")}` : "");
+      setEventEndTime(endD ? `${String(endD.getHours()).padStart(2, "0")}:${String(endD.getMinutes()).padStart(2, "0")}` : "");
+    }
     setModalError(null);
     setModal({ mode: "editEvent", event });
   };
@@ -745,6 +758,8 @@ export default function AdminSchedule({ setPage }) {
     setShowAdminCloseWarning(false);
     setModalPos({ x: 0, y: 0 });
     setModalDragState(null);
+    setEventAllDay(false);
+    setEventAllDayDays(1);
   };
 
   // --- Action handlers ---
@@ -851,7 +866,7 @@ export default function AdminSchedule({ setPage }) {
   };
 
   const handleCreateEvent = async () => {
-    if (!eventTitle.trim() || !bookDate || !bookTime || !eventEndTime) {
+    if (!eventTitle.trim() || !bookDate || (!eventAllDay && (!bookTime || !eventEndTime))) {
       setModalError("All fields are required.");
       return;
     }
@@ -860,13 +875,10 @@ export default function AdminSchedule({ setPage }) {
     const res = await fetch("/api/calendar/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        summary: eventTitle.trim(),
-        date: bookDate,
-        start_time: bookTime,
-        end_time: eventEndTime,
-        tz_offset: new Date().getTimezoneOffset(),
-      }),
+      body: JSON.stringify(eventAllDay
+        ? { summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
+        : { summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
+      ),
     });
     if (res.ok) {
       await loadData();
@@ -880,7 +892,7 @@ export default function AdminSchedule({ setPage }) {
   };
 
   const handleUpdateEvent = async () => {
-    if (!modal?.event || !eventTitle.trim() || !bookDate || !bookTime || !eventEndTime) {
+    if (!modal?.event || !eventTitle.trim() || !bookDate || (!eventAllDay && (!bookTime || !eventEndTime))) {
       setModalError("All fields are required.");
       return;
     }
@@ -889,14 +901,10 @@ export default function AdminSchedule({ setPage }) {
     const res = await fetch("/api/calendar/events", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: modal.event.id,
-        summary: eventTitle.trim(),
-        date: bookDate,
-        start_time: bookTime,
-        end_time: eventEndTime,
-        tz_offset: new Date().getTimezoneOffset(),
-      }),
+      body: JSON.stringify(eventAllDay
+        ? { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
+        : { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
+      ),
     });
     if (res.ok) {
       await loadData();
@@ -1365,6 +1373,41 @@ export default function AdminSchedule({ setPage }) {
       return false;
     });
 
+  // All-day events (start.date present) covering the given date, respecting exclusive end date.
+  const getAllDayEventsForDate = (date) =>
+    googleEvents.filter(e => {
+      if (!e.start?.date) return false;
+      const start = e.start.date;
+      const end = e.end?.date;
+      if (!end || end <= start) return start === date;
+      return start <= date && date < end;
+    });
+
+  const renderAllDayBannerPill = (ev, compact = false) => {
+    const src = classifyEvent(ev);
+    const color = SRC[src];
+    const bg = SRC[src + "Bg"];
+    const isLocal = !!ev._local;
+    return (
+      <div
+        key={ev.id || ev.summary}
+        onClick={isLocal ? (e) => { e.stopPropagation(); setHover(null); openEditEventModal(ev); } : undefined}
+        onMouseEnter={(e) => setHover({ kind: "event", data: ev, x: e.clientX, y: e.clientY })}
+        onMouseMove={(e) => setHover(h => h?.kind === "event" && h.data.id === ev.id ? { ...h, x: e.clientX, y: e.clientY } : h)}
+        onMouseLeave={() => setHover(null)}
+        style={{
+          background: bg, border: `1px solid ${color}`, borderRadius: 4,
+          padding: compact ? "1px 4px" : "2px 6px",
+          fontSize: compact ? 11 : 12, color, fontWeight: 500,
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          cursor: isLocal ? "pointer" : "default", marginBottom: 2,
+        }}
+      >
+        {ev.summary || "All-day event"}
+      </div>
+    );
+  };
+
   // --- Render helpers ---
 
   const renderOverlayBooking = (b, top, height, compact, layout) => {
@@ -1489,11 +1532,23 @@ export default function AdminSchedule({ setPage }) {
     return (
       <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, userSelect: "none" }}>
         {/* Sticky day header */}
-        <div style={{ position: "sticky", top: mobile ? 44 : 56, zIndex: 20, background: "#fafafa", display: "flex", borderTop: `0.5px solid ${C.gridLine}`, borderBottom: `0.5px solid ${C.gridLine}` }}>
-          <div style={{ width: 70, flexShrink: 0, height: 36, borderRight: `0.5px solid ${C.gridLine}` }} />
-          <div style={{ flex: 1, height: 36, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: isToday ? C.teal : C.text, background: isToday ? "#FEF9C3" : "transparent" }}>
-            {DAYS_SHORT[currentDate.getDay()]} {currentDate.getDate()}
+        <div style={{ position: "sticky", top: mobile ? 44 : 56, zIndex: 20, background: "#fafafa", borderTop: `0.5px solid ${C.gridLine}` }}>
+          <div style={{ display: "flex", borderBottom: `0.5px solid ${C.gridLine}` }}>
+            <div style={{ width: 70, flexShrink: 0, height: 36, borderRight: `0.5px solid ${C.gridLine}` }} />
+            <div style={{ flex: 1, height: 36, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: isToday ? C.teal : C.text, background: isToday ? "#FEF9C3" : "transparent" }}>
+              {DAYS_SHORT[currentDate.getDay()]} {currentDate.getDate()}
+            </div>
           </div>
+          {(() => {
+            const allDayEvs = getAllDayEventsForDate(date);
+            if (!allDayEvs.length) return null;
+            return (
+              <div style={{ display: "flex", borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa" }}>
+                <div style={{ width: 70, flexShrink: 0, fontSize: 11, color: C.hint, borderRight: `0.5px solid ${C.gridLine}`, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 0" }}>all-day</div>
+                <div style={{ flex: 1, padding: "4px 8px" }}>{allDayEvs.map(ev => renderAllDayBannerPill(ev))}</div>
+              </div>
+            );
+          })()}
         </div>
         <div style={{ display: "flex" }}>
           <div style={{ width: 70, flexShrink: 0 }}>
@@ -1573,6 +1628,20 @@ export default function AdminSchedule({ setPage }) {
               </div>
             ))}
           </div>
+          {(() => {
+            const allDaysByDate = days.map(d => ({ date: dateStr(d), evs: getAllDayEventsForDate(dateStr(d)) }));
+            if (!allDaysByDate.some(a => a.evs.length)) return null;
+            return (
+              <div style={{ display: "flex", minWidth: minW, borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa" }}>
+                <div style={{ width: 70, flexShrink: 0, fontSize: 11, color: C.hint, borderRight: `0.5px solid ${C.gridLine}`, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 0", position: "sticky", left: 0, background: "#fafafa", zIndex: 1 }}>all-day</div>
+                {allDaysByDate.map(({ date, evs }, i) => (
+                  <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none", padding: "2px 4px", scrollSnapAlign: mobile ? "start" : "none" }}>
+                    {evs.map(ev => renderAllDayBannerPill(ev, true))}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
         {/* Body: vertical scroll only on mobile; horizontal locked to header */}
         <div
@@ -1659,11 +1728,12 @@ export default function AdminSchedule({ setPage }) {
               const date = dateStr(day);
               const isCurrentMonth = day.getMonth() === m;
               const dayBookings = getBookingsForDate(date);
-              const dayEvents = getEventsForDate(date);
+              const dayAllDay = getAllDayEventsForDate(date);
+              const dayTimedEvents = getEventsForDate(date).filter(e => !!e.start?.dateTime);
               const hasAvail = (availability[date] || []).length > 0;
               const chips = [];
               dayBookings.forEach(b => chips.push({ kind: "booking", data: b }));
-              dayEvents.forEach(ev => chips.push({ kind: "event", data: ev }));
+              dayTimedEvents.forEach(ev => chips.push({ kind: "event", data: ev }));
               chips.sort((a, b) => {
                 const aT = new Date(a.data.start_time || a.data.start?.dateTime || 0).getTime();
                 const bT = new Date(b.data.start_time || b.data.start?.dateTime || 0).getTime();
@@ -1694,6 +1764,7 @@ export default function AdminSchedule({ setPage }) {
                       {day.getDate()}
                     </span>
                   </div>
+                  {dayAllDay.map(ev => renderAllDayBannerPill(ev, true))}
                   {chips.slice(0, 3).map((c, idx) => {
                     if (c.kind === "booking") {
                       const b = c.data;
@@ -2537,14 +2608,24 @@ export default function AdminSchedule({ setPage }) {
           <label style={S.label}>Date</label>
           <input style={S.input} type="date" value={bookDate} onChange={e => setBookDate(e.target.value)} />
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={S.label}>Start</label>
-          <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={S.label}>End</label>
-          <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
-        </div>
+        {!eventAllDay && (
+          <>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>Start</label>
+              <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>End</label>
+              <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
+            </div>
+          </>
+        )}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+        <input type="checkbox" id="evtAllDay" checked={eventAllDay} onChange={e => setEventAllDay(e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.teal }} />
+        <label htmlFor="evtAllDay" style={{ fontSize: 14, color: C.text, cursor: "pointer" }}>All day for</label>
+        <input style={{ ...S.input, width: 64, margin: 0 }} type="number" min={1} value={eventAllDayDays} onChange={e => setEventAllDayDays(Math.max(1, parseInt(e.target.value) || 1))} disabled={!eventAllDay} />
+        <span style={{ fontSize: 14, color: C.text }}>days</span>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button style={S.btn} onClick={handleCreateEvent} disabled={modalSaving}>
@@ -2575,14 +2656,24 @@ export default function AdminSchedule({ setPage }) {
           <label style={S.label}>Date</label>
           <input style={S.input} type="date" value={bookDate} onChange={e => setBookDate(e.target.value)} />
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={S.label}>Start</label>
-          <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={S.label}>End</label>
-          <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
-        </div>
+        {!eventAllDay && (
+          <>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>Start</label>
+              <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>End</label>
+              <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
+            </div>
+          </>
+        )}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+        <input type="checkbox" id="evtAllDayEdit" checked={eventAllDay} onChange={e => setEventAllDay(e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.teal }} />
+        <label htmlFor="evtAllDayEdit" style={{ fontSize: 14, color: C.text, cursor: "pointer" }}>All day for</label>
+        <input style={{ ...S.input, width: 64, margin: 0 }} type="number" min={1} value={eventAllDayDays} onChange={e => setEventAllDayDays(Math.max(1, parseInt(e.target.value) || 1))} disabled={!eventAllDay} />
+        <span style={{ fontSize: 14, color: C.text }}>days</span>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button style={S.btn} onClick={handleUpdateEvent} disabled={modalSaving}>

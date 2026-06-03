@@ -114,16 +114,19 @@ export async function listEvents(refreshToken, timeMin, timeMax, onNewToken) {
   return results.flat();
 }
 
-// Create an event (tentative for requests, confirmed for booked)
-export async function createEvent(refreshToken, { summary, start, end, status }, onNewToken) {
+// Create an event (tentative for requests, confirmed for booked).
+// For all-day events pass { all_day: true, start_date, end_date_exclusive } instead of start/end.
+export async function createEvent(refreshToken, { summary, start, end, status, all_day, start_date, end_date_exclusive }, onNewToken) {
   const calendar = getCalendarClient(refreshToken, onNewToken);
+  const gcalStart = all_day ? { date: start_date } : { dateTime: new Date(start).toISOString() };
+  const gcalEnd   = all_day ? { date: end_date_exclusive } : { dateTime: new Date(end).toISOString() };
   const { data } = await withTimeout(
     calendar.events.insert({
       calendarId: process.env.GOOGLE_CALENDAR_ID,
       requestBody: {
         summary,
-        start: { dateTime: new Date(start).toISOString() },
-        end: { dateTime: new Date(end).toISOString() },
+        start: gcalStart,
+        end: gcalEnd,
         status: status || "tentative",
       },
     }),

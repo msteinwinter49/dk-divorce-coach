@@ -86,15 +86,13 @@ export async function GET(request) {
     .order("start_time");
 
   // Normalize local events to Google Calendar event shape for the frontend
-  const normalized = (localEvents || []).map(e => ({
-    id: e.id,
-    summary: e.summary,
-    start: { dateTime: e.start_time },
-    end: { dateTime: e.end_time },
-    _local: true,
-    _type: "personal",
-    _synced: !!e.google_calendar_event_id,
-  }));
+  const normalized = (localEvents || []).map(e => {
+    if (e.all_day) {
+      const endDate = new Date(e.end_time).toISOString().slice(0, 10);
+      return { id: e.id, summary: e.summary, start: { date: e.date }, end: { date: endDate }, _local: true, _type: "personal", _synced: !!e.google_calendar_event_id };
+    }
+    return { id: e.id, summary: e.summary, start: { dateTime: e.start_time }, end: { dateTime: e.end_time }, _local: true, _type: "personal", _synced: !!e.google_calendar_event_id };
+  });
 
   // 2. Google Calendar events (if connected) — served from cache when fresh
   let googleEvents = [];
@@ -146,24 +144,41 @@ export async function GET(request) {
   });
 }
 
+function addDaysToDate(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 // POST — create event locally, sync to Google if available
 export async function POST(request) {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { summary, date, start_time, end_time, tz_offset } = await request.json();
-  if (!summary || !date || !start_time || !end_time) {
-    return NextResponse.json({ error: "summary, date, start_time, and end_time are required" }, { status: 400 });
+  const { summary, date, start_time, end_time, tz_offset, all_day, days } = await request.json();
+  if (!summary || !date) {
+    return NextResponse.json({ error: "summary and date are required" }, { status: 400 });
+  }
+  if (!all_day && (!start_time || !end_time)) {
+    return NextResponse.json({ error: "start_time and end_time are required for timed events" }, { status: 400 });
   }
 
-  const offStr = buildTzOffset(tz_offset);
-  const startISO = `${date}T${start_time}:00${offStr}`;
-  const endISO = `${date}T${end_time}:00${offStr}`;
+  let startISO, endISO, endDateExclusive;
+  if (all_day) {
+    const numDays = Math.max(1, parseInt(days) || 1);
+    endDateExclusive = addDaysToDate(date, numDays);
+    startISO = `${date}T00:00:00Z`;
+    endISO = `${endDateExclusive}T00:00:00Z`;
+  } else {
+    const offStr = buildTzOffset(tz_offset);
+    startISO = `${date}T${start_time}:00${offStr}`;
+    endISO = `${date}T${end_time}:00${offStr}`;
+  }
 
   // Save locally
   const { data: event, error } = await ctx.adminClient
     .from("events")
-    .insert({ summary, date, start_time: startISO, end_time: endISO })
+    .insert({ summary, date, start_time: startISO, end_time: endISO, all_day: !!all_day })
     .select()
     .single();
 
@@ -174,13 +189,11 @@ export async function POST(request) {
   if (token) {
     try {
       const { createEvent } = await import("@/lib/google-calendar");
-      const gEvent = await createEvent(token, {
-        summary,
-        start: startISO,
-        end: endISO,
-        status: "confirmed",
-      }, makeSaveToken(ctx.adminClient));
-      // Store the Google event ID for dedup
+      const gEvent = await createEvent(token, all_day
+        ? { summary, all_day: true, start_date: date, end_date_exclusive: endDateExclusive, status: "confirmed" }
+        : { summary, start: startISO, end: endISO, status: "confirmed" },
+        makeSaveToken(ctx.adminClient)
+      );
       await ctx.adminClient
         .from("events")
         .update({ google_calendar_event_id: gEvent.id })
@@ -191,12 +204,24 @@ export async function POST(request) {
     }
   }
 
+  if (all_day) {
+    return NextResponse.json({
+      id: event.id,
+      summary: event.summary,
+      start: { date },
+      end: { date: endDateExclusive },
+      _local: true,
+      _type: "personal",
+      _synced: !!event.google_calendar_event_id,
+    });
+  }
   return NextResponse.json({
     id: event.id,
     summary: event.summary,
     start: { dateTime: event.start_time },
     end: { dateTime: event.end_time },
     _local: true,
+    _type: "personal",
     _synced: !!event.google_calendar_event_id,
   });
 }
@@ -206,15 +231,26 @@ export async function PATCH(request) {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { id, summary, date, start_time, end_time, tz_offset } = await request.json();
+  const { id, summary, date, start_time, end_time, tz_offset, all_day, days } = await request.json();
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-  const offStr = buildTzOffset(tz_offset);
   const updates = { updated_at: new Date().toISOString() };
   if (summary) updates.summary = summary;
   if (date) updates.date = date;
-  if (date && start_time) updates.start_time = `${date}T${start_time}:00${offStr}`;
-  if (date && end_time) updates.end_time = `${date}T${end_time}:00${offStr}`;
+
+  let endDateExclusive;
+  if (all_day && date) {
+    const numDays = Math.max(1, parseInt(days) || 1);
+    endDateExclusive = addDaysToDate(date, numDays);
+    updates.start_time = `${date}T00:00:00Z`;
+    updates.end_time = `${endDateExclusive}T00:00:00Z`;
+    updates.all_day = true;
+  } else if (!all_day && date && start_time && end_time) {
+    const offStr = buildTzOffset(tz_offset);
+    updates.start_time = `${date}T${start_time}:00${offStr}`;
+    updates.end_time = `${date}T${end_time}:00${offStr}`;
+    updates.all_day = false;
+  }
 
   const { data: event, error } = await ctx.adminClient
     .from("events")
@@ -233,8 +269,13 @@ export async function PATCH(request) {
         const { updateEvent } = await import("@/lib/google-calendar");
         const gUpdates = {};
         if (summary) gUpdates.summary = summary;
-        if (updates.start_time) gUpdates.start = { dateTime: updates.start_time };
-        if (updates.end_time) gUpdates.end = { dateTime: updates.end_time };
+        if (all_day && date) {
+          gUpdates.start = { date };
+          gUpdates.end = { date: endDateExclusive };
+        } else {
+          if (updates.start_time) gUpdates.start = { dateTime: updates.start_time };
+          if (updates.end_time) gUpdates.end = { dateTime: updates.end_time };
+        }
         await updateEvent(token, event.google_calendar_event_id, gUpdates, makeSaveToken(ctx.adminClient));
       } catch (e) {
         console.error("Google Calendar update sync error:", e);
@@ -242,14 +283,11 @@ export async function PATCH(request) {
     }
   }
 
-  return NextResponse.json({
-    id: event.id,
-    summary: event.summary,
-    start: { dateTime: event.start_time },
-    end: { dateTime: event.end_time },
-    _local: true,
-    _synced: !!event.google_calendar_event_id,
-  });
+  if (event.all_day) {
+    const endDate = new Date(event.end_time).toISOString().slice(0, 10);
+    return NextResponse.json({ id: event.id, summary: event.summary, start: { date: event.date }, end: { date: endDate }, _local: true, _type: "personal", _synced: !!event.google_calendar_event_id });
+  }
+  return NextResponse.json({ id: event.id, summary: event.summary, start: { dateTime: event.start_time }, end: { dateTime: event.end_time }, _local: true, _type: "personal", _synced: !!event.google_calendar_event_id });
 }
 
 // DELETE — delete a local event

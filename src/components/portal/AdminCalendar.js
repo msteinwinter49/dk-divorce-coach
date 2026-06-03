@@ -94,6 +94,8 @@ export default function AdminCalendar({ setPage }) {
   // Event form state
   const [eventTitle, setEventTitle] = useState("");
   const [eventEndTime, setEventEndTime] = useState("");
+  const [eventAllDay, setEventAllDay] = useState(false);
+  const [eventAllDayDays, setEventAllDayDays] = useState(1);
 
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState(null);
@@ -193,11 +195,22 @@ export default function AdminCalendar({ setPage }) {
 
   const openEditEventModal = (event) => {
     setEventTitle(event.summary || "");
-    setBookDate(event.start?.dateTime ? dateStr(new Date(event.start.dateTime)) : "");
-    const startD = event.start?.dateTime ? new Date(event.start.dateTime) : null;
-    const endD = event.end?.dateTime ? new Date(event.end.dateTime) : null;
-    setBookTime(startD ? `${String(startD.getHours()).padStart(2,"0")}:${String(startD.getMinutes()).padStart(2,"0")}` : "");
-    setEventEndTime(endD ? `${String(endD.getHours()).padStart(2,"0")}:${String(endD.getMinutes()).padStart(2,"0")}` : "");
+    const isAllDay = !!event.start?.date;
+    setEventAllDay(isAllDay);
+    if (isAllDay) {
+      setBookDate(event.start.date);
+      const startMs = new Date(`${event.start.date}T00:00:00Z`).getTime();
+      const endMs = event.end?.date ? new Date(`${event.end.date}T00:00:00Z`).getTime() : startMs + 86400000;
+      setEventAllDayDays(Math.max(1, Math.round((endMs - startMs) / 86400000)));
+      setBookTime("");
+      setEventEndTime("");
+    } else {
+      setBookDate(event.start?.dateTime ? dateStr(new Date(event.start.dateTime)) : "");
+      const startD = event.start?.dateTime ? new Date(event.start.dateTime) : null;
+      const endD = event.end?.dateTime ? new Date(event.end.dateTime) : null;
+      setBookTime(startD ? `${String(startD.getHours()).padStart(2,"0")}:${String(startD.getMinutes()).padStart(2,"0")}` : "");
+      setEventEndTime(endD ? `${String(endD.getHours()).padStart(2,"0")}:${String(endD.getMinutes()).padStart(2,"0")}` : "");
+    }
     setModalError(null);
     setModal({ mode: "editEvent", event });
   };
@@ -219,6 +232,8 @@ export default function AdminCalendar({ setPage }) {
     setModal(null);
     setModalError(null);
     setModalSaving(false);
+    setEventAllDay(false);
+    setEventAllDayDays(1);
   };
 
   const handleAcceptDecline = async (action) => {
@@ -293,7 +308,7 @@ export default function AdminCalendar({ setPage }) {
   };
 
   const handleCreateEvent = async () => {
-    if (!eventTitle.trim() || !bookDate || !bookTime || !eventEndTime) {
+    if (!eventTitle.trim() || !bookDate || (!eventAllDay && (!bookTime || !eventEndTime))) {
       setModalError("All fields are required.");
       return;
     }
@@ -302,13 +317,10 @@ export default function AdminCalendar({ setPage }) {
     const res = await fetch("/api/calendar/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        summary: eventTitle.trim(),
-        date: bookDate,
-        start_time: bookTime,
-        end_time: eventEndTime,
-        tz_offset: new Date().getTimezoneOffset(),
-      }),
+      body: JSON.stringify(eventAllDay
+        ? { summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
+        : { summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
+      ),
     });
     setModalSaving(false);
     if (res.ok) {
@@ -321,7 +333,7 @@ export default function AdminCalendar({ setPage }) {
   };
 
   const handleUpdateEvent = async () => {
-    if (!modal?.event || !eventTitle.trim() || !bookDate || !bookTime || !eventEndTime) {
+    if (!modal?.event || !eventTitle.trim() || !bookDate || (!eventAllDay && (!bookTime || !eventEndTime))) {
       setModalError("All fields are required.");
       return;
     }
@@ -330,14 +342,10 @@ export default function AdminCalendar({ setPage }) {
     const res = await fetch("/api/calendar/events", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: modal.event.id,
-        summary: eventTitle.trim(),
-        date: bookDate,
-        start_time: bookTime,
-        end_time: eventEndTime,
-        tz_offset: new Date().getTimezoneOffset(),
-      }),
+      body: JSON.stringify(eventAllDay
+        ? { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
+        : { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
+      ),
     });
     setModalSaving(false);
     if (res.ok) { closeModal(); loadData(); }
@@ -567,6 +575,40 @@ export default function AdminCalendar({ setPage }) {
   const getEventsForDate = (date) =>
     googleEvents.filter(e => (e.start?.dateTime || e.start?.date || "").split("T")[0] === date);
 
+  const getAllDayEventsForDate = (date) =>
+    googleEvents.filter(e => {
+      if (!e.start?.date) return false;
+      const start = e.start.date;
+      const end = e.end?.date;
+      if (!end || end <= start) return start === date;
+      return start <= date && date < end;
+    });
+
+  const renderAllDayBannerPill = (ev, compact = false) => {
+    const src = classifyEvent(ev);
+    const color = SRC[src];
+    const bg = SRC[src + "Bg"];
+    const isLocal = !!ev._local;
+    return (
+      <div
+        key={ev.id || ev.summary}
+        onClick={isLocal ? (e) => { e.stopPropagation(); setHover(null); openEditEventModal(ev); } : undefined}
+        onMouseEnter={(e) => setHover({ type: "event", data: ev, x: e.clientX, y: e.clientY })}
+        onMouseMove={(e) => setHover(h => h?.type === "event" && h.data.id === ev.id ? { ...h, x: e.clientX, y: e.clientY } : h)}
+        onMouseLeave={() => setHover(null)}
+        style={{
+          background: bg, border: `1px solid ${color}`, borderRadius: 4,
+          padding: compact ? "1px 4px" : "2px 6px",
+          fontSize: compact ? 11 : 12, color, fontWeight: 500,
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          cursor: isLocal ? "pointer" : "default", marginBottom: 2,
+        }}
+      >
+        {ev.summary || "All-day event"}
+      </div>
+    );
+  };
+
   const isHourOccupied = (date, hour) => {
     const hourStart = hour * 60;
     const hourEnd = hourStart + 60;
@@ -748,6 +790,16 @@ export default function AdminCalendar({ setPage }) {
     const overlayItems = getItemsForDate(date, DAY_ROW_H);
     return (
       <div style={{ border: `0.5px solid ${C.gridLine}`, borderRadius: 8, userSelect: "none" }}>
+        {(() => {
+          const allDayEvs = getAllDayEventsForDate(date);
+          if (!allDayEvs.length) return null;
+          return (
+            <div style={{ display: "flex", borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa" }}>
+              <div style={{ width: 70, flexShrink: 0, fontSize: 11, color: C.hint, borderRight: `0.5px solid ${C.gridLine}`, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 0" }}>all-day</div>
+              <div style={{ flex: 1, padding: "4px 8px" }}>{allDayEvs.map(ev => renderAllDayBannerPill(ev))}</div>
+            </div>
+          );
+        })()}
         <div style={{ display: "flex" }}>
           {/* Time labels */}
           <div style={{ width: 70, flexShrink: 0 }}>
@@ -804,8 +856,20 @@ export default function AdminCalendar({ setPage }) {
     const weekStart = startOfWeek(currentDate);
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
     const totalH = HOURS.length * WEEK_ROW_H;
+    const allDaysByDate = days.map(d => ({ date: dateStr(d), evs: getAllDayEventsForDate(dateStr(d)) }));
+    const hasAnyAllDay = allDaysByDate.some(a => a.evs.length > 0);
     return (
       <div style={{ overflowX: "auto", userSelect: "none" }}>
+        {hasAnyAllDay && (
+          <div style={{ display: "flex", minWidth: isMobile ? 770 : "auto", borderBottom: `0.5px solid ${C.gridLine}`, background: "#fafafa" }}>
+            <div style={{ width: 70, flexShrink: 0, fontSize: 11, color: C.hint, borderRight: `0.5px solid ${C.gridLine}`, display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 0" }}>all-day</div>
+            {allDaysByDate.map(({ date, evs }, i) => (
+              <div key={i} style={{ flex: 1, minWidth: 0, borderRight: i < 6 ? `0.5px solid ${C.gridLine}` : "none", padding: "2px 4px" }}>
+                {evs.map(ev => renderAllDayBannerPill(ev, true))}
+              </div>
+            ))}
+          </div>
+        )}
         <div style={{ display: "flex", minWidth: isMobile ? 770 : "auto" }}>
           {/* Time labels column */}
           <div style={{ width: 70, flexShrink: 0 }}>
@@ -902,7 +966,8 @@ export default function AdminCalendar({ setPage }) {
               const date = dateStr(day);
               const isCurrentMonth = day.getMonth() === m;
               const dayBookings = getBookingsForDate(date);
-              const dayEvents = getEventsForDate(date);
+              const dayAllDay = getAllDayEventsForDate(date);
+              const dayTimedEvents = getEventsForDate(date).filter(e => !!e.start?.dateTime);
               const daySlots = (availability[date] || []).length;
 
               return (
@@ -921,15 +986,16 @@ export default function AdminCalendar({ setPage }) {
                   <div style={{ fontSize: 13, fontWeight: sameDay(day, new Date()) ? 600 : 400, color: C.text, marginBottom: 4 }}>
                     {day.getDate()}
                   </div>
-                  {(daySlots > 0 || dayBookings.length > 0 || dayEvents.length > 0) && (
+                  {(daySlots > 0 || dayBookings.length > 0 || dayTimedEvents.length > 0) && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                       {daySlots > 0 && <div style={{ height: 4, borderRadius: 2, background: SRC.available }} />}
-                      {dayEvents.filter(e => classifyEvent(e) === "sp").length > 0 && <div style={{ height: 4, borderRadius: 2, background: SRC.sp }} />}
+                      {dayTimedEvents.filter(e => classifyEvent(e) === "sp").length > 0 && <div style={{ height: 4, borderRadius: 2, background: SRC.sp }} />}
                       {dayBookings.map(b => (
                         <div key={b.id} style={{ height: 4, borderRadius: 2, background: b.status === "requested" ? SRC.requested : SRC.coaching }} />
                       ))}
                     </div>
                   )}
+                  {dayAllDay.map(ev => renderAllDayBannerPill(ev, true))}
                   {dayBookings.slice(0, 2).map(b => (
                     <div key={b.id} style={{
                       fontSize: 10, color: b.status === "requested" ? SRC.requested : SRC.coaching,
@@ -1134,14 +1200,24 @@ export default function AdminCalendar({ setPage }) {
             <label style={S.label}>Date</label>
             <input style={S.input} type="date" value={bookDate} onChange={e => setBookDate(e.target.value)} />
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Start</label>
-            <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>End</label>
-            <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
-          </div>
+          {!eventAllDay && (
+            <>
+              <div style={{ flex: 1 }}>
+                <label style={S.label}>Start</label>
+                <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={S.label}>End</label>
+                <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
+              </div>
+            </>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+          <input type="checkbox" id="calEvtAllDay" checked={eventAllDay} onChange={e => setEventAllDay(e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.teal }} />
+          <label htmlFor="calEvtAllDay" style={{ fontSize: 14, color: C.text, cursor: "pointer" }}>All day for</label>
+          <input style={{ ...S.input, width: 64, margin: 0 }} type="number" min={1} value={eventAllDayDays} onChange={e => setEventAllDayDays(Math.max(1, parseInt(e.target.value) || 1))} disabled={!eventAllDay} />
+          <span style={{ fontSize: 14, color: C.text }}>days</span>
         </div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -1286,14 +1362,24 @@ export default function AdminCalendar({ setPage }) {
             <label style={S.label}>Date</label>
             <input style={S.input} type="date" value={bookDate} onChange={e => setBookDate(e.target.value)} />
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Start</label>
-            <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>End</label>
-            <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
-          </div>
+          {!eventAllDay && (
+            <>
+              <div style={{ flex: 1 }}>
+                <label style={S.label}>Start</label>
+                <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={S.label}>End</label>
+                <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
+              </div>
+            </>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+          <input type="checkbox" id="calEvtAllDayEdit" checked={eventAllDay} onChange={e => setEventAllDay(e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.teal }} />
+          <label htmlFor="calEvtAllDayEdit" style={{ fontSize: 14, color: C.text, cursor: "pointer" }}>All day for</label>
+          <input style={{ ...S.input, width: 64, margin: 0 }} type="number" min={1} value={eventAllDayDays} onChange={e => setEventAllDayDays(Math.max(1, parseInt(e.target.value) || 1))} disabled={!eventAllDay} />
+          <span style={{ fontSize: 14, color: C.text }}>days</span>
         </div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
