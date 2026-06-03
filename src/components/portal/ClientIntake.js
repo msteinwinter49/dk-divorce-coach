@@ -4,6 +4,7 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile, useSmsEnabled } from "@/lib/hooks";
+import { PaymentMethodSection } from "@/components/portal/PaymentMethodSection";
 
 const TIMEZONES = [
   { value: "America/New_York", label: "Eastern Time (New York)" },
@@ -458,6 +459,13 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
           {!TIMEZONES.find(t => t.value === timezone) && <option value={timezone}>{timezone}</option>}
           {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
         </select>
+      </div>
+
+      {/* Payment method */}
+      <div style={S.card}>
+        <h3 style={S.h3}>Payment Method</h3>
+        <p style={{ ...S.p, fontSize: 13, marginBottom: 16 }}>This is optional now but must be done before you can request a session. Your card will be saved at a secure 3rd party processor.</p>
+        <PaymentMethodSection hasCard={false} />
       </div>
 
       {/* Background */}
