@@ -21,7 +21,6 @@ const plainNumberInput = {
 
 export default function AdminSettings({ setPage }) {
   const mobile = useIsMobile();
-  const [contactEmail, setContactEmail] = useState("");
   const [techSupportEmail, setTechSupportEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -51,10 +50,6 @@ export default function AdminSettings({ setPage }) {
   const [rules, setRules] = useState([]);
   const [newRule, setNewRule] = useState({ day_of_week: "1", start_time: "09:00", end_time: "17:00", is_blocked: false });
 
-  // Admin reminders
-  const [reminderChannel, setReminderChannel] = useState("both");
-  const [reminderMinutes, setReminderMinutes] = useState("30");
-
   // Client change notice
   const [minNoticeHours, setMinNoticeHours] = useState("24");
 
@@ -79,8 +74,8 @@ export default function AdminSettings({ setPage }) {
 
     const [settingsRes, typesRes, rulesRes, pricingRes] = await Promise.all([
       supabase.from("settings").select("key, value").in("key", [
-        "contact_email", "tech_support_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token",
-        "admin_reminder_channel", "admin_reminder_minutes", "package_sizes", "default_expires_months",
+        "tech_support_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token",
+        "package_sizes", "default_expires_months",
         "sms_enabled", "min_client_change_notice_hours"
       ]),
       fetch("/api/session-types").then(r => r.json()),
@@ -91,12 +86,9 @@ export default function AdminSettings({ setPage }) {
     const settings = {};
     (settingsRes.data || []).forEach(s => { settings[s.key] = s.value; });
 
-    setContactEmail(settings.contact_email || "");
     setTechSupportEmail(settings.tech_support_email || "");
     setIncrement(settings.scheduling_increment || "30");
     setHorizon(settings.booking_horizon_days || "30");
-    setReminderChannel(settings.admin_reminder_channel || "both");
-    setReminderMinutes(settings.admin_reminder_minutes || "30");
     setGoogleConnected(!!settings.google_refresh_token);
     setSmsEnabled(settings.sms_enabled === "true");
     setMinNoticeHours(settings.min_client_change_notice_hours || "24");
@@ -131,12 +123,9 @@ export default function AdminSettings({ setPage }) {
   };
 
   const handleSaveGeneral = async () => {
-    await saveSetting("contact_email", contactEmail.trim());
     await saveSetting("tech_support_email", techSupportEmail.trim());
     await saveSetting("scheduling_increment", increment);
     await saveSetting("booking_horizon_days", horizon);
-    await saveSetting("admin_reminder_channel", reminderChannel);
-    await saveSetting("admin_reminder_minutes", reminderMinutes);
     await saveSetting("sms_enabled", smsEnabled ? "true" : "false");
     await saveSetting("min_client_change_notice_hours", minNoticeHours);
   };
@@ -335,8 +324,6 @@ export default function AdminSettings({ setPage }) {
       {/* General settings */}
       <div style={S.card}>
         <h3 style={S.h3}>General</h3>
-        <label style={S.label}>Contact form notification email</label>
-        <input style={S.input} type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="diana@dkdivorcecoach.com" />
         <label style={S.label}>Tech support email</label>
         <p style={{ ...S.p, fontSize: 12, color: C.hint, marginBottom: 6, marginTop: -6 }}>Receives an alert if a Google Calendar sync fails after 3 attempts.</p>
         <input style={S.input} type="email" value={techSupportEmail} onChange={e => setTechSupportEmail(e.target.value)} placeholder="you@example.com" />
@@ -353,27 +340,6 @@ export default function AdminSettings({ setPage }) {
           <div style={{ flex: 1 }}>
             <label style={S.label}>Booking horizon (days)</label>
             <input style={S.input} type="number" min="1" max="365" value={horizon} onChange={e => setHorizon(e.target.value)} />
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Session reminder method</label>
-            <select style={{ ...S.input, cursor: "pointer" }} value={reminderChannel} onChange={e => setReminderChannel(e.target.value)}>
-              <option value="none">None</option>
-              <option value="email">Email only</option>
-              <option value="text">Text only</option>
-              <option value="both">Email and text</option>
-            </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={S.label}>Remind me before session</label>
-            <select style={{ ...S.input, cursor: "pointer" }} value={reminderMinutes} onChange={e => setReminderMinutes(e.target.value)}>
-              <option value="15">15 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="45">45 minutes</option>
-              <option value="60">60 minutes</option>
-            </select>
           </div>
         </div>
 

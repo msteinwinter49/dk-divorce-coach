@@ -29,6 +29,9 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   const [preferredEmail, setPreferredEmail] = useState("");
   const [notificationPref, setNotificationPref] = useState("email");
   const [reminderPref, setReminderPref] = useState("both");
+  const [isCoach, setIsCoach] = useState(false);
+  const [adminReminderChannel, setAdminReminderChannel] = useState("both");
+  const [adminReminderMinutes, setAdminReminderMinutes] = useState("30");
   const [timezone, setTimezone] = useState("America/New_York");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -113,6 +116,9 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
     setPreferredEmail(src.preferred_email || emailFallback || "");
     setNotificationPref(src.notification_preference || "email");
     setReminderPref(src.reminder_preference || "both");
+    setIsCoach(src.is_coach || false);
+    setAdminReminderChannel(src.admin_reminder_channel || "both");
+    setAdminReminderMinutes(src.admin_reminder_minutes ? String(src.admin_reminder_minutes) : "30");
     setTimezone(src.timezone || detectTz());
     setBgOccupation(src.bg_occupation || "");
     setBgEducation(src.bg_education || "");
@@ -203,12 +209,18 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       }
     } else {
       const supabase = createClient();
+      const adminFields = isAdminSelf ? {
+        is_coach: isCoach,
+        admin_reminder_channel: isCoach ? adminReminderChannel : null,
+        admin_reminder_minutes: isCoach ? parseInt(adminReminderMinutes) : null,
+      } : {};
       const { error: updateError } = await supabase
         .from("profiles")
         .update({
           full_name: `${firstName.trim()} ${lastName.trim()}`,
           preferred_email: preferredEmail.trim() || user.email,
           ...profilePayload(),
+          ...adminFields,
         })
         .eq("id", user.id);
 
@@ -248,6 +260,28 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       setBgSuccess(true);
       Object.assign(viewAsClient, bgPayload);
     }
+  };
+
+  const isAdminSelf = profile?.role === "admin" && !viewAsClient;
+
+  const handleIsCoachChange = async (checked) => {
+    if (!checked) {
+      if (!window.confirm("Unchecking this will disable session reminders for your profile. Continue?")) return;
+      setIsCoach(false);
+      return;
+    }
+    const supabase = createClient();
+    const { data: existing } = await supabase
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("is_coach", true)
+      .neq("id", user.id)
+      .maybeSingle();
+    if (existing) {
+      setError(`${existing.first_name} ${existing.last_name} is currently the coach. Remove that designation from their profile first.`);
+      return;
+    }
+    setIsCoach(true);
   };
 
   return (
@@ -297,20 +331,62 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
         <input style={S.input} placeholder="jane@example.com" type="email" value={preferredEmail} onChange={e => setPreferredEmail(e.target.value)} />
 
         <label style={S.label}>Notification preference</label>
-        {smsEnabled && <p style={{ fontSize: 12, color: C.muted, marginBottom: "0.5rem", marginTop: "-0.25rem", lineHeight: 1.5 }}>If you opt-in to receive notifications regarding your schedule by text (SMS), msg and data rates may apply. Msg frequency depends on your use of the website. You can opt-out any time by returning and selecting &ldquo;Email only&rdquo;.</p>}
+        {smsEnabled && !isAdminSelf && <p style={{ fontSize: 12, color: C.muted, marginBottom: "0.5rem", marginTop: "-0.25rem", lineHeight: 1.5 }}>If you opt-in to receive notifications regarding your schedule by text (SMS), msg and data rates may apply. Msg frequency depends on your use of the website. You can opt-out any time by returning and selecting &ldquo;Email only&rdquo;.</p>}
         <select style={{ ...S.input, cursor: "pointer" }} value={notificationPref} onChange={e => setNotificationPref(e.target.value)}>
           <option value="email">Email only</option>
           {smsEnabled && <option value="text">Text only</option>}
           {smsEnabled && <option value="both">Email and text</option>}
+          {isAdminSelf && <option value="none">None</option>}
         </select>
 
-        <label style={S.label}>Session reminders</label>
-        <select style={{ ...S.input, cursor: "pointer" }} value={reminderPref} onChange={e => setReminderPref(e.target.value)}>
-          <option value="both">24 hours and 1 hour before</option>
-          <option value="24h">24 hours before</option>
-          <option value="1h">1 hour before</option>
-          <option value="none">No reminders</option>
-        </select>
+        {isAdminSelf ? (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "0.75rem" }}>
+              <input
+                id="is-coach"
+                type="checkbox"
+                checked={isCoach}
+                onChange={e => handleIsCoachChange(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: "pointer" }}
+              />
+              <label htmlFor="is-coach" style={{ ...S.label, marginBottom: 0, cursor: "pointer" }}>
+                I am the coach
+              </label>
+            </div>
+            {isCoach && (
+              <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Session reminder method</label>
+                  <select style={{ ...S.input, cursor: "pointer" }} value={adminReminderChannel} onChange={e => setAdminReminderChannel(e.target.value)}>
+                    <option value="none">None</option>
+                    <option value="email">Email only</option>
+                    <option value="text">Text only</option>
+                    <option value="both">Email and text</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={S.label}>Remind me before session</label>
+                  <select style={{ ...S.input, cursor: "pointer" }} value={adminReminderMinutes} onChange={e => setAdminReminderMinutes(e.target.value)}>
+                    <option value="15">15 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="45">45 minutes</option>
+                    <option value="60">60 minutes</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <label style={S.label}>Session reminders</label>
+            <select style={{ ...S.input, cursor: "pointer" }} value={reminderPref} onChange={e => setReminderPref(e.target.value)}>
+              <option value="both">24 hours and 1 hour before</option>
+              <option value="24h">24 hours before</option>
+              <option value="1h">1 hour before</option>
+              <option value="none">No reminders</option>
+            </select>
+          </>
+        )}
 
         <label style={S.label}>Timezone</label>
         <select style={{ ...S.input, cursor: "pointer" }} value={timezone} onChange={e => setTimezone(e.target.value)}>

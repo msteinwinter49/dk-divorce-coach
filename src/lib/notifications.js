@@ -74,33 +74,48 @@ export async function notifyClient(profile, subject, html, smsBody) {
   return results;
 }
 
-// Notify Diana (admin) — always email + text
+// Notify all admins based on each admin's notification_preference + preferred_email/phone.
 export async function notifyAdmin(subject, html, smsBody) {
   const supabase = getSupabase();
-  const results = { email: null, sms: null };
 
-  // Get admin notification email from settings
-  const { data: setting } = await supabase
-    .from("settings")
-    .select("value")
-    .eq("key", "contact_email")
-    .single();
-
-  if (setting?.value) {
-    results.email = await sendEmail(setting.value, subject, html);
-  }
-
-  // Get admin profile for phone number
-  const { data: admin } = await supabase
+  const { data: admins } = await supabase
     .from("profiles")
-    .select("phone")
-    .eq("role", "admin")
-    .limit(1)
-    .single();
+    .select("preferred_email, phone, notification_preference")
+    .eq("role", "admin");
 
-  if (admin?.phone && smsBody && await isSmsEnabled(supabase)) {
-    results.sms = await sendSMS(admin.phone, smsBody);
+  if (!admins?.length) return;
+
+  const smsOk = smsBody ? await isSmsEnabled(supabase) : false;
+  const sends = [];
+
+  for (const admin of admins) {
+    const pref = admin.notification_preference || "email";
+    if (pref === "none") continue;
+    if ((pref === "email" || pref === "both") && admin.preferred_email) {
+      sends.push(sendEmail(admin.preferred_email, subject, html));
+    }
+    if ((pref === "text" || pref === "both") && admin.phone && smsOk) {
+      sends.push(sendSMS(admin.phone, smsBody));
+    }
   }
 
-  return results;
+  return Promise.all(sends);
+}
+
+// Notify the coach profile for session reminders, respecting their
+// admin_reminder_channel (email/text/both/none).
+export async function notifyCoach(coachProfile, subject, html, smsBody) {
+  const channel = coachProfile?.admin_reminder_channel || "none";
+  if (channel === "none") return;
+
+  const sends = [];
+  if ((channel === "email" || channel === "both") && coachProfile.preferred_email) {
+    sends.push(sendEmail(coachProfile.preferred_email, subject, html));
+  }
+  if ((channel === "text" || channel === "both") && coachProfile.phone && smsBody) {
+    if (await isSmsEnabled()) {
+      sends.push(sendSMS(coachProfile.phone, smsBody));
+    }
+  }
+  return Promise.all(sends);
 }

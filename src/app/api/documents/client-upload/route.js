@@ -1,8 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { notifyAdmin } from "@/lib/notifications";
 
 export async function POST(request) {
   const cookieStore = await cookies();
@@ -62,28 +62,17 @@ export async function POST(request) {
   ]);
 
   try {
-    const [{ data: setting }, { data: profile }] = await Promise.all([
-      adminClient.from("settings").select("value").eq("key", "contact_email").single(),
+    const [{ data: profile }, { data: share }] = await Promise.all([
       adminClient.from("profiles").select("first_name, last_name").eq("id", user.id).single(),
+      adminClient.from("document_shares").select("id").eq("document_id", doc.id).eq("client_id", user.id).single(),
     ]);
-    const contactEmail = setting?.value;
-    if (contactEmail) {
-      const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
-      const clientName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() || "A client";
-      const { data: share } = await adminClient
-        .from("document_shares")
-        .select("id")
-        .eq("document_id", doc.id)
-        .eq("client_id", user.id)
-        .single();
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      await resend.emails.send({
-        from: "DK Divorce Coach <diana@dkdivorcecoach.com>",
-        to: contactEmail,
-        subject: `${clientName} uploaded "${file.name}"`,
-        html: `<p>${clientName} uploaded a file: <strong>${file.name}</strong>.</p><p><a href="${origin}/?admin_doc=${share?.id}">View in portal</a></p>`,
-      });
-    }
+    const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
+    const clientName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() || "A client";
+    await notifyAdmin(
+      `${clientName} uploaded "${file.name}"`,
+      `<p>${clientName} uploaded a file: <strong>${file.name}</strong>.</p><p><a href="${origin}/?admin_doc=${share?.id}">View in portal</a></p>`,
+      null
+    );
   } catch (err) {
     console.error("client-upload email error:", err);
   }

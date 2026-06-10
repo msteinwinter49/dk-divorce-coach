@@ -1,8 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { notifyAdmin } from "@/lib/notifications";
 
 export async function POST(request, { params }) {
   const { shareId } = await params;
@@ -40,23 +40,19 @@ export async function POST(request, { params }) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   try {
-    const [{ data: setting }, { data: profile }] = await Promise.all([
-      adminClient.from("settings").select("value").eq("key", "contact_email").single(),
-      adminClient.from("profiles").select("first_name, last_name").eq("id", user.id).single(),
-    ]);
-    const contactEmail = setting?.value;
-    if (contactEmail) {
-      const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
-      const clientName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() || "A client";
-      const docName = share.documents?.name || "a document";
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      await resend.emails.send({
-        from: "DK Divorce Coach <diana@dkdivorcecoach.com>",
-        to: contactEmail,
-        subject: `${clientName} acknowledged "${docName}"`,
-        html: `<p>${clientName} has acknowledged the document <strong>${docName}</strong>.</p><p><a href="${origin}/?admin_doc=${shareId}">View in portal</a></p>`,
-      });
-    }
+    const { data: profile } = await adminClient
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("id", user.id)
+      .single();
+    const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
+    const clientName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim() || "A client";
+    const docName = share.documents?.name || "a document";
+    await notifyAdmin(
+      `${clientName} acknowledged "${docName}"`,
+      `<p>${clientName} has acknowledged the document <strong>${docName}</strong>.</p><p><a href="${origin}/?admin_doc=${shareId}">View in portal</a></p>`,
+      null
+    );
   } catch (err) {
     console.error("acknowledge email error:", err);
   }

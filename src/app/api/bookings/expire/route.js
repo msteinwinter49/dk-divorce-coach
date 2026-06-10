@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
+import { notifyAdmin, notifyCoach, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { expireStaleRequests } from "@/lib/bookings-sweep";
 
 // Cron job: expire unactioned requests, send admin reminders for pending,
@@ -80,16 +80,15 @@ export async function GET(request) {
   // 3. Confirmed session reminders
   // ============================================
 
-  // Load admin reminder settings
-  const { data: adminSettings } = await supabase
-    .from("settings")
-    .select("key, value")
-    .in("key", ["admin_reminder_channel", "admin_reminder_minutes"]);
+  // Load the coach profile for session reminder settings
+  const { data: coach } = await supabase
+    .from("profiles")
+    .select("preferred_email, phone, admin_reminder_channel, admin_reminder_minutes")
+    .eq("is_coach", true)
+    .maybeSingle();
 
-  const settingsMap = {};
-  (adminSettings || []).forEach(s => { settingsMap[s.key] = s.value; });
-  const adminReminderChannel = settingsMap.admin_reminder_channel || "both";
-  const adminReminderMinutes = parseInt(settingsMap.admin_reminder_minutes || "30");
+  const coachChannel = coach?.admin_reminder_channel || "none";
+  const coachMinutes = parseInt(coach?.admin_reminder_minutes || "0");
 
   // Buffer to compensate for cron interval — reminders may arrive early by
   // up to this amount, but never late. Matches the longest cron gap (daily = 1440).
@@ -157,12 +156,11 @@ export async function GET(request) {
         }
       }
 
-      // --- Admin reminder ---
-      if (adminReminderChannel !== "none" && !booking.admin_reminder_sent_at && minutesUntil <= adminReminderMinutes + CRON_BUFFER_MIN) {
+      // --- Admin (coach) reminder ---
+      if (coachChannel !== "none" && coach && !booking.admin_reminder_sent_at && minutesUntil <= coachMinutes + CRON_BUFFER_MIN) {
         try {
-          await notifyAdminWithChannel(
-            supabase,
-            adminReminderChannel,
+          await notifyCoach(
+            coach,
             `Upcoming session with ${clientName}`,
             `<h2>Session Reminder</h2>
              <p>You have a coaching session coming up:</p>
@@ -238,48 +236,3 @@ export async function GET(request) {
   return NextResponse.json(results);
 }
 
-// Admin reminder with configurable channel (email/text/both)
-// Unlike notifyAdmin which always does both, this respects the setting.
-async function notifyAdminWithChannel(supabase, channel, subject, html, smsBody) {
-  const { Resend } = await import("resend");
-  const { sendSMS } = await import("@/lib/twilio");
-  const resend = new Resend(process.env.RESEND_API_KEY);
-
-  const results = { email: null, sms: null };
-
-  if (channel === "email" || channel === "both") {
-    const { data: setting } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "contact_email")
-      .single();
-
-    if (setting?.value) {
-      results.email = await resend.emails.send({
-        from: "DK Divorce Coach <diana@dkdivorcecoach.com>",
-        replyTo: "dkdivorcecoach@gmail.com",
-        to: setting.value,
-        subject,
-        html,
-      });
-    }
-  }
-
-  if (channel === "text" || channel === "both") {
-    const { data: smsSetting } = await supabase.from("settings").select("value").eq("key", "sms_enabled").single();
-    if (smsSetting?.value === "true") {
-      const { data: admin } = await supabase
-        .from("profiles")
-        .select("phone")
-        .eq("role", "admin")
-        .limit(1)
-        .single();
-
-      if (admin?.phone && smsBody) {
-        results.sms = await sendSMS(admin.phone, smsBody);
-      }
-    }
-  }
-
-  return results;
-}

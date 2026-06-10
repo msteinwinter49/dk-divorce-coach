@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
+import { notifyAdmin } from "@/lib/notifications";
 
 export async function POST(request) {
   const { first_name, last_name, email, phone, process_stage, message, send_copy, _hp } = await request.json();
@@ -39,59 +40,44 @@ export async function POST(request) {
     return NextResponse.json({ error: "Could not save submission" }, { status: 500 });
   }
 
-  // Get the notification email from settings
-  const { data: setting } = await supabase
-    .from("settings")
-    .select("value")
-    .eq("key", "contact_email")
-    .single();
+  const adminHtml = `
+    <h2>New Contact Form Submission</h2>
+    <p><strong>Name:</strong> ${first_name} ${last_name}</p>
+    <p><strong>Email:</strong> ${email}</p>
+    <p><strong>Phone:</strong> ${formatPhone(phone)}</p>
+    <p><strong>Stage:</strong> ${process_stage || "Not specified"}</p>
+    <p><strong>Message:</strong></p>
+    <p>${message ? message.replace(/\n/g, "<br>") : "No message"}</p>
+  `;
 
-  const contactEmail = setting?.value;
-
-  if (contactEmail) {
-    try {
+  try {
+    await notifyAdmin(`New contact form: ${first_name} ${last_name}`, adminHtml, null);
+    // Send copy to the submitter if requested
+    if (send_copy && email) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       await resend.emails.send({
         from: "DK Divorce Coach <diana@dkdivorcecoach.com>",
         replyTo: "dkdivorcecoach@gmail.com",
-        to: contactEmail,
-        subject: `New contact form: ${first_name} ${last_name}`,
+        to: email,
+        subject: "Copy of your message to DK Divorce Coach",
         html: `
-          <h2>New Contact Form Submission</h2>
+          <h2>Your Message to DK Divorce Coach</h2>
+          <p>Thank you for reaching out. Here is a copy of your submission:</p>
+          <hr>
           <p><strong>Name:</strong> ${first_name} ${last_name}</p>
           <p><strong>Email:</strong> ${email}</p>
           <p><strong>Phone:</strong> ${formatPhone(phone)}</p>
           <p><strong>Stage:</strong> ${process_stage || "Not specified"}</p>
           <p><strong>Message:</strong></p>
           <p>${message ? message.replace(/\n/g, "<br>") : "No message"}</p>
+          <hr>
+          <p>Diana will be in touch within one business day.</p>
         `,
       });
-      // Send copy to the submitter if requested
-      if (send_copy && email) {
-        await resend.emails.send({
-          from: "DK Divorce Coach <diana@dkdivorcecoach.com>",
-          replyTo: "dkdivorcecoach@gmail.com",
-          to: email,
-          subject: "Copy of your message to DK Divorce Coach",
-          html: `
-            <h2>Your Message to DK Divorce Coach</h2>
-            <p>Thank you for reaching out. Here is a copy of your submission:</p>
-            <hr>
-            <p><strong>Name:</strong> ${first_name} ${last_name}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Phone:</strong> ${formatPhone(phone)}</p>
-            <p><strong>Stage:</strong> ${process_stage || "Not specified"}</p>
-            <p><strong>Message:</strong></p>
-            <p>${message ? message.replace(/\n/g, "<br>") : "No message"}</p>
-            <hr>
-            <p>Diana will be in touch within one business day.</p>
-          `,
-        });
-      }
-    } catch (emailError) {
-      // Log but don't fail — the submission is already saved
-      console.error("Email send error:", emailError);
     }
+  } catch (emailError) {
+    // Log but don't fail — the submission is already saved
+    console.error("Email send error:", emailError);
   }
 
   return NextResponse.json({ success: true });
