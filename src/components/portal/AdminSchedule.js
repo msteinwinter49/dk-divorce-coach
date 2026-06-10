@@ -295,6 +295,7 @@ export default function AdminSchedule({ setPage }) {
   const [modalSaving, setModalSaving] = useState(false);
   const [modalError, setModalError] = useState(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [declineMessage, setDeclineMessage] = useState("");
   const [showAdminCloseWarning, setShowAdminCloseWarning] = useState(false);
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
   const [modalDragState, setModalDragState] = useState(null);
@@ -755,6 +756,7 @@ export default function AdminSchedule({ setPage }) {
     setModalError(null);
     setModalSaving(false);
     setConfirmCancel(false);
+    setDeclineMessage("");
     setShowAdminCloseWarning(false);
     setModalPos({ x: 0, y: 0 });
     setModalDragState(null);
@@ -768,10 +770,12 @@ export default function AdminSchedule({ setPage }) {
     if (!modal?.booking) return;
     setModalSaving(true);
     setModalError(null);
+    const body = { id: modal.booking.id, action };
+    if (action === "decline" && declineMessage.trim()) body.message = declineMessage.trim();
     const res = await fetch("/api/bookings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: modal.booking.id, action }),
+      body: JSON.stringify(body),
     });
     if (res.ok) {
       await loadData();
@@ -2354,7 +2358,16 @@ export default function AdminSchedule({ setPage }) {
             <p><strong>Attendees:</strong> {b.participant_profiles.map(p => `${p.first_name || ""} ${p.last_name || ""}`.trim()).join(", ")}</p>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <div style={{ marginTop: 16 }}>
+          <label style={{ ...S.label, color: C.muted }}>Message to client if declining (optional)</label>
+          <textarea
+            style={{ width: "100%", padding: "8px 10px", fontSize: 13, border: `0.5px solid ${C.border}`, borderRadius: 6, outline: "none", resize: "vertical", minHeight: 64, fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box", marginBottom: "0.75rem" }}
+            placeholder="e.g. That time isn't available — please choose another slot."
+            value={declineMessage}
+            onChange={e => setDeclineMessage(e.target.value)}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
           <button style={S.btn} onClick={() => handleAcceptDecline("accept")} disabled={modalSaving}>
             {modalSaving ? (<><Spinner />Saving...</>) : "Accept"}
           </button>

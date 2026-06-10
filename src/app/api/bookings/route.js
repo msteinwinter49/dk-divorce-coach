@@ -368,7 +368,7 @@ export async function PATCH(request) {
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const body = await request.json();
-  const { id, action, tz_offset } = body;
+  const { id, action, tz_offset, message } = body;
   if (!id || !["accept", "decline", "update"].includes(action)) {
     return NextResponse.json({ error: "id and action (accept/decline/update) required" }, { status: 400 });
   }
@@ -480,8 +480,9 @@ export async function PATCH(request) {
         "Coaching session update",
         `<h2>Session Not Available</h2>
          <p>Unfortunately, the coaching session you requested on <strong>${whenStr}</strong> is not available.</p>
+         ${message ? `<p><strong>Note from your coach:</strong> ${message}</p>` : ""}
          <p>Please visit your calendar to request a different time.</p>`,
-        `Your session request for ${whenStr} was declined. Please request a different time.`
+        `Your session request for ${whenStr} was declined.${message ? ` Note: ${message}` : ""} Please request a different time.`
       );
     } catch (e) {
       console.error("Notification error:", e);
