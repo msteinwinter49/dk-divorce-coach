@@ -418,20 +418,22 @@ const handleClientDelete = async () => {
       setInviteError("Please enter an email address.");
       return;
     }
-    if (!inviteGroupId) {
-      setInviteError("Please select or create a group.");
-      return;
-    }
     const isNewGroup = inviteGroupId === "__new__";
-    if (isNewGroup) {
-      if (!inviteGroupName.trim()) {
-        setInviteError("Please enter a group name.");
+    if (!makeAdmin) {
+      if (!inviteGroupId) {
+        setInviteError("Please select or create a group.");
         return;
       }
-      const parsedRate = parseFloat(inviteHourlyRate);
-      if (!inviteHourlyRate || isNaN(parsedRate) || parsedRate <= 0) {
-        setInviteError("Please enter a valid hourly rate for the new group.");
-        return;
+      if (isNewGroup) {
+        if (!inviteGroupName.trim()) {
+          setInviteError("Please enter a group name.");
+          return;
+        }
+        const parsedRate = parseFloat(inviteHourlyRate);
+        if (!inviteHourlyRate || isNaN(parsedRate) || parsedRate <= 0) {
+          setInviteError("Please enter a valid hourly rate for the new group.");
+          return;
+        }
       }
     }
     setInviteLoading(true);
@@ -439,11 +441,13 @@ const handleClientDelete = async () => {
     setInviteSuccess(null);
 
     const payload = { email, makeAdmin };
-    if (isNewGroup) {
-      payload.group_name = inviteGroupName.trim();
-      payload.hourly_rate = parseFloat(inviteHourlyRate);
-    } else {
-      payload.group_id = inviteGroupId;
+    if (!makeAdmin) {
+      if (isNewGroup) {
+        payload.group_name = inviteGroupName.trim();
+        payload.hourly_rate = parseFloat(inviteHourlyRate);
+      } else {
+        payload.group_id = inviteGroupId;
+      }
     }
 
     const res = await fetch("/api/invite", {
@@ -540,55 +544,66 @@ const handleClientDelete = async () => {
           <span style={{ fontSize: 18, color: C.muted, transition: "transform 0.2s", display: "inline-block", transform: inviteOpen ? "rotate(180deg)" : "rotate(0deg)", lineHeight: 1 }}>▾</span>
         </div>
         {inviteOpen && <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-          <div>
-            <label style={S.label}>Assign client to a group</label>
-            <select
-              style={{ ...S.input, marginBottom: 0, cursor: "pointer" }}
-              value={inviteGroupId}
-              onChange={e => setInviteGroupId(e.target.value)}
-            >
-              <option value="" disabled>Select…</option>
-              <option value="__new__">Create a new group</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>
-                  {g.name}{g.hourly_rate ? ` ($${g.hourly_rate}/hr)` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-          {inviteGroupId === "__new__" && (
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <label style={S.label}>New group name</label>
-                <input
-                  style={{ ...S.input, marginBottom: 0 }}
-                  placeholder="e.g. Smith Family"
-                  value={inviteGroupName}
-                  onChange={e => setInviteGroupName(e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={S.label}>Hourly rate</label>
-                <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 140, overflow: "hidden" }}>
-                  <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.muted, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={makeAdmin}
+              onChange={e => { setMakeAdmin(e.target.checked); setInviteGroupId(""); setInviteGroupName(""); setInviteHourlyRate(""); }}
+              style={{ accentColor: C.teal }}
+            />
+            Grant admin access
+          </label>
+          {!makeAdmin && <>
+            <div>
+              <label style={S.label}>Assign client to a group</label>
+              <select
+                style={{ ...S.input, marginBottom: 0, cursor: "pointer" }}
+                value={inviteGroupId}
+                onChange={e => setInviteGroupId(e.target.value)}
+              >
+                <option value="" disabled>Select…</option>
+                <option value="__new__">Create a new group</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}{g.hourly_rate ? ` ($${g.hourly_rate}/hr)` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {inviteGroupId === "__new__" && (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  <label style={S.label}>New group name</label>
                   <input
-                    style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    value={inviteHourlyRate}
-                    onChange={e => {
-                      let val = e.target.value.replace(/[^0-9.]/g, "");
-                      const parts = val.split(".");
-                      if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
-                      setInviteHourlyRate(val);
-                    }}
+                    style={{ ...S.input, marginBottom: 0 }}
+                    placeholder="e.g. Smith Family"
+                    value={inviteGroupName}
+                    onChange={e => setInviteGroupName(e.target.value)}
                   />
-                  <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+                </div>
+                <div>
+                  <label style={S.label}>Hourly rate</label>
+                  <div style={{ display: "flex", alignItems: "center", border: `0.5px solid ${C.border}`, borderRadius: 8, width: 140, overflow: "hidden" }}>
+                    <span style={{ padding: "10px 6px 10px 12px", fontSize: 16, color: C.muted, background: "#fafafa", borderRight: `0.5px solid ${C.border}`, flexShrink: 0 }}>$</span>
+                    <input
+                      style={{ ...S.input, width: "100%", marginBottom: 0, border: "none", borderRadius: 0, paddingLeft: 8, outline: "none" }}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      value={inviteHourlyRate}
+                      onChange={e => {
+                        let val = e.target.value.replace(/[^0-9.]/g, "");
+                        const parts = val.split(".");
+                        if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
+                        setInviteHourlyRate(val);
+                      }}
+                    />
+                    <span style={{ padding: "10px 12px 10px 6px", fontSize: 16, color: C.muted, background: "#fafafa", borderLeft: `0.5px solid ${C.border}`, flexShrink: 0 }}>/hr</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </>}
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 200 }}>
               <label style={S.label}>Email address</label>
@@ -605,15 +620,6 @@ const handleClientDelete = async () => {
               {inviteLoading ? "Sending..." : "Send invite"}
             </button>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.muted, cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={makeAdmin}
-              onChange={e => setMakeAdmin(e.target.checked)}
-              style={{ accentColor: C.teal }}
-            />
-            Grant admin access
-          </label>
           {inviteError && <p style={{ fontSize: 13, color: "#c0392b", marginTop: 8, marginBottom: 0 }}>{inviteError}</p>}
           {inviteSuccess && <p style={{ fontSize: 13, color: C.teal, marginTop: 8, marginBottom: 0 }}>{inviteSuccess}</p>}
         </div>}
