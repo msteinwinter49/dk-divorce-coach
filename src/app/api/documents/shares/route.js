@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { recordAlert } from "@/lib/alert";
 
 async function getCallerInfo(cookieStore) {
   const supabase = createServerClient(
@@ -108,6 +109,7 @@ export async function POST(request) {
     }));
   } catch (err) {
     console.error("share email error:", err);
+    await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "share_email", summary: `document ${document_id}`, error: err?.message || String(err) });
   }
 
   return NextResponse.json(data);

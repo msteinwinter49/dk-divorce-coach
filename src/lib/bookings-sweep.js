@@ -8,6 +8,8 @@
 // old-but-future requests stay active. Surfacing them is handled by the
 // admin-portal "unaddressed requests" banner, not by auto-expiry.
 
+import { recordAlert } from "@/lib/alert";
+
 // Throttle opportunistic calls. No point sweeping more than once per minute.
 const MIN_SWEEP_INTERVAL_MS = 60 * 1000;
 let lastSweepAt = 0;
@@ -55,6 +57,7 @@ export async function expireStaleRequests(supabase) {
       });
     } catch (e) {
       console.error(`[sweep] balance refund failed for booking ${c.id}:`, e?.message || e);
+      await recordAlert(supabase, { category: "payment", action: "REFUND", resource: "balance_ledger", summary: `booking ${c.id}`, error: e?.message || String(e) });
     }
   }
 
@@ -75,6 +78,7 @@ export async function expireStaleRequests(supabase) {
               .eq("id", c.id);
           } catch (e) {
             console.error(`[sweep] google delete failed for booking ${c.id}:`, e?.message || e);
+            await recordAlert(supabase, { category: "gcal_sync", action: "DELETE", resource: "booking", summary: `booking ${c.id}`, error: e?.message || String(e) });
           }
         }));
       } catch (e) {

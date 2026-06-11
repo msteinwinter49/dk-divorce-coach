@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { chargeClient, refundPaymentIntent } from "@/lib/stripe";
 import { notifyClient } from "@/lib/notifications";
+import { recordAlert } from "@/lib/alert";
 
 function adminSupabase() {
   return createClient(
@@ -166,6 +167,7 @@ export async function POST(request) {
 
   if (purchaseErr) {
     console.error("Purchase insert failed after Stripe charge", paymentIntentId, purchaseErr);
+    await recordAlert(admin, { category: "payment", action: "CREATE", resource: "purchase", summary: `stripe pi ${paymentIntentId}`, error: purchaseErr.message });
     return NextResponse.json({
       error: "Charge succeeded but recording the purchase failed. Please contact support.",
       stripe_payment_intent_id: paymentIntentId,
@@ -185,6 +187,7 @@ export async function POST(request) {
 
   if (ledgerErr) {
     console.error("Ledger write failed after purchase insert", purchase.id, ledgerErr);
+    await recordAlert(admin, { category: "payment", action: "CREATE", resource: "balance_ledger", summary: `purchase ${purchase.id}`, error: ledgerErr.message });
     return NextResponse.json({
       error: "Purchase recorded but balance update failed. Please contact support.",
       purchase,
@@ -293,7 +296,8 @@ export async function PATCH(request) {
       return NextResponse.json({ error: (e.message || "Payment failed").replace(/\.+$/, "") }, { status: 402 });
     }
 
-    const { error } = await adminSupabase().rpc("apply_balance_delta", {
+    const adminForAlert = adminSupabase();
+    const { error } = await adminForAlert.rpc("apply_balance_delta", {
       p_group_id: groupId,
       p_delta_minutes: 0,
       p_source_type: "admin_charge",
@@ -304,6 +308,7 @@ export async function PATCH(request) {
     });
     if (error) {
       console.error("Ledger write failed after admin charge", paymentIntentId, error);
+      await recordAlert(adminForAlert, { category: "payment", action: "CREATE", resource: "balance_ledger", summary: `admin_charge pi ${paymentIntentId}`, error: error.message });
     }
 
     return NextResponse.json({ charged_dollars: dollars, payment_intent_id: paymentIntentId });
@@ -341,7 +346,8 @@ export async function PATCH(request) {
       return NextResponse.json({ error: (e.message || "Refund failed").replace(/\.+$/, "") }, { status: 402 });
     }
 
-    const { error } = await adminSupabase().rpc("apply_balance_delta", {
+    const adminForAlert = adminSupabase();
+    const { error } = await adminForAlert.rpc("apply_balance_delta", {
       p_group_id: groupId,
       p_delta_minutes: 0,
       p_source_type: "admin_refund",
@@ -352,6 +358,7 @@ export async function PATCH(request) {
     });
     if (error) {
       console.error("Ledger write failed after admin refund", refund.id, error);
+      await recordAlert(adminForAlert, { category: "payment", action: "CREATE", resource: "balance_ledger", summary: `admin_refund ${refund.id}`, error: error.message });
     }
 
     return NextResponse.json({ refunded_dollars: dollars, refund_id: refund.id });

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { notifyAdmin } from "@/lib/notifications";
+import { recordAlert } from "@/lib/alert";
 
 export async function POST(request) {
   const { first_name, last_name, email, phone } = await request.json();
@@ -25,6 +27,8 @@ export async function POST(request) {
     );
   } catch (err) {
     console.error("intake-notify email error:", err);
+    const adminClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "intake_email", summary: `${first_name} ${last_name}`, error: err?.message || String(err) });
   }
 
   return NextResponse.json({ success: true });

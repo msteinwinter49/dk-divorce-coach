@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { notifyAdmin, notifyCoach, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { expireStaleRequests } from "@/lib/bookings-sweep";
+import { recordAlert } from "@/lib/alert";
 
 // Cron job: expire unactioned requests, send admin reminders for pending,
 // and send session reminders for confirmed bookings.
@@ -72,6 +73,7 @@ export async function GET(request) {
         results.pending_reminders++;
       } catch (e) {
         console.error("Pending reminder notification error:", e);
+        await recordAlert(supabase, { category: "notification", action: "SEND", resource: "pending_reminder", summary: clientName, error: e?.message || String(e) });
       }
     }
   }
@@ -152,6 +154,7 @@ export async function GET(request) {
             results.client_reminders++;
           } catch (e) {
             console.error("Client reminder error:", e);
+            await recordAlert(supabase, { category: "notification", action: "SEND", resource: "client_reminder", summary: clientName, error: e?.message || String(e) });
           }
         }
       }
@@ -177,6 +180,7 @@ export async function GET(request) {
           results.admin_reminders++;
         } catch (e) {
           console.error("Admin reminder error:", e);
+          await recordAlert(supabase, { category: "notification", action: "SEND", resource: "coach_reminder", summary: clientName, error: e?.message || String(e) });
         }
       }
     }
@@ -230,9 +234,11 @@ export async function GET(request) {
     }
   } catch (e) {
     console.error("Purchase expiration error:", e);
+    await recordAlert(supabase, { category: "sweep", action: "EXPIRE", resource: "purchase_minutes", error: e?.message || String(e) });
     results.expired_purchase_rows = -1;
   }
 
+  try { await supabase.from("system_alerts").delete().lt("created_at", new Date(Date.now() - 90*24*60*60*1000).toISOString()); } catch {}
+
   return NextResponse.json(results);
 }
-

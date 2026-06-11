@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { notifyAdmin } from "@/lib/notifications";
+import { recordAlert } from "@/lib/alert";
 
 export async function POST(request) {
   const cookieStore = await cookies();
@@ -75,6 +76,7 @@ export async function POST(request) {
     );
   } catch (err) {
     console.error("client-upload email error:", err);
+    await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "upload_email", summary: file.name, error: err?.message || String(err) });
   }
 
   return NextResponse.json({ success: true, document_id: doc.id });

@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { retryWithBackoff, sendSyncFailureEmail } from "@/lib/gcal-sync-utils";
+import { retryWithBackoff, recordAlert } from "@/lib/alert";
 
 // Convert browser's getTimezoneOffset() to an ISO offset string like "-04:00"
 function buildTzOffset(tz_offset) {
@@ -202,7 +202,7 @@ export async function POST(request) {
       event.google_calendar_event_id = gEvent.id;
     } catch (e) {
       console.error("Google Calendar sync error (event still saved locally):", e);
-      await sendSyncFailureEmail(ctx.adminClient, { action: "CREATE", resource: "event", summary, date, error: e?.message || String(e) });
+      await recordAlert(ctx.adminClient, { category: "gcal_sync", action: "CREATE", resource: "event", summary, error: e?.message || String(e) });
     }
   }
 
@@ -281,7 +281,7 @@ export async function PATCH(request) {
         await retryWithBackoff(() => updateEvent(token, event.google_calendar_event_id, gUpdates, makeSaveToken(ctx.adminClient)));
       } catch (e) {
         console.error("Google Calendar update sync error:", e);
-        await sendSyncFailureEmail(ctx.adminClient, { action: "UPDATE", resource: "event", summary: event.summary, date: event.date, error: e?.message || String(e) });
+        await recordAlert(ctx.adminClient, { category: "gcal_sync", action: "UPDATE", resource: "event", summary: event.summary, error: e?.message || String(e) });
       }
     }
   }
@@ -324,7 +324,7 @@ export async function DELETE(request) {
         await retryWithBackoff(() => deleteEvent(token, event.google_calendar_event_id, makeSaveToken(ctx.adminClient)));
       } catch (e) {
         console.error("Google Calendar delete sync error:", e);
-        await sendSyncFailureEmail(ctx.adminClient, { action: "DELETE", resource: "event", error: e?.message || String(e) });
+        await recordAlert(ctx.adminClient, { category: "gcal_sync", action: "DELETE", resource: "event", error: e?.message || String(e) });
       }
     }
     // Evict from cache immediately so the deleted event doesn't re-appear

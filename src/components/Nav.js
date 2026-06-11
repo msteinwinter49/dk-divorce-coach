@@ -10,6 +10,7 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, b
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
   const [menuOpen, setMenuOpen] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
 
   const clientLinks = [
     ["Portal Home","Home"],
@@ -41,6 +42,18 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, b
     ro.observe(nav);
     return () => ro.disconnect();
   }, [narrow, mobile, inPortal]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch("/api/system-alerts?unread_count=1")
+      .then(r => r.ok ? r.json() : { count: 0 })
+      .then(d => setAlertCount(d.count || 0))
+      .catch(() => {});
+  }, [isAdmin]);
+
+  const adminLabel = alertCount > 0
+    ? <><span>Admin</span><span style={{ background:"#c0392b", color:"#fff", borderRadius:10, fontSize:10, fontWeight:700, padding:"1px 5px", marginLeft:4, lineHeight:1.4, verticalAlign:"middle" }}>{alertCount}</span></>
+    : "Admin";
 
   // Hamburger icon
   const Hamburger = () => (
@@ -113,7 +126,7 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, b
                   fontWeight: isActive(p) ? 600 : 400, cursor: "pointer", textAlign: "left",
                   boxSizing: "border-box",
                 }}>
-                {p}
+                {p === "Admin" ? adminLabel : p}
               </button>
             ))}
             <button
@@ -181,7 +194,9 @@ export default function Nav({ page, setPage, inPortal, onLogout, viewAsClient, b
         ) : (
           <>
             {portalLinks.map(([p,l]) => (
-              <button key={p} style={{ ...S.navLink, ...(isActive(p) ? S.navLinkActive : {}) }} onClick={() => setPage(p)}>{l}</button>
+              <button key={p} style={{ ...S.navLink, ...(isActive(p) ? S.navLinkActive : {}) }} onClick={() => setPage(p)}>
+                {p === "Admin" ? adminLabel : l}
+              </button>
             ))}
             <button style={S.btnSmOut} onClick={() => { onLogout(); setPage("Home"); }}>Log out</button>
           </>

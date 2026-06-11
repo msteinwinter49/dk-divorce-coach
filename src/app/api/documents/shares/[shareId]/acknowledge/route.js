@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { notifyAdmin } from "@/lib/notifications";
+import { recordAlert } from "@/lib/alert";
 
 export async function POST(request, { params }) {
   const { shareId } = await params;
@@ -55,6 +56,7 @@ export async function POST(request, { params }) {
     );
   } catch (err) {
     console.error("acknowledge email error:", err);
+    await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "acknowledge_email", summary: shareId, error: err?.message || String(err) });
   }
 
   return NextResponse.json({ success: true });

@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
 import { notifyAdmin } from "@/lib/notifications";
+import { recordAlert } from "@/lib/alert";
 
 export async function POST(request) {
   const { first_name, last_name, email, phone, process_stage, message, send_copy, _hp } = await request.json();
@@ -78,6 +79,7 @@ export async function POST(request) {
   } catch (emailError) {
     // Log but don't fail — the submission is already saved
     console.error("Email send error:", emailError);
+    await recordAlert(supabase, { category: "notification", action: "SEND", resource: "contact_email", summary: `${first_name} ${last_name}`, error: emailError?.message || String(emailError) });
   }
 
   return NextResponse.json({ success: true });

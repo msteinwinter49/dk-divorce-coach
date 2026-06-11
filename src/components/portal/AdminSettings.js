@@ -21,7 +21,6 @@ const plainNumberInput = {
 
 export default function AdminSettings({ setPage }) {
   const mobile = useIsMobile();
-  const [techSupportEmail, setTechSupportEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState(false);
@@ -74,7 +73,7 @@ export default function AdminSettings({ setPage }) {
 
     const [settingsRes, typesRes, rulesRes, pricingRes] = await Promise.all([
       supabase.from("settings").select("key, value").in("key", [
-        "tech_support_email", "scheduling_increment", "booking_horizon_days", "google_refresh_token",
+        "scheduling_increment", "booking_horizon_days", "google_refresh_token",
         "package_sizes", "default_expires_months",
         "sms_enabled", "min_client_change_notice_hours"
       ]),
@@ -86,7 +85,6 @@ export default function AdminSettings({ setPage }) {
     const settings = {};
     (settingsRes.data || []).forEach(s => { settings[s.key] = s.value; });
 
-    setTechSupportEmail(settings.tech_support_email || "");
     setIncrement(settings.scheduling_increment || "30");
     setHorizon(settings.booking_horizon_days || "30");
     setGoogleConnected(!!settings.google_refresh_token);
@@ -123,7 +121,6 @@ export default function AdminSettings({ setPage }) {
   };
 
   const handleSaveGeneral = async () => {
-    await saveSetting("tech_support_email", techSupportEmail.trim());
     await saveSetting("scheduling_increment", increment);
     await saveSetting("booking_horizon_days", horizon);
     await saveSetting("sms_enabled", smsEnabled ? "true" : "false");
@@ -324,10 +321,6 @@ export default function AdminSettings({ setPage }) {
       {/* General settings */}
       <div style={S.card}>
         <h3 style={S.h3}>General</h3>
-        <label style={S.label}>Tech support email</label>
-        <p style={{ ...S.p, fontSize: 12, color: C.hint, marginBottom: 6, marginTop: -6 }}>Receives an alert if a Google Calendar sync fails after 3 attempts.</p>
-        <input style={S.input} type="email" value={techSupportEmail} onChange={e => setTechSupportEmail(e.target.value)} placeholder="you@example.com" />
-
         <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
           <div style={{ flex: 1 }}>
             <label style={S.label}>Scheduling increment</label>

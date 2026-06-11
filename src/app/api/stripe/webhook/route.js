@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { constructWebhookEvent } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
+import { recordAlert } from "@/lib/alert";
 
 export async function POST(request) {
   // App Router gives us the raw body via request.text()
@@ -34,6 +35,7 @@ export async function POST(request) {
     case "payment_intent.payment_failed": {
       const paymentIntent = event.data.object;
       console.error("Payment failed:", paymentIntent.id, paymentIntent.last_payment_error?.message);
+      await recordAlert(supabase, { category: "payment", action: "CHARGE", resource: "stripe_payment_intent", summary: paymentIntent.id, error: paymentIntent.last_payment_error?.message || "Payment failed" });
       break;
     }
 

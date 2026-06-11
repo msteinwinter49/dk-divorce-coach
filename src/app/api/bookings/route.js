@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
-import { retryWithBackoff, sendSyncFailureEmail } from "@/lib/gcal-sync-utils";
+import { retryWithBackoff, recordAlert, retryableRead } from "@/lib/alert";
 
 // Convert browser's getTimezoneOffset() value to ISO offset string like "-04:00"
 function buildTzOffset(tz_offset) {
@@ -71,11 +71,11 @@ async function syncBookingGoogle(adminClient, booking, clientProfile, status, ac
     console.error(`[gcal] booking sync ${action} failed:`, e?.message || e);
     const clientName = clientProfile ? `${clientProfile.first_name || ""} ${clientProfile.last_name || ""}`.trim() : null;
     const actionLabel = action === "delete" ? "DELETE" : booking.google_calendar_event_id ? "UPDATE" : "CREATE";
-    await sendSyncFailureEmail(adminClient, {
+    await recordAlert(adminClient, {
+      category: "gcal_sync",
       action: actionLabel,
       resource: "booking",
       summary: clientName || undefined,
-      date: booking.start_time ? booking.start_time.slice(0, 10) : undefined,
       error: e?.message || String(e),
     });
   }
@@ -221,12 +221,11 @@ export async function POST(request) {
   }
 
   // Get session type details
-  const { data: sessionType } = await adminClient
-    .from("session_types")
-    .select("*")
-    .eq("id", session_type_id)
-    .eq("is_active", true)
-    .single();
+  const { data: sessionType } = await retryableRead(
+    () => adminClient.from("session_types").select("*").eq("id", session_type_id).eq("is_active", true).single(),
+    adminClient,
+    { category: "db", action: "READ", resource: "session_types" }
+  );
 
   if (!sessionType) {
     return NextResponse.json({ error: "Invalid session type" }, { status: 400 });
@@ -337,7 +336,12 @@ export async function POST(request) {
        <p><strong>Duration:</strong> ${sessionType.duration} min</p>`;
     const text = `Your coaching session on ${formatSessionDateTime(date, start_time)} (${sessionType.duration}min) is confirmed.`;
     for (const p of participantProfiles) {
-      try { await notifyClient(p, subject, html, text); } catch (e) { console.error("Notification error:", e); }
+      try {
+        await notifyClient(p, subject, html, text);
+      } catch (e) {
+        console.error("Notification error:", e);
+        await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `booking ${booking.id}`, error: e?.message || String(e) });
+      }
     }
   } else {
     // Client booked — notify Diana
@@ -356,6 +360,7 @@ export async function POST(request) {
       );
     } catch (e) {
       console.error("Notification error:", e);
+      await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `booking ${booking.id} from ${clientName}`, error: e?.message || String(e) });
     }
   }
 
@@ -428,7 +433,10 @@ export async function PATCH(request) {
       .select()
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      await recordAlert(adminClient, { category: "db", action: "UPDATE", resource: "booking", summary: `accept ${id}`, error: error.message });
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     // Google sync: flip tentative → confirmed (patches existing event; creates if missing)
     await syncBookingGoogle(adminClient, data, clientProfile, "confirmed", "upsert", null, patchGroupName, data.participant_ids?.length ?? booking.participant_ids?.length ?? 1);
@@ -445,6 +453,7 @@ export async function PATCH(request) {
       );
     } catch (e) {
       console.error("Notification error:", e);
+      await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `accept booking ${id}`, error: e?.message || String(e) });
     }
 
     return NextResponse.json(data);
@@ -458,10 +467,13 @@ export async function PATCH(request) {
       .select()
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      await recordAlert(adminClient, { category: "db", action: "UPDATE", resource: "booking", summary: `decline ${id}`, error: error.message });
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     // Refund the debited minutes back to the client's balance
-    await adminClient.rpc("apply_balance_delta", {
+    const { error: refundErr } = await adminClient.rpc("apply_balance_delta", {
       p_group_id: patchGroupId,
       p_delta_minutes: booking.session_duration,
       p_source_type: "decline",
@@ -469,6 +481,7 @@ export async function PATCH(request) {
       p_created_by: ctx.user.id,
       p_actor_client_id: booking.user_id,
     });
+    if (refundErr) await recordAlert(adminClient, { category: "payment", action: "REFUND", resource: "balance_ledger", summary: `booking ${id}`, error: refundErr.message });
 
     // Google sync: remove the tentative event
     await syncBookingGoogle(adminClient, booking, clientProfile, null, "delete");
@@ -486,6 +499,7 @@ export async function PATCH(request) {
       );
     } catch (e) {
       console.error("Notification error:", e);
+      await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `decline booking ${id}`, error: e?.message || String(e) });
     }
 
     return NextResponse.json(data);
@@ -574,12 +588,15 @@ export async function PATCH(request) {
       .select()
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      await recordAlert(adminClient, { category: "db", action: "UPDATE", resource: "booking", summary: `update ${id}`, error: error.message });
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     // If session duration changed, write a ledger delta for the difference.
     const durationDelta = booking.session_duration - duration;
     if (durationDelta !== 0) {
-      await adminClient.rpc("apply_balance_delta", {
+      const { error: deltaErr } = await adminClient.rpc("apply_balance_delta", {
         p_group_id: patchGroupId,
         p_delta_minutes: durationDelta,
         p_source_type: "edit_delta",
@@ -587,6 +604,7 @@ export async function PATCH(request) {
         p_created_by: ctx.user.id,
         p_actor_client_id: booking.user_id,
       });
+      if (deltaErr) await recordAlert(adminClient, { category: "payment", action: "ADJUST", resource: "balance_ledger", summary: `booking ${id} duration change`, error: deltaErr.message });
     }
 
     // Google sync: patch event with new time/title. Status reflects post-update state:
@@ -663,6 +681,7 @@ export async function PATCH(request) {
             }
           } catch (e) {
             console.error("Notification error:", e);
+            await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `update booking ${id} participant ${p.id}`, error: e?.message || String(e) });
           }
         }
       }
@@ -686,6 +705,7 @@ export async function PATCH(request) {
         );
       } catch (e) {
         console.error("Notification error:", e);
+        await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `update booking ${id} admin notify`, error: e?.message || String(e) });
       }
     }
 
@@ -731,7 +751,10 @@ export async function DELETE(request) {
     .update({ status: "cancelled" })
     .eq("id", id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    await recordAlert(adminClient, { category: "db", action: "UPDATE", resource: "booking", summary: `cancel ${id}`, error: error.message });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   // Look up the client's group for the refund ledger entry
   const { data: cancelMembership } = await adminClient
@@ -775,6 +798,7 @@ export async function DELETE(request) {
         );
       } catch (e) {
         console.error("Notification error:", e);
+        await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `cancel booking ${id}`, error: e?.message || String(e) });
       }
     }
   } else {
@@ -793,6 +817,7 @@ export async function DELETE(request) {
       );
     } catch (e) {
       console.error("Notification error:", e);
+      await recordAlert(adminClient, { category: "notification", action: "SEND", resource: "booking_notification", summary: `cancel booking ${id} admin notify`, error: e?.message || String(e) });
     }
   }
 
