@@ -2,9 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { retryWithBackoff, recordAlert } from "@/lib/alert";
+import { retryWithBackoff, recordAlert, withErrorCatch } from "@/lib/alert";
 
-// Convert browser's getTimezoneOffset() to an ISO offset string like "-04:00"
 function buildTzOffset(tz_offset) {
   const off = typeof tz_offset === "number" ? tz_offset : 0;
   const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, "0");
@@ -43,9 +42,6 @@ async function getGoogleToken(adminClient) {
   return data?.value || null;
 }
 
-// Build a token-rotation saver to pass into gcal library functions.
-// When googleapis refreshes an access token, Google sometimes issues a new
-// refresh token too. This persists it so the old one isn't used on the next call.
 function makeSaveToken(adminClient) {
   return async (newRefreshToken) => {
     await adminClient.from("settings").upsert({
@@ -65,8 +61,13 @@ function isAuthError(e) {
     msg.includes("Invalid Credentials");
 }
 
-// GET — fetch local events + Google Calendar events (if connected)
-export async function GET(request) {
+function addDaysToDate(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export const GET = withErrorCatch(async (request) => {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -78,7 +79,6 @@ export async function GET(request) {
   const startISO = new Date(`${start}T00:00:00`).toISOString();
   const endISO = new Date(`${end}T23:59:59`).toISOString();
 
-  // 1. Local events from Supabase
   const { data: localEvents } = await ctx.adminClient
     .from("events")
     .select("*")
@@ -86,7 +86,6 @@ export async function GET(request) {
     .lte("start_time", endISO)
     .order("start_time");
 
-  // Normalize local events to Google Calendar event shape for the frontend
   const normalized = (localEvents || []).map(e => {
     if (e.all_day) {
       const endDate = new Date(e.end_time).toISOString().slice(0, 10);
@@ -95,7 +94,6 @@ export async function GET(request) {
     return { id: e.id, summary: e.summary, start: { dateTime: e.start_time }, end: { dateTime: e.end_time }, _local: true, _type: "personal", _synced: !!e.google_calendar_event_id };
   });
 
-  // 2. Google Calendar events (if connected) — served from cache when fresh
   let googleEvents = [];
   let googleDisconnected = false;
   const token = await getGoogleToken(ctx.adminClient);
@@ -106,8 +104,6 @@ export async function GET(request) {
     } catch (e) {
       console.error("Google Calendar fetch error:", e?.message || e);
       if (isAuthError(e)) {
-        // Clear the stored token so Settings shows "Disconnected" and the admin
-        // knows to reconnect rather than seeing silently empty SP sessions.
         await ctx.adminClient.from("settings").upsert({
           key: "google_refresh_token",
           value: null,
@@ -118,10 +114,6 @@ export async function GET(request) {
     }
   }
 
-  // Deduplicate: remove Google events that have a local counterpart so AdminSchedule
-  // doesn't render each coaching booking twice (once as a booking chip, once as a
-  // Google event chip classified as "coaching" by summary prefix).
-  // Pull synced ids from both events (Diana's personal blocks) and bookings (9c).
   const { data: syncedBookings } = await ctx.adminClient
     .from("bookings")
     .select("google_calendar_event_id")
@@ -143,16 +135,9 @@ export async function GET(request) {
     events: [...normalized, ...filteredGoogle],
     ...(googleDisconnected && { _googleDisconnected: true }),
   });
-}
+}, { action: "GET /api/calendar/events", resource: "calendar-events" });
 
-function addDaysToDate(dateStr, days) {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-// POST — create event locally, sync to Google if available
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -176,7 +161,6 @@ export async function POST(request) {
     endISO = `${date}T${end_time}:00${offStr}`;
   }
 
-  // Save locally
   const { data: event, error } = await ctx.adminClient
     .from("events")
     .insert({ summary, date, start_time: startISO, end_time: endISO, all_day: !!all_day })
@@ -185,7 +169,6 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Try to sync to Google Calendar
   const token = await getGoogleToken(ctx.adminClient);
   if (token) {
     try {
@@ -226,10 +209,9 @@ export async function POST(request) {
     _type: "personal",
     _synced: !!event.google_calendar_event_id,
   });
-}
+}, { action: "POST /api/calendar/events", resource: "calendar-events" });
 
-// PATCH — update a local event
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -263,7 +245,6 @@ export async function PATCH(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Sync update to Google if connected
   if (event.google_calendar_event_id) {
     const token = await getGoogleToken(ctx.adminClient);
     if (token) {
@@ -291,17 +272,15 @@ export async function PATCH(request) {
     return NextResponse.json({ id: event.id, summary: event.summary, start: { date: event.date }, end: { date: endDate }, _local: true, _type: "personal", _synced: !!event.google_calendar_event_id });
   }
   return NextResponse.json({ id: event.id, summary: event.summary, start: { dateTime: event.start_time }, end: { dateTime: event.end_time }, _local: true, _type: "personal", _synced: !!event.google_calendar_event_id });
-}
+}, { action: "PATCH /api/calendar/events", resource: "calendar-events" });
 
-// DELETE — delete a local event
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const ctx = await getAdminContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-  // Get the event first to check for Google sync
   const { data: event } = await ctx.adminClient
     .from("events")
     .select("google_calendar_event_id")
@@ -315,7 +294,6 @@ export async function DELETE(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Delete from Google Calendar if synced
   if (event?.google_calendar_event_id) {
     const token = await getGoogleToken(ctx.adminClient);
     if (token) {
@@ -327,14 +305,11 @@ export async function DELETE(request) {
         await recordAlert(ctx.adminClient, { category: "gcal_sync", action: "DELETE", resource: "event", error: e?.message || String(e) });
       }
     }
-    // Evict from cache immediately so the deleted event doesn't re-appear
-    // before the 5-min TTL expires (dedup relies on the local row being present).
     await ctx.adminClient
       .from("google_events_cache")
       .delete()
       .eq("google_event_id", event.google_calendar_event_id);
-
   }
 
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/calendar/events", resource: "calendar-events" });

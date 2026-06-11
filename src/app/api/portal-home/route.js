@@ -4,10 +4,9 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
+import { withErrorCatch } from "@/lib/alert";
 
-// GET — combined PortalHome data for a client: bookings, balance, card status.
-// Query params: start, end (ISO strings for bookings date range)
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -30,7 +29,6 @@ export async function GET(request) {
   await maybeExpireStaleRequests(adminClient);
 
   const [bookingsResult, membershipResult, profileResult] = await Promise.all([
-    // Bookings (client sees own + group)
     (() => {
       let q = adminClient
         .from("bookings")
@@ -42,13 +40,11 @@ export async function GET(request) {
       if (end) q = q.lte("start_time", new Date(end + "T23:59:59").toISOString());
       return q;
     })(),
-    // Group membership → balance
     adminClient
       .from("group_members")
       .select("group_id, groups(hourly_rate)")
       .eq("client_id", user.id)
       .maybeSingle(),
-    // Profile for stripe_customer_id
     adminClient
       .from("profiles")
       .select("stripe_customer_id")
@@ -58,7 +54,6 @@ export async function GET(request) {
 
   const bookings = bookingsResult.data || [];
 
-  // Balance
   let balance_minutes = 0;
   let hourly_rate = null;
   const groupId = membershipResult.data?.group_id ?? null;
@@ -72,7 +67,6 @@ export async function GET(request) {
     balance_minutes = balRow?.balance_minutes ?? 0;
   }
 
-  // Card
   let card = null;
   const stripeCustomerId = profileResult.data?.stripe_customer_id;
   if (stripeCustomerId) {
@@ -97,4 +91,4 @@ export async function GET(request) {
   }
 
   return NextResponse.json({ bookings, balance_minutes, hourly_rate, card });
-}
+}, { action: "GET /api/portal-home", resource: "portal-home" });

@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 
 export default function ContactPage() {
   const [firstName, setFirstName] = useState("");
@@ -12,6 +13,7 @@ export default function ContactPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const { setServerError } = useError();
   const [sendCopy, setSendCopy] = useState(true);
   const [honeypot, setHoneypot] = useState("");
 
@@ -35,25 +37,31 @@ export default function ContactPage() {
     }
     setSubmitting(true);
     setError(null);
-    const res = await fetch("/api/contact", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        first_name: firstName,
-        last_name: lastName,
-        email,
-        phone,
-        process_stage: processStage,
-        message: message || null,
-        send_copy: sendCopy,
-        _hp: honeypot,
-      }),
-    });
-    setSubmitting(false);
-    if (!res.ok) {
-      setError("Something went wrong. Please try again.");
-    } else {
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          phone,
+          process_stage: processStage,
+          message: message || null,
+          send_copy: sendCopy,
+          _hp: honeypot,
+        }),
+      });
+      setSubmitting(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setError("Something went wrong. Please try again.");
+        return;
+      }
       setSent(true);
+    } catch {
+      setSubmitting(false);
+      setServerError(SERVER_ERROR);
     }
   };
 

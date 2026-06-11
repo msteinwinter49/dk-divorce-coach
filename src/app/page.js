@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { C, S } from "@/lib/constants";
 import Nav from "@/components/Nav";
+import ErrorBanner from "@/components/ErrorBanner";
 import HomePage from "@/components/HomePage";
 import AboutPage from "@/components/AboutPage";
 import ContactPage from "@/components/ContactPage";
@@ -181,6 +182,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: "#fff", minHeight: "100vh" }}>
       {!needsProfile && <Nav page={page} setPage={setPage} inPortal={inPortal} onLogout={handleLogout} viewAsClient={viewAsClient} bookingActive={bookingActive} />}
+      <ErrorBanner />
       {viewAsClient && (
         <div style={{ padding:"8px 1rem", background:"#fdecea", borderBottom:"1px solid #e6b8b0", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
           <span style={{ fontSize:13, color:"#c0392b", fontWeight:500 }}>

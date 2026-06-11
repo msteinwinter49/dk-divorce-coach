@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
+import { useError } from "@/context/ErrorContext";
 
 export default function Admin({ setPage }) {
   const mobile = useIsMobile();
@@ -28,17 +29,36 @@ export default function Admin({ setPage }) {
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState({});
   const [marking, setMarking] = useState(false);
+  const { setServerError } = useError();
 
   useEffect(() => {
-    fetch("/api/system-alerts")
-      .then(r => r.ok ? r.json() : { alerts: [] })
-      .then(d => { setAlerts(d.alerts || []); setAlertsLoading(false); })
-      .catch(() => setAlertsLoading(false));
-  }, []);
+    (async () => {
+      try {
+        const res = await fetch("/api/system-alerts");
+        if (!res.ok) {
+          if (res.status >= 500) setServerError(SERVER_ERROR);
+        } else {
+          const d = await res.json();
+          setAlerts(d.alerts || []);
+        }
+      } catch {
+        setServerError(SERVER_ERROR);
+      } finally {
+        setAlertsLoading(false);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const markAllRead = async () => {
     setMarking(true);
-    await fetch("/api/system-alerts", { method: "PATCH" });
+    try {
+      const res = await fetch("/api/system-alerts", { method: "PATCH" });
+      if (res.status >= 500) { setServerError(SERVER_ERROR); setMarking(false); return; }
+    } catch {
+      setServerError(SERVER_ERROR);
+      setMarking(false);
+      return;
+    }
     setAlerts(a => a.map(x => ({ ...x, acknowledged: true })));
     setMarking(false);
   };

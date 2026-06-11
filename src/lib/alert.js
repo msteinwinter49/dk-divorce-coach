@@ -1,4 +1,27 @@
 // System alert recording and notification utilities.
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+// Wraps a route handler in a top-level try/catch.
+// SyntaxError from request.json() → 400.
+// Any other throw → recordAlert to DB + 500.
+export function withErrorCatch(handler, { action, resource }) {
+  return async (...args) => {
+    try {
+      return await handler(...args);
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+      }
+      const admin = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+      );
+      await recordAlert(admin, { category: "server_error", action, resource, error: err });
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    }
+  };
+}
 
 function isAuthError(e) {
   const status = e?.response?.status || e?.status || e?.code;

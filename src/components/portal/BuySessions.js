@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
@@ -18,6 +19,7 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
   const [chosenPackage, setChosenPackage] = useState(null);
 
   const [submitting, setSubmitting] = useState(false);
+  const { setServerError } = useError();
   const [result, setResult] = useState(null); // { ok, balance_after } | { ok:false, error }
   const [balanceMinutes, setBalanceMinutes] = useState(null);
   const [groupHourlyRate, setGroupHourlyRate] = useState(null);
@@ -34,20 +36,33 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
     if (!user) return;
     const cardUrl = clientId ? `/api/stripe/card?client_id=${clientId}` : "/api/stripe/card";
     const balanceUrl = clientId ? `/api/purchases?client_id=${clientId}` : "/api/purchases";
-    Promise.all([
-      fetch("/api/pricing-matrix").then(r => r.json()),
-      fetch("/api/session-types").then(r => r.json()),
-      fetch(cardUrl).then(r => r.json()).catch(() => ({ card: null })),
-      fetch(balanceUrl).then(r => r.json()).catch(() => ({ balance_minutes: 0 })),
-    ]).then(([p, t, c, b]) => {
-      setPricing(Array.isArray(p) ? p.filter(x => x.is_active) : []);
-      setSessionTypes(Array.isArray(t) ? t : []);
-      setCard(c?.card || null);
-      setBalanceMinutes(b?.balance_minutes ?? 0);
-      setGroupHourlyRate(b?.hourly_rate ?? null);
-      setLoading(false);
-    });
-  }, [user, clientId]);
+    (async () => {
+      try {
+        const [pr, tr, cr, br] = await Promise.all([
+          fetch("/api/pricing-matrix"),
+          fetch("/api/session-types"),
+          fetch(cardUrl),
+          fetch(balanceUrl),
+        ]);
+        if (pr.status >= 500 || tr.status >= 500) { setServerError(SERVER_ERROR); setLoading(false); return; }
+        const [p, t, c, b] = await Promise.all([
+          pr.json().catch(() => []),
+          tr.json().catch(() => []),
+          cr.ok ? cr.json().catch(() => ({ card: null })) : Promise.resolve({ card: null }),
+          br.ok ? br.json().catch(() => ({ balance_minutes: 0 })) : Promise.resolve({ balance_minutes: 0 }),
+        ]);
+        setPricing(Array.isArray(p) ? p.filter(x => x.is_active) : []);
+        setSessionTypes(Array.isArray(t) ? t : []);
+        setCard(c?.card || null);
+        setBalanceMinutes(b?.balance_minutes ?? 0);
+        setGroupHourlyRate(b?.hourly_rate ?? null);
+      } catch {
+        setServerError(SERVER_ERROR);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [user, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return;
@@ -97,17 +112,19 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matrix_id: chosenPackage.id }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setResult({ ok: true, balance_after: data.balance_after });
-        if (data.balance_after != null) setBalanceMinutes(data.balance_after);
-      } else {
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        const data = await res.json().catch(() => ({}));
         setResult({ ok: false, error: data.error || "Purchase failed." });
+        setStep("result");
+        return;
       }
+      const data = await res.json();
+      setResult({ ok: true, balance_after: data.balance_after });
+      if (data.balance_after != null) setBalanceMinutes(data.balance_after);
       setStep("result");
-    } catch (e) {
-      setResult({ ok: false, error: "Network error. Please try again." });
-      setStep("result");
+    } catch {
+      setServerError(SERVER_ERROR);
     } finally {
       setSubmitting(false);
     }

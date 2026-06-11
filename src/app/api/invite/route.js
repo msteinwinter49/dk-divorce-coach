@@ -2,8 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const { email, makeAdmin, group_id, group_name, hourly_rate } = await request.json();
   const origin = new URL(request.url).origin.replace("//0.0.0.0", "//localhost");
 
@@ -23,7 +24,6 @@ export async function POST(request) {
     }
   }
 
-  // Verify the caller is an admin using their session
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -52,7 +52,6 @@ export async function POST(request) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  // Use service_role client to invite the user
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -73,7 +72,6 @@ export async function POST(request) {
         .update({ role: "admin" })
         .eq("id", data.user.id);
     } else {
-      // Resolve or create the group
       let resolvedGroupId = group_id;
 
       if (hasNewGroup) {
@@ -88,7 +86,6 @@ export async function POST(request) {
         resolvedGroupId = newGroup.id;
       }
 
-      // Assign client to the group (upsert in case they're somehow already a member)
       await adminClient
         .from("group_members")
         .upsert({ client_id: data.user.id, group_id: resolvedGroupId, is_active: true }, { onConflict: "client_id" });
@@ -96,4 +93,4 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ success: true });
-}
+}, { action: "POST /api/invite", resource: "invite" });

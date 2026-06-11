@@ -5,9 +5,8 @@ import { NextResponse } from "next/server";
 import { getAvailableSlots, isSlotAvailable as checkSlotAvailable } from "@/lib/availability";
 import { notifyAdmin, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
-import { retryWithBackoff, recordAlert, retryableRead } from "@/lib/alert";
+import { retryWithBackoff, recordAlert, retryableRead, withErrorCatch } from "@/lib/alert";
 
-// Convert browser's getTimezoneOffset() value to ISO offset string like "-04:00"
 function buildTzOffset(tz_offset) {
   const off = typeof tz_offset === "number" ? tz_offset : 0;
   const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, "0");
@@ -15,7 +14,6 @@ function buildTzOffset(tz_offset) {
   return (off <= 0 ? "+" : "-") + h + ":" + m;
 }
 
-// Read Diana's stored Google OAuth refresh token. Returns null if not connected.
 async function getGoogleToken(adminClient) {
   const { data } = await adminClient
     .from("settings")
@@ -25,8 +23,6 @@ async function getGoogleToken(adminClient) {
   return data?.value || null;
 }
 
-// Race a promise against a timeout so a slow/hanging Google API call can't
-// stall the response. Rejects with "gcal timeout" if p doesn't settle in time.
 function withTimeout(p, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -35,10 +31,6 @@ function withTimeout(p, ms, label) {
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
-// Best-effort Google Calendar sync for a booking. Never throws — DB is truth.
-// Bounded at 8s so the user's response never waits on a slow Google round-trip.
-// action: "upsert" (create or patch) | "delete"
-// On upsert, persists the returned event id back onto the booking row.
 async function syncBookingGoogle(adminClient, booking, clientProfile, status, action = "upsert", sessionType = null, groupName = null, attendeeCount = 1) {
   try {
     const token = await getGoogleToken(adminClient);
@@ -100,8 +92,7 @@ async function getAuthContext() {
   return { user, profile, supabase };
 }
 
-// GET — list bookings
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -110,9 +101,6 @@ export async function GET(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Opportunistic cleanup: flip stale/past-due requests to expired and clear
-  // their Google events so they don't hoard slots until the next daily cron.
-  // Throttled internally — safe to call on every read.
   await maybeExpireStaleRequests(adminClient);
 
   const { searchParams } = new URL(request.url);
@@ -127,7 +115,6 @@ export async function GET(request) {
     .in("status", ["requested", "booked"])
     .order("start_time");
 
-  // Clients see their own bookings plus group bookings they participate in
   if (!isAdmin) {
     query = query.or(`user_id.eq.${ctx.user.id},participant_ids.cs.{${ctx.user.id}}`);
   }
@@ -138,7 +125,6 @@ export async function GET(request) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Attach profile info — all user_ids plus all participant_ids
   if (data?.length > 0) {
     const allIds = new Set();
     data.forEach(b => {
@@ -164,10 +150,9 @@ export async function GET(request) {
   }
 
   return NextResponse.json(data);
-}
+}, { action: "GET /api/bookings", resource: "bookings" });
 
-// POST — client requests a booking
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -195,7 +180,6 @@ export async function POST(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Look up the client's group for all balance operations
   const { data: bookingMembership } = await adminClient
     .from("group_members")
     .select("group_id, groups(name)")
@@ -204,7 +188,6 @@ export async function POST(request) {
   const bookingGroupId = bookingMembership?.group_id ?? null;
   const bookingGroupName = bookingMembership?.groups?.name ?? null;
 
-  // Block client requests when balance is already negative
   if (!isAdmin) {
     if (!bookingGroupId) {
       return NextResponse.json({ error: "No group assigned. Please contact your coach." }, { status: 402 });
@@ -220,7 +203,6 @@ export async function POST(request) {
     }
   }
 
-  // Get session type details
   const { data: sessionType } = await retryableRead(
     () => adminClient.from("session_types").select("*").eq("id", session_type_id).eq("is_active", true).single(),
     adminClient,
@@ -231,7 +213,6 @@ export async function POST(request) {
     return NextResponse.json({ error: "Invalid session type" }, { status: 400 });
   }
 
-  // Check availability
   const slots = await getAvailableSlots(date, date);
   const { data: settings } = await adminClient
     .from("settings")
@@ -246,7 +227,6 @@ export async function POST(request) {
     }
   }
 
-  // Calculate end time
   const [h, m] = start_time.split(":").map(Number);
   const endMinutes = h * 60 + m + sessionType.duration;
   const endH = Math.floor(endMinutes / 60);
@@ -261,8 +241,6 @@ export async function POST(request) {
     return NextResponse.json({ error: "Cannot request a session in the past." }, { status: 400 });
   }
 
-  // Create the booking
-  // Admin booking on behalf of client goes straight to "booked"
   const bookingStatus = (isAdmin && (targetUserId || isGroupBooking)) ? "booked" : "requested";
 
   const { data: booking, error } = await adminClient
@@ -283,7 +261,6 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Debit the client's minute balance. Allowed to go negative — warn but don't block.
   const { data: ledgerRows } = await adminClient.rpc("apply_balance_delta", {
     p_group_id: bookingGroupId,
     p_delta_minutes: -sessionType.duration,
@@ -295,8 +272,6 @@ export async function POST(request) {
   const balanceAfter = ledgerRows?.[0]?.balance_after ?? null;
   const lowBalance = balanceAfter != null && balanceAfter < 0;
 
-  // Google Calendar sync — admin-on-behalf is confirmed; client request is tentative.
-  // Look up the client profile once so we can pass it to both sync and notification.
   let clientProfileForSync;
   if (isAdmin && (targetUserId || isGroupBooking)) {
     const lookupId = isGroupBooking ? rawParticipantIds[0] : targetUserId;
@@ -318,7 +293,6 @@ export async function POST(request) {
   await syncBookingGoogle(adminClient, booking, clientProfileForSync, gcalStatus, "upsert", sessionType, bookingGroupName, postAttendeeCount);
 
   if (isAdmin && (targetUserId || isGroupBooking)) {
-    // Admin booked on behalf — notify all participants
     const notifyIds = isGroupBooking ? rawParticipantIds : [targetUserId];
     let participantProfiles = [clientProfileForSync].filter(Boolean);
     if (isGroupBooking && rawParticipantIds.length > 1) {
@@ -344,7 +318,6 @@ export async function POST(request) {
       }
     }
   } else {
-    // Client booked — notify Diana
     const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
     try {
       await notifyAdmin(
@@ -365,10 +338,9 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ ...booking, balance_after: balanceAfter, low_balance: lowBalance });
-}
+}, { action: "POST /api/bookings", resource: "bookings" });
 
-// PATCH — admin accepts, declines, or updates a booking; client updates own booking
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -379,7 +351,6 @@ export async function PATCH(request) {
   }
 
   const isAdmin = ctx.profile?.role === "admin";
-  // Only admins can accept/decline. Update is allowed for clients on their own bookings.
   if (!isAdmin && action !== "update") {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
@@ -389,7 +360,6 @@ export async function PATCH(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Get the booking (accept/decline require "requested", update requires "requested" or "booked")
   let query = adminClient.from("bookings").select("*").eq("id", id);
   if (action === "update") {
     query = query.in("status", ["requested", "booked"]);
@@ -402,12 +372,10 @@ export async function PATCH(request) {
     return NextResponse.json({ error: "Booking not found or not in valid status" }, { status: 404 });
   }
 
-  // Clients can only update their own bookings
   if (!isAdmin && booking.user_id !== ctx.user.id) {
     return NextResponse.json({ error: "You can only edit your own bookings" }, { status: 403 });
   }
 
-  // Get client profile separately (no FK between bookings and profiles)
   const { data: clientProfile } = await adminClient
     .from("profiles")
     .select("first_name, last_name, preferred_email, phone, notification_preference")
@@ -416,7 +384,6 @@ export async function PATCH(request) {
 
   booking.profiles = clientProfile;
 
-  // Look up the booking client's group for balance operations (decline/update branches)
   const { data: patchMembership } = await adminClient
     .from("group_members")
     .select("group_id, groups(name)")
@@ -438,7 +405,6 @@ export async function PATCH(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Google sync: flip tentative → confirmed (patches existing event; creates if missing)
     await syncBookingGoogle(adminClient, data, clientProfile, "confirmed", "upsert", null, patchGroupName, data.participant_ids?.length ?? booking.participant_ids?.length ?? 1);
 
     const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
@@ -472,7 +438,6 @@ export async function PATCH(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Refund the debited minutes back to the client's balance
     const { error: refundErr } = await adminClient.rpc("apply_balance_delta", {
       p_group_id: patchGroupId,
       p_delta_minutes: booking.session_duration,
@@ -483,7 +448,6 @@ export async function PATCH(request) {
     });
     if (refundErr) await recordAlert(adminClient, { category: "payment", action: "REFUND", resource: "balance_ledger", summary: `booking ${id}`, error: refundErr.message });
 
-    // Google sync: remove the tentative event
     await syncBookingGoogle(adminClient, booking, clientProfile, null, "delete");
 
     const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
@@ -512,7 +476,6 @@ export async function PATCH(request) {
       updates.participant_ids = participant_ids;
     }
 
-    // If session type changed, look it up
     let duration = booking.session_duration;
     if (session_type_id && session_type_id !== booking.session_type_id) {
       const { data: sessionType } = await adminClient
@@ -526,7 +489,6 @@ export async function PATCH(request) {
       duration = sessionType.duration;
     }
 
-    // If date or time changed, recalculate timestamps
     const newDate = date || booking.date;
     const newStartTime = start_time || booking.time_slot;
     const dateOrTimeChanged = (date && date !== booking.date) || (start_time && start_time !== booking.time_slot);
@@ -545,10 +507,6 @@ export async function PATCH(request) {
       updates.end_time = new Date(`${newDate}T${endTimeStr}:00${offStr}`).toISOString();
     }
 
-    // Client edits: block only on overlap with another booking. Availability
-    // isn't enforced — booked sessions revert to "requested" so Diana reviews
-    // the proposed time anyway. Matches the client drag and avoids locking a
-    // booking in place when it sits flush against a chunk boundary.
     if (!isAdmin) {
       const [nh, nm] = newStartTime.split(":").map(Number);
       const newStartMin = nh * 60 + nm;
@@ -577,7 +535,6 @@ export async function PATCH(request) {
       }
     }
 
-    // Reset reminder tracking since session moved
     updates.client_reminder_sent_at = null;
     updates.admin_reminder_sent_at = null;
 
@@ -593,7 +550,6 @@ export async function PATCH(request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // If session duration changed, write a ledger delta for the difference.
     const durationDelta = booking.session_duration - duration;
     if (durationDelta !== 0) {
       const { error: deltaErr } = await adminClient.rpc("apply_balance_delta", {
@@ -607,11 +563,7 @@ export async function PATCH(request) {
       if (deltaErr) await recordAlert(adminClient, { category: "payment", action: "ADJUST", resource: "balance_ledger", summary: `booking ${id} duration change`, error: deltaErr.message });
     }
 
-    // Google sync: patch event with new time/title. Status reflects post-update state:
-    // - admin edit of a booked session → stays confirmed
-    // - client edit of a booked session → reverts to requested (tentative)
     const gcalStatus = data.status === "booked" ? "confirmed" : "tentative";
-    // If session type changed, pull the new label for the description.
     let syncSessionType = null;
     if (updates.session_type_id) {
       const { data: st } = await adminClient
@@ -686,7 +638,6 @@ export async function PATCH(request) {
         }
       }
     } else {
-      // Client edited — notify Diana for re-approval
       const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
       const wasApproved = booking.status === "booked";
       try {
@@ -711,10 +662,9 @@ export async function PATCH(request) {
 
     return NextResponse.json(data);
   }
-}
+}, { action: "PATCH /api/bookings", resource: "bookings" });
 
-// DELETE — client cancels their own request
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -728,7 +678,6 @@ export async function DELETE(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Admin can cancel any booking; client can only cancel their own requested bookings
   let query = adminClient
     .from("bookings")
     .select("*")
@@ -756,14 +705,12 @@ export async function DELETE(request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Look up the client's group for the refund ledger entry
   const { data: cancelMembership } = await adminClient
     .from("group_members")
     .select("group_id")
     .eq("client_id", booking.user_id)
     .maybeSingle();
 
-  // Refund the debited minutes back to the client's balance
   await adminClient.rpc("apply_balance_delta", {
     p_group_id: cancelMembership?.group_id ?? null,
     p_delta_minutes: booking.session_duration,
@@ -773,13 +720,11 @@ export async function DELETE(request) {
     p_actor_client_id: booking.user_id,
   });
 
-  // Google sync: remove the event
   await syncBookingGoogle(adminClient, booking, null, null, "delete");
 
   const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
 
   if (isAdmin) {
-    // Admin cancelled — notify the client
     const { data: clientProfile } = await adminClient
       .from("profiles")
       .select("first_name, last_name, preferred_email, phone, notification_preference")
@@ -802,7 +747,6 @@ export async function DELETE(request) {
       }
     }
   } else {
-    // Client cancelled — notify Diana
     const clientName = `${ctx.profile.first_name} ${ctx.profile.last_name}`;
     try {
       const wasBooked = booking.status === "booked";
@@ -822,4 +766,4 @@ export async function DELETE(request) {
   }
 
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/bookings", resource: "bookings" });

@@ -2,9 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { NextResponse } from "next/server";
 import { notifyAdmin } from "@/lib/notifications";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const { first_name, last_name, email, phone, process_stage, message, send_copy, _hp } = await request.json();
 
   if (_hp) {
@@ -27,7 +27,6 @@ export async function POST(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Save to database
   const { error: insertError } = await supabase.from("contact_submissions").insert({
     first_name,
     last_name,
@@ -53,7 +52,6 @@ export async function POST(request) {
 
   try {
     await notifyAdmin(`New contact form: ${first_name} ${last_name}`, adminHtml, null);
-    // Send copy to the submitter if requested
     if (send_copy && email) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       await resend.emails.send({
@@ -77,10 +75,9 @@ export async function POST(request) {
       });
     }
   } catch (emailError) {
-    // Log but don't fail — the submission is already saved
     console.error("Email send error:", emailError);
     await recordAlert(supabase, { category: "notification", action: "SEND", resource: "contact_email", summary: `${first_name} ${last_name}`, error: emailError?.message || String(emailError) });
   }
 
   return NextResponse.json({ success: true });
-}
+}, { action: "POST /api/contact", resource: "contact" });

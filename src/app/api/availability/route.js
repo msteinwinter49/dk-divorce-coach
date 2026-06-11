@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getAvailableSlots } from "@/lib/availability";
+import { withErrorCatch } from "@/lib/alert";
 
 async function getAuthContext() {
   const cookieStore = await cookies();
@@ -23,8 +24,7 @@ async function getAuthContext() {
   return { user, profile, supabase };
 }
 
-// GET — compute available slots for a date range
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -37,8 +37,6 @@ export async function GET(request) {
   }
 
   const slots = await getAvailableSlots(startDate, endDate);
-  // Include the scheduling increment so the client doesn't have to derive it
-  // from slot spacing (which breaks on sparse days like a single [09:30, 12:30]).
   const { data: settingsData } = await ctx.supabase
     .from("settings")
     .select("value")
@@ -46,16 +44,15 @@ export async function GET(request) {
     .maybeSingle();
   const increment = settingsData?.value ? parseInt(settingsData.value) : 30;
   return NextResponse.json({ ...slots, __increment: increment });
-}
+}, { action: "GET /api/availability", resource: "availability" });
 
-// POST — admin creates/updates availability rules or overrides
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
 
   const body = await request.json();
-  const { type } = body; // "rule" or "override"
+  const { type } = body;
 
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -87,10 +84,9 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ error: "type must be 'rule' or 'override'" }, { status: 400 });
-}
+}, { action: "POST /api/availability", resource: "availability" });
 
-// DELETE — admin removes a rule or override
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -108,4 +104,4 @@ export async function DELETE(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/availability", resource: "availability" });

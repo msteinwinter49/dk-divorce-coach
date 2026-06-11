@@ -3,9 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
+import { withErrorCatch } from "@/lib/alert";
 
-export async function GET() {
-  // Verify the caller is an admin
+export const GET = withErrorCatch(async () => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -34,7 +34,6 @@ export async function GET() {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  // Use service_role client to bypass RLS and fetch all profiles
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -75,10 +74,9 @@ export async function GET() {
   });
 
   return NextResponse.json({ clients: enriched });
-}
+}, { action: "GET /api/clients", resource: "clients" });
 
-// PATCH — admin updates a client's profile
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -150,10 +148,9 @@ export async function PATCH(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "PATCH /api/clients", resource: "clients" });
 
-// DELETE — fully delete a client and all their data
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -173,19 +170,15 @@ export async function DELETE(request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  // Fetch stripe_customer_id
   const { data: profile } = await adminClient.from("profiles").select("stripe_customer_id").eq("id", id).single();
 
-  // Delete storage files
   const { data: files } = await adminClient.storage.from("documents").list(id);
   if (files?.length) {
     await adminClient.storage.from("documents").remove(files.map(f => `${id}/${f.name}`));
   }
 
-  // Delete messages
   await adminClient.from("messages").delete().or(`sender_id.eq.${id},conversation_id.eq.${id}`);
 
-  // Delete Stripe customer if present (ignore "no such customer" — stale reference)
   if (profile?.stripe_customer_id) {
     try {
       await stripe.customers.del(profile.stripe_customer_id);
@@ -196,9 +189,8 @@ export async function DELETE(request) {
     }
   }
 
-  // Delete auth user — cascades profiles, documents, bookings, group_members, balance_ledger, purchases
   const { error: deleteError } = await adminClient.auth.admin.deleteUser(id);
   if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
 
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/clients", resource: "clients" });

@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { chargeClient, refundPaymentIntent } from "@/lib/stripe";
 import { notifyClient } from "@/lib/notifications";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
 function adminSupabase() {
   return createClient(
@@ -22,8 +22,7 @@ async function getGroupId(admin, clientId) {
   return data?.group_id ?? null;
 }
 
-// GET — return the authenticated client's current minute balance.
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -57,15 +56,9 @@ export async function GET(request) {
     balance_minutes: data?.balance_minutes ?? 0,
     hourly_rate: membership?.groups?.hourly_rate ?? null,
   });
-}
+}, { action: "GET /api/purchases", resource: "purchases" });
 
-// POST — purchase a pricing_matrix package. Charges card on file.
-// Body: { matrix_id, client_id? }
-// If client_id is provided AND caller is admin, the purchase is made on behalf
-// of that client. Otherwise the caller is the buyer.
-// On Stripe decline: 402, no DB writes.
-// On success: writes purchases row + balance_ledger row, emails the client, returns { purchase, balance_after }.
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -81,7 +74,6 @@ export async function POST(request) {
 
   const admin = adminSupabase();
 
-  // Resolve target client (self by default; admins may purchase on behalf of another client)
   let targetClientId = user.id;
   if (client_id && client_id !== user.id) {
     const { data: callerProfile } = await admin
@@ -103,7 +95,6 @@ export async function POST(request) {
   if (matrixErr || !matrix) return NextResponse.json({ error: "Package not found" }, { status: 404 });
   if (!matrix.is_active) return NextResponse.json({ error: "Package no longer available" }, { status: 410 });
 
-  // Look up client's group for hourly_rate
   const { data: membership } = await admin
     .from("group_members")
     .select("group_id, groups(hourly_rate)")
@@ -196,7 +187,6 @@ export async function POST(request) {
 
   const balanceAfter = ledgerRows?.[0]?.balance_after ?? null;
 
-  // Email the client. Best-effort — do not fail the response if the email errors.
   try {
     const totalDollars = (effectivePriceCents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const expiresLabel = expiresAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -222,10 +212,9 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ purchase, balance_after: balanceAfter });
-}
+}, { action: "POST /api/purchases", resource: "purchases" });
 
-// PATCH — admin manual actions. action = 'admin_adjust' | 'admin_charge' | 'admin_refund'
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -245,14 +234,12 @@ export async function PATCH(request) {
   const { action, client_id, group_id: directGroupId } = body;
   if (!client_id && !directGroupId) return NextResponse.json({ error: "client_id or group_id is required" }, { status: 400 });
 
-  // Look up the group_id — all ledger writes are group-scoped
   let groupId = directGroupId || null;
   if (!groupId && client_id) {
     groupId = await getGroupId(adminSupabase(), client_id);
     if (!groupId) return NextResponse.json({ error: "Client has no group assigned" }, { status: 400 });
   }
 
-  // --- admin_adjust: minutes only, no Stripe ---
   if (action === "admin_adjust" || !action) {
     const { delta_minutes, note } = body;
     if (delta_minutes === undefined || delta_minutes === 0) {
@@ -269,7 +256,6 @@ export async function PATCH(request) {
     return NextResponse.json({ balance_after: ledgerRows?.[0]?.balance_after ?? null });
   }
 
-  // --- admin_charge: Stripe only, no minutes ---
   if (action === "admin_charge") {
     const { amount_dollars, note } = body;
     const dollars = parseFloat(amount_dollars);
@@ -314,7 +300,6 @@ export async function PATCH(request) {
     return NextResponse.json({ charged_dollars: dollars, payment_intent_id: paymentIntentId });
   }
 
-  // --- admin_refund: Stripe refund only, capped at prior charges for this group ---
   if (action === "admin_refund") {
     const { amount_dollars, note } = body;
     const dollars = parseFloat(amount_dollars);
@@ -323,7 +308,6 @@ export async function PATCH(request) {
     }
     const amount_cents = Math.round(dollars * 100);
 
-    // Find prior succeeded PaymentIntents for this group, most recent first
     const { data: priorCharges } = await adminSupabase()
       .from("balance_ledger")
       .select("stripe_payment_intent_id, amount_cents")
@@ -365,4 +349,4 @@ export async function PATCH(request) {
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
-}
+}, { action: "PATCH /api/purchases", resource: "purchases" });

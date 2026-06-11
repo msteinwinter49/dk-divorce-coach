@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
 function adminSupabase() {
   return createClient(
@@ -17,7 +18,7 @@ function fmtName(profile) {
   return last ? `${first} ${last.charAt(0)}.` : first || null;
 }
 
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -40,7 +41,6 @@ export async function GET(request) {
 
   const admin = adminSupabase();
 
-  // Client name + group
   const [{ data: profile }, { data: membership }] = await Promise.all([
     admin.from("profiles").select("first_name, last_name").eq("id", clientId).single(),
     admin.from("group_members").select("group_id, groups(name)").eq("client_id", clientId).maybeSingle(),
@@ -49,7 +49,6 @@ export async function GET(request) {
   const clientName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Client";
   const groupName = membership?.groups?.name ?? null;
 
-  // Bookings where this client is requester or participant
   let query = admin
     .from("bookings")
     .select("id, date, time_slot, start_time, end_time, status, user_id, participant_ids, session_types(label, duration)")
@@ -64,7 +63,6 @@ export async function GET(request) {
 
   if (!bookings?.length) return NextResponse.json({ client_name: clientName, group_name: groupName, rows: [] });
 
-  // Collect all user IDs for name resolution
   const allIds = new Set();
   bookings.forEach(b => {
     if (b.user_id) allIds.add(b.user_id);
@@ -101,4 +99,4 @@ export async function GET(request) {
   });
 
   return NextResponse.json({ client_name: clientName, group_name: groupName, rows });
-}
+}, { action: "GET /api/session-activity", resource: "session-activity" });

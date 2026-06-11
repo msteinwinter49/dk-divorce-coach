@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { useSmsEnabled } from "@/lib/hooks";
@@ -56,6 +57,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   const [pwError, setPwError] = useState(null);
   const [pwSuccess, setPwSuccess] = useState(false);
   const [cardOnFile, setCardOnFile] = useState(null);
+  const { setServerError } = useError();
 
   const paymentRef = useRef(null);
 
@@ -195,17 +197,24 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
         preferred_email: preferredEmail.trim() || viewAsClient.email,
         ...profilePayload(),
       };
-      const res = await fetch("/api/clients", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      setSaving(false);
-      if (!res.ok) {
-        setError("Could not save profile. Please try again.");
-      } else {
+      try {
+        const res = await fetch("/api/clients", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        setSaving(false);
+        if (!res.ok) {
+          if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+          setError("Could not save profile. Please try again.");
+          return;
+        }
         setSuccess(true);
         Object.assign(viewAsClient, payload);
+      } catch {
+        setSaving(false);
+        setServerError(SERVER_ERROR);
+        return;
       }
     } else {
       const supabase = createClient();
@@ -248,17 +257,23 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       bg_goals: bgGoals.trim() || null,
       bg_other: bgOther.trim() || null,
     };
-    const res = await fetch("/api/clients", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: viewAsClient.id, ...bgPayload }),
-    });
-    setBgSaving(false);
-    if (!res.ok) {
-      setBgError("Could not save. Please try again.");
-    } else {
+    try {
+      const res = await fetch("/api/clients", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: viewAsClient.id, ...bgPayload }),
+      });
+      setBgSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setBgError("Could not save. Please try again.");
+        return;
+      }
       setBgSuccess(true);
       Object.assign(viewAsClient, bgPayload);
+    } catch {
+      setBgSaving(false);
+      setServerError(SERVER_ERROR);
     }
   };
 

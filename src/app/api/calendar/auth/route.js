@@ -2,9 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getAuthUrl } from "@/lib/google-calendar";
+import { withErrorCatch } from "@/lib/alert";
 
-// GET — redirect Diana to Google OAuth consent screen
-export async function GET() {
+export const GET = withErrorCatch(async () => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -27,4 +27,4 @@ export async function GET() {
 
   const url = getAuthUrl();
   return NextResponse.redirect(url);
-}
+}, { action: "GET /api/calendar/auth", resource: "calendar-auth" });

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { notifyAdmin } from "@/lib/notifications";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const { first_name, last_name, email, phone } = await request.json();
 
   const formatPhone = (value) => {
@@ -32,4 +32,4 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ success: true });
-}
+}, { action: "POST /api/intake-notify", resource: "intake-notify" });

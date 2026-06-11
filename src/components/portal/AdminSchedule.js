@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import MiniCalendar from "@/components/portal/MiniCalendar";
 
@@ -269,6 +270,7 @@ function detectAllOverlaps(bookings, googleEvents) {
 
 export default function AdminSchedule({ setPage }) {
   const mobile = useIsMobile();
+  const { setServerError } = useError();
   const [view, setView] = useState("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [bookings, setBookings] = useState([]);
@@ -421,24 +423,39 @@ export default function AdminSchedule({ setPage }) {
     setLoading(true);
     const { start, end } = getRange();
     const { start: wideStart, end: wideEnd } = getConflictRange();
-    const [bookingsRes, availRes, eventsRes, typesRes] = await Promise.all([
-      fetch(`/api/bookings?start=${wideStart}&end=${wideEnd}`).then(r => r.json()).catch(() => []),
-      fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
-      fetch(`/api/calendar/events?start=${wideStart}&end=${wideEnd}`).then(r => r.json()).catch(() => []),
-      fetch("/api/session-types").then(r => r.json()).catch(() => []),
-    ]);
-    setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
-    const availOk = availRes && !availRes.error ? availRes : {};
-    const { __increment, ...slotsByDate } = availOk;
-    setAvailability(slotsByDate);
-    if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
-    // events response is now { events: [...], _googleDisconnected?: true }
-    const eventsArr = Array.isArray(eventsRes) ? eventsRes : (eventsRes?.events || []);
-    setGoogleEvents(eventsArr);
-    setGoogleDisconnected(!!eventsRes?._googleDisconnected);
-    setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
-    setLoading(false);
-  }, [getRange, getConflictRange]);
+    try {
+      const [bookingsR, availR, eventsR, typesR] = await Promise.all([
+        fetch(`/api/bookings?start=${wideStart}&end=${wideEnd}`),
+        fetch(`/api/availability?start=${start}&end=${end}`),
+        fetch(`/api/calendar/events?start=${wideStart}&end=${wideEnd}`),
+        fetch("/api/session-types"),
+      ]);
+      if (bookingsR.status >= 500 || availR.status >= 500 || eventsR.status >= 500 || typesR.status >= 500) {
+        setServerError(SERVER_ERROR);
+        return;
+      }
+      const [bookingsRes, availRes, eventsRes, typesRes] = await Promise.all([
+        bookingsR.json().catch(() => []),
+        availR.json().catch(() => ({})),
+        eventsR.json().catch(() => []),
+        typesR.json().catch(() => []),
+      ]);
+      setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
+      const availOk = availRes && !availRes.error ? availRes : {};
+      const { __increment, ...slotsByDate } = availOk;
+      setAvailability(slotsByDate);
+      if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
+      // events response is now { events: [...], _googleDisconnected?: true }
+      const eventsArr = Array.isArray(eventsRes) ? eventsRes : (eventsRes?.events || []);
+      setGoogleEvents(eventsArr);
+      setGoogleDisconnected(!!eventsRes?._googleDisconnected);
+      setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setLoading(false);
+    }
+  }, [getRange, getConflictRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -455,19 +472,27 @@ export default function AdminSchedule({ setPage }) {
     (async () => {
       setSearchLoading(true);
       try {
+        const [bR, eR] = await Promise.all([
+          fetch(`/api/bookings?start=${committedStart}&end=${committedEnd}`),
+          fetch(`/api/calendar/events?start=${committedStart}&end=${committedEnd}`),
+        ]);
+        if (cancelled) return;
+        if (bR.status >= 500 || eR.status >= 500) { setServerError(SERVER_ERROR); return; }
         const [bRes, eRes] = await Promise.all([
-          fetch(`/api/bookings?start=${committedStart}&end=${committedEnd}`).then(r => r.json()).catch(() => []),
-          fetch(`/api/calendar/events?start=${committedStart}&end=${committedEnd}`).then(r => r.json()).catch(() => []),
+          bR.json().catch(() => []),
+          eR.json().catch(() => []),
         ]);
         if (cancelled) return;
         setSearchBookings(Array.isArray(bRes) ? bRes : []);
         setSearchEvents(Array.isArray(eRes) ? eRes : (eRes?.events || []));
+      } catch {
+        if (!cancelled) setServerError(SERVER_ERROR);
       } finally {
         if (!cancelled) setSearchLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [searchOpen, searchDirty, committedStart, committedEnd, committedText]);
+  }, [searchOpen, searchDirty, committedStart, committedEnd, committedText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derived: scheduling conflicts across bookings + Google events (2-month
   // horizon from getConflictRange). Only recomputes when the underlying data
@@ -772,19 +797,20 @@ export default function AdminSchedule({ setPage }) {
     setModalError(null);
     const body = { id: modal.booking.id, action };
     if (action === "decline" && declineMessage.trim()) body.message = declineMessage.trim();
-    const res = await fetch("/api/bookings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      await loadData();
-      setModalSaving(false);
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) { await loadData(); closeModal(); }
+      else if (res.status >= 500) { closeModal(); setServerError(SERVER_ERROR); }
+      else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Failed"); }
+    } catch {
       closeModal();
-    } else {
+      setServerError(SERVER_ERROR);
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      setModalError(err.error || "Failed");
     }
   };
 
@@ -807,19 +833,20 @@ export default function AdminSchedule({ setPage }) {
       body.user_id = bookClientIds[0];
     }
 
-    const res = await fetch("/api/bookings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      await loadData();
-      setModalSaving(false);
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) { await loadData(); closeModal(); }
+      else if (res.status >= 500) { closeModal(); setServerError(SERVER_ERROR); }
+      else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Could not create booking."); }
+    } catch {
       closeModal();
-    } else {
+      setServerError(SERVER_ERROR);
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      setModalError(err.error || "Could not create booking.");
     }
   };
 
@@ -832,40 +859,48 @@ export default function AdminSchedule({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     const ownerOnly = editParticipantIds.length === 1 && editParticipantIds[0] === modal.booking.user_id;
-    const res = await fetch("/api/bookings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: modal.booking.id,
-        action: "update",
-        date: bookDate,
-        start_time: bookTime,
-        session_type_id: bookType || undefined,
-        tz_offset: new Date().getTimezoneOffset(),
-        participant_ids: ownerOnly ? null : editParticipantIds,
-      }),
-    });
-    if (res.ok) {
-      const saved = await res.json().catch(() => null);
-      await loadData();
-      // Apply participant update after loadData so GET stale data can't overwrite it.
-      // Use server-confirmed participant_ids from the PATCH response.
-      if (saved) {
-        const savedIds = saved.participant_ids;
-        setBookings(prev => prev.map(b => {
-          if (b.id !== modal.booking.id) return b;
-          const pp = savedIds?.length > 0
-            ? savedIds.map(id => clients.find(c => c.id === id)).filter(Boolean)
-            : undefined;
-          return { ...b, participant_ids: savedIds, participant_profiles: pp };
-        }));
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: modal.booking.id,
+          action: "update",
+          date: bookDate,
+          start_time: bookTime,
+          session_type_id: bookType || undefined,
+          tz_offset: new Date().getTimezoneOffset(),
+          participant_ids: ownerOnly ? null : editParticipantIds,
+        }),
+      });
+      if (res.ok) {
+        const saved = await res.json().catch(() => null);
+        await loadData();
+        // Apply participant update after loadData so GET stale data can't overwrite it.
+        // Use server-confirmed participant_ids from the PATCH response.
+        if (saved) {
+          const savedIds = saved.participant_ids;
+          setBookings(prev => prev.map(b => {
+            if (b.id !== modal.booking.id) return b;
+            const pp = savedIds?.length > 0
+              ? savedIds.map(id => clients.find(c => c.id === id)).filter(Boolean)
+              : undefined;
+            return { ...b, participant_ids: savedIds, participant_profiles: pp };
+          }));
+        }
+        closeModal();
+      } else if (res.status >= 500) {
+        closeModal();
+        setServerError(SERVER_ERROR);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setModalError(err.error || "Could not update booking.");
       }
-      setModalSaving(false);
+    } catch {
       closeModal();
-    } else {
+      setServerError(SERVER_ERROR);
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      setModalError(err.error || "Could not update booking.");
     }
   };
 
@@ -876,22 +911,23 @@ export default function AdminSchedule({ setPage }) {
     }
     setModalSaving(true);
     setModalError(null);
-    const res = await fetch("/api/calendar/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(eventAllDay
-        ? { summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
-        : { summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
-      ),
-    });
-    if (res.ok) {
-      await loadData();
-      setModalSaving(false);
+    try {
+      const res = await fetch("/api/calendar/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(eventAllDay
+          ? { summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
+          : { summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
+        ),
+      });
+      if (res.ok) { await loadData(); closeModal(); }
+      else if (res.status >= 500) { closeModal(); setServerError(SERVER_ERROR); }
+      else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Could not create event."); }
+    } catch {
       closeModal();
-    } else {
+      setServerError(SERVER_ERROR);
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      setModalError(err.error || "Could not create event.");
     }
   };
 
@@ -902,22 +938,23 @@ export default function AdminSchedule({ setPage }) {
     }
     setModalSaving(true);
     setModalError(null);
-    const res = await fetch("/api/calendar/events", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(eventAllDay
-        ? { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
-        : { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
-      ),
-    });
-    if (res.ok) {
-      await loadData();
-      setModalSaving(false);
+    try {
+      const res = await fetch("/api/calendar/events", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(eventAllDay
+          ? { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, all_day: true, days: eventAllDayDays }
+          : { id: modal.event.id, summary: eventTitle.trim(), date: bookDate, start_time: bookTime, end_time: eventEndTime, tz_offset: new Date().getTimezoneOffset() }
+        ),
+      });
+      if (res.ok) { await loadData(); closeModal(); }
+      else if (res.status >= 500) { closeModal(); setServerError(SERVER_ERROR); }
+      else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Could not update event."); }
+    } catch {
       closeModal();
-    } else {
+      setServerError(SERVER_ERROR);
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      setModalError(err.error || "Could not update event.");
     }
   };
 
@@ -925,19 +962,20 @@ export default function AdminSchedule({ setPage }) {
     if (!modal?.event) return;
     setModalSaving(true);
     setModalError(null);
-    const res = await fetch("/api/calendar/events", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: modal.event.id }),
-    });
-    if (res.ok) {
-      await loadData();
-      setModalSaving(false);
+    try {
+      const res = await fetch("/api/calendar/events", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: modal.event.id }),
+      });
+      if (res.ok) { await loadData(); closeModal(); }
+      else if (res.status >= 500) { closeModal(); setServerError(SERVER_ERROR); }
+      else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Could not delete event."); }
+    } catch {
       closeModal();
-    } else {
+      setServerError(SERVER_ERROR);
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      setModalError(err.error || "Could not delete event.");
     }
   };
 
@@ -946,19 +984,20 @@ export default function AdminSchedule({ setPage }) {
     if (!id) return;
     setModalSaving(true);
     setModalError(null);
-    const res = await fetch("/api/bookings", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    if (res.ok) {
-      await loadData();
-      setModalSaving(false);
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) { await loadData(); closeModal(); }
+      else if (res.status >= 500) { closeModal(); setServerError(SERVER_ERROR); }
+      else { const err = await res.json().catch(() => ({})); setModalError(err.error || "Could not cancel booking."); }
+    } catch {
       closeModal();
-    } else {
+      setServerError(SERVER_ERROR);
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      setModalError(err.error || "Could not cancel booking.");
     }
   };
 
@@ -1205,46 +1244,54 @@ export default function AdminSchedule({ setPage }) {
     if (!pendingMove) return;
     setModalSaving(true);
     const { kind, item, newDate, newTime } = pendingMove;
-    let res;
-    if (kind === "booking") {
-      res = await fetch("/api/bookings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: item.id, action: "update", date: newDate, start_time: newTime, tz_offset: new Date().getTimezoneOffset() }),
-      });
-    } else {
-      // Calculate new end time preserving duration
-      const oldStart = new Date(item.start.dateTime);
-      const oldEnd = new Date(item.end.dateTime);
-      const durationMin = (oldEnd - oldStart) / 60000;
-      const [newH, newM] = newTime.split(":").map(Number);
-      const newStartMin = newH * 60 + newM;
-      const newEndMin = newStartMin + durationMin;
-      const endTimeStr = `${String(Math.floor(newEndMin / 60)).padStart(2, "0")}:${String(newEndMin % 60).padStart(2, "0")}`;
-      res = await fetch("/api/calendar/events", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: item.id,
-          date: newDate,
-          start_time: newTime,
-          end_time: endTimeStr,
-          tz_offset: new Date().getTimezoneOffset(),
-        }),
-      });
-    }
-    if (res.ok) {
-      // Keep "Saving..." on the modal until the post-move refetch completes,
-      // so the user has a single continuous spinner across PATCH + reload
-      // instead of the modal vanishing while the calendar silently refreshes.
-      await loadData();
-      setModalSaving(false);
+    try {
+      let res;
+      if (kind === "booking") {
+        res = await fetch("/api/bookings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: item.id, action: "update", date: newDate, start_time: newTime, tz_offset: new Date().getTimezoneOffset() }),
+        });
+      } else {
+        // Calculate new end time preserving duration
+        const oldStart = new Date(item.start.dateTime);
+        const oldEnd = new Date(item.end.dateTime);
+        const durationMin = (oldEnd - oldStart) / 60000;
+        const [newH, newM] = newTime.split(":").map(Number);
+        const newStartMin = newH * 60 + newM;
+        const newEndMin = newStartMin + durationMin;
+        const endTimeStr = `${String(Math.floor(newEndMin / 60)).padStart(2, "0")}:${String(newEndMin % 60).padStart(2, "0")}`;
+        res = await fetch("/api/calendar/events", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: item.id,
+            date: newDate,
+            start_time: newTime,
+            end_time: endTimeStr,
+            tz_offset: new Date().getTimezoneOffset(),
+          }),
+        });
+      }
+      if (res.ok) {
+        // Keep "Saving..." on the modal until the post-move refetch completes,
+        // so the user has a single continuous spinner across PATCH + reload
+        // instead of the modal vanishing while the calendar silently refreshes.
+        await loadData();
+        setPendingMove(null);
+      } else if (res.status >= 500) {
+        setServerError(SERVER_ERROR);
+        setPendingMove(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Could not move item.");
+        setPendingMove(null);
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
       setPendingMove(null);
-    } else {
+    } finally {
       setModalSaving(false);
-      const err = await res.json().catch(() => ({}));
-      alert(err.error || "Could not move item.");
-      setPendingMove(null);
     }
   };
 

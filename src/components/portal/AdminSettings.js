@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import { createClient } from "@/lib/supabase/client";
 
@@ -57,6 +58,7 @@ export default function AdminSettings({ setPage }) {
 
   // Google Calendar
   const [googleConnected, setGoogleConnected] = useState(false);
+  const { setServerError } = useError();
 
   useEffect(() => {
     loadAll();
@@ -70,39 +72,45 @@ export default function AdminSettings({ setPage }) {
 
   const loadAll = async () => {
     const supabase = createClient();
+    try {
+      const [settingsRes, typesR, rulesRes, pricingR] = await Promise.all([
+        supabase.from("settings").select("key, value").in("key", [
+          "scheduling_increment", "booking_horizon_days", "google_refresh_token",
+          "package_sizes", "default_expires_months",
+          "sms_enabled", "min_client_change_notice_hours"
+        ]),
+        fetch("/api/session-types"),
+        supabase.from("availability_rules").select("*").order("day_of_week").order("start_time"),
+        fetch("/api/pricing-matrix"),
+      ]);
+      if (typesR.status >= 500 || pricingR.status >= 500) { setServerError(SERVER_ERROR); setLoading(false); return; }
+      const typesRes = await typesR.json().catch(() => []);
+      const pricingRes = await pricingR.json().catch(() => []);
 
-    const [settingsRes, typesRes, rulesRes, pricingRes] = await Promise.all([
-      supabase.from("settings").select("key, value").in("key", [
-        "scheduling_increment", "booking_horizon_days", "google_refresh_token",
-        "package_sizes", "default_expires_months",
-        "sms_enabled", "min_client_change_notice_hours"
-      ]),
-      fetch("/api/session-types").then(r => r.json()),
-      supabase.from("availability_rules").select("*").order("day_of_week").order("start_time"),
-      fetch("/api/pricing-matrix").then(r => r.json()),
-    ]);
+      const settings = {};
+      (settingsRes.data || []).forEach(s => { settings[s.key] = s.value; });
 
-    const settings = {};
-    (settingsRes.data || []).forEach(s => { settings[s.key] = s.value; });
-
-    setIncrement(settings.scheduling_increment || "30");
-    setHorizon(settings.booking_horizon_days || "30");
-    setGoogleConnected(!!settings.google_refresh_token);
-    setSmsEnabled(settings.sms_enabled === "true");
-    setMinNoticeHours(settings.min_client_change_notice_hours || "24");
-    setPackageSizes(parsePackageSizes(settings.package_sizes));
-    setDefaultExpiresMonths(settings.default_expires_months || "12");
-    setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
-    setRules(rulesRes.data || []);
-    const allPricing = Array.isArray(pricingRes) ? pricingRes : [];
-    setPricingRows(allPricing);
-    // Seed in-progress drafts with current hourly rates from existing rows
-    const drafts = {};
-    allPricing.forEach(p => {
-      drafts[`${p.duration_min}-${p.package_size}`] = hourlyRateOf(p).toFixed(2);
-    });
-    setPricingDrafts(drafts);
-    setLoading(false);
+      setIncrement(settings.scheduling_increment || "30");
+      setHorizon(settings.booking_horizon_days || "30");
+      setGoogleConnected(!!settings.google_refresh_token);
+      setSmsEnabled(settings.sms_enabled === "true");
+      setMinNoticeHours(settings.min_client_change_notice_hours || "24");
+      setPackageSizes(parsePackageSizes(settings.package_sizes));
+      setDefaultExpiresMonths(settings.default_expires_months || "12");
+      setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
+      setRules(rulesRes.data || []);
+      const allPricing = Array.isArray(pricingRes) ? pricingRes : [];
+      setPricingRows(allPricing);
+      const drafts = {};
+      allPricing.forEach(p => {
+        drafts[`${p.duration_min}-${p.package_size}`] = hourlyRateOf(p).toFixed(2);
+      });
+      setPricingDrafts(drafts);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // --- Save settings ---
@@ -130,40 +138,43 @@ export default function AdminSettings({ setPage }) {
   // --- Session types ---
   const addSessionType = async () => {
     if (!newType.label || !newType.duration) return;
-    const res = await fetch("/api/session-types", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: newType.label, duration: parseInt(newType.duration) }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/session-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: newType.label, duration: parseInt(newType.duration) }),
+      });
+      if (!res.ok) { if (res.status >= 500) setServerError(SERVER_ERROR); return; }
       const data = await res.json();
       setSessionTypes([...sessionTypes, data]);
       setNewType({ label: "", duration: "" });
-    }
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   const updateSessionType = async (id, updates) => {
-    const res = await fetch("/api/session-types", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, ...updates }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/session-types", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...updates }),
+      });
+      if (!res.ok) { if (res.status >= 500) setServerError(SERVER_ERROR); return; }
       const data = await res.json();
       setSessionTypes(sessionTypes.map(t => t.id === id ? data : t));
       setEditingType(null);
-    }
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   const removeSessionType = async (id) => {
-    const res = await fetch("/api/session-types", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/session-types", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) { if (res.status >= 500) setServerError(SERVER_ERROR); return; }
       setSessionTypes(sessionTypes.filter(t => t.id !== id));
-    }
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   // --- Package sizes ---
@@ -174,16 +185,21 @@ export default function AdminSettings({ setPage }) {
       : packageSizes.filter(x => x !== n);
     setPackageSizes(next);
     await saveSetting("package_sizes", next.join(","));
-    // Cascade to pricing matrix: deactivate all rows for removed size;
-    // reactivate rows-with-price for re-added size.
-    await fetch("/api/pricing-matrix", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ package_size: n, is_active: adding }),
-    });
-    // Refresh pricing rows so the matrix reflects the updated is_active values.
-    const pm = await fetch("/api/pricing-matrix").then(r => r.json()).catch(() => []);
-    if (Array.isArray(pm)) setPricingRows(pm);
+    try {
+      const patchRes = await fetch("/api/pricing-matrix", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ package_size: n, is_active: adding }),
+      });
+      if (patchRes.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const getRes = await fetch("/api/pricing-matrix");
+      if (getRes.ok) {
+        const pm = await getRes.json().catch(() => []);
+        if (Array.isArray(pm)) setPricingRows(pm);
+      } else if (getRes.status >= 500) {
+        setServerError(SERVER_ERROR);
+      }
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   // --- Pricing matrix ---
@@ -204,28 +220,31 @@ export default function AdminSettings({ setPage }) {
     const m = parseInt(defaultExpiresMonths);
     if (!m || m < 1) return;
     const price_cents = Math.round((hourlyRate * d * s / 60) * 100);
-    const res = await fetch("/api/pricing-matrix", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        duration_min: d,
-        package_size: s,
-        price_cents,
-        expires_months: m,
-        is_active: isActive,
-      }),
-    });
-    if (!res.ok) {
-      const { error: e } = await res.json().catch(() => ({}));
-      setPricingErrors(prev => ({ ...prev, [matrixKey(d, s)]: e || "Save failed" }));
-      return;
-    }
-    const data = await res.json();
-    setPricingRows(prev => {
-      const idx = prev.findIndex(p => p.id === data.id);
-      const next = idx >= 0 ? prev.map((p, i) => i === idx ? data : p) : [...prev, data];
-      return next.sort(sortPricing);
-    });
+    try {
+      const res = await fetch("/api/pricing-matrix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          duration_min: d,
+          package_size: s,
+          price_cents,
+          expires_months: m,
+          is_active: isActive,
+        }),
+      });
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        const { error: e } = await res.json().catch(() => ({}));
+        setPricingErrors(prev => ({ ...prev, [matrixKey(d, s)]: e || "Save failed" }));
+        return;
+      }
+      const data = await res.json();
+      setPricingRows(prev => {
+        const idx = prev.findIndex(p => p.id === data.id);
+        const next = idx >= 0 ? prev.map((p, i) => i === idx ? data : p) : [...prev, data];
+        return next.sort(sortPricing);
+      });
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   const handleHourlyRateBlur = async (d, s, e) => {
@@ -266,39 +285,45 @@ export default function AdminSettings({ setPage }) {
     setDefaultExpiresError(null);
     await saveSetting("default_expires_months", String(m));
     if (pricingRows.length === 0) return;
-    const res = await fetch("/api/pricing-matrix", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expires_months: m }),
-    });
-    if (res.ok) {
-      setPricingRows(prev => prev.map(p => ({ ...p, expires_months: m })));
-    }
+    try {
+      const res = await fetch("/api/pricing-matrix", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expires_months: m }),
+      });
+      if (res.ok) {
+        setPricingRows(prev => prev.map(p => ({ ...p, expires_months: m })));
+      } else if (res.status >= 500) {
+        setServerError(SERVER_ERROR);
+      }
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   // --- Availability rules ---
   const addRule = async () => {
-    const res = await fetch("/api/availability", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "rule", ...newRule, day_of_week: parseInt(newRule.day_of_week) }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/availability", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "rule", ...newRule, day_of_week: parseInt(newRule.day_of_week) }),
+      });
+      if (!res.ok) { if (res.status >= 500) setServerError(SERVER_ERROR); return; }
       const data = await res.json();
       setRules([...rules, data].sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time)));
       setNewRule({ day_of_week: "1", start_time: "09:00", end_time: "17:00", is_blocked: false });
-    }
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   const removeRule = async (id) => {
-    const res = await fetch("/api/availability", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "rule", id }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/availability", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "rule", id }),
+      });
+      if (!res.ok) { if (res.status >= 500) setServerError(SERVER_ERROR); return; }
       setRules(rules.filter(r => r.id !== id));
-    }
+    } catch { setServerError(SERVER_ERROR); }
   };
 
   if (loading) return <div style={S.page}><p style={S.p}>Loading...</p></div>;

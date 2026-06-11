@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
 function adminSupabase() {
   return createClient(
@@ -70,7 +71,7 @@ function rowNames(row, bookingMap, purchaseMap, profileMap, isMultiMember) {
   return [];
 }
 
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -95,7 +96,6 @@ export async function GET(request) {
   const start = searchParams.get("start");
   const end = searchParams.get("end");
 
-  // Non-admins can only view their own group
   if (!isAdmin) {
     const { data: membership } = await admin
       .from("group_members")
@@ -108,7 +108,6 @@ export async function GET(request) {
 
   if (!groupId) return NextResponse.json({ error: "group_id required" }, { status: 400 });
 
-  // Fetch ledger rows for the group in range
   let query = admin
     .from("balance_ledger")
     .select("id, created_at, source_type, source_id, delta_minutes, amount_cents, note")
@@ -140,7 +139,6 @@ export async function GET(request) {
 
   const isMultiMember = (memberCount ?? 1) > 1;
 
-  // Collect source IDs by type to batch-fetch descriptions
   const bookingIds = [...new Set(ledger.filter(r => r.source_id && SESSION_TYPES.has(r.source_type)).map(r => r.source_id))];
   const purchaseIds = [...new Set(ledger.filter(r => r.source_id && r.source_type === "purchase").map(r => r.source_id))];
 
@@ -153,7 +151,6 @@ export async function GET(request) {
       : { data: [] },
   ]);
 
-  // Format booking date/time as "Mon Apr 21 at 9:00 AM"
   const DAYS_ABB = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTHS_ABB = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const bookingMap = {};
@@ -171,7 +168,6 @@ export async function GET(request) {
   const purchaseMap = {};
   (purchasesRes.data || []).forEach(p => { purchaseMap[p.id] = p; });
 
-  // Batch-fetch profiles for name resolution
   const clientIds = new Set();
   if (isMultiMember) {
     (bookingsRes.data || []).forEach(b => {
@@ -192,7 +188,6 @@ export async function GET(request) {
     (profiles || []).forEach(p => { profileMap[p.id] = p; });
   }
 
-  // Build rows with running balance
   let running = balanceForward;
   const rows = ledger.map(row => {
     running += row.delta_minutes || 0;
@@ -208,4 +203,4 @@ export async function GET(request) {
   });
 
   return NextResponse.json({ group_name: group?.name ?? null, balance_forward: balanceForward, rows });
-}
+}, { action: "GET /api/statement", resource: "statement" });

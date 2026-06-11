@@ -3,8 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import { withErrorCatch } from "@/lib/alert";
 
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "Client id is required" }, { status: 400 });
 
@@ -50,9 +51,6 @@ export async function POST(request) {
 
   const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_SITE_URL || "https://dkdivorcecoach.com";
 
-  // Generate a magic link bound to the client's login email; deliver ourselves
-  // via Resend so the message comes from diana@dkdivorcecoach.com and can go to
-  // preferred_email when different from login.
   const { data: linkData, error: linkErr } = await adminClient.auth.admin.generateLink({
     type: "magiclink",
     email: loginEmail,
@@ -62,10 +60,6 @@ export async function POST(request) {
     return NextResponse.json({ error: linkErr?.message || "Could not create link" }, { status: 500 });
   }
 
-  // Route the link through our own /auth/confirm handler so verifyOtp runs
-  // server-side and the new session cookie is written on our domain — this is
-  // what lets the link actually switch an existing (e.g. admin) session over to
-  // the targeted client.
   const hashedToken = linkData.properties.hashed_token;
   const actionLink = `${origin}/auth/confirm?token_hash=${encodeURIComponent(hashedToken)}&type=magiclink&next=${encodeURIComponent("/")}`;
   const firstName = targetProfile.first_name || "there";
@@ -92,4 +86,4 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ success: true, deliveredTo: deliveryEmail });
-}
+}, { action: "POST /api/clients/magic-link", resource: "magic-link" });

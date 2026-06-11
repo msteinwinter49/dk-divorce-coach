@@ -2,8 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
-export async function GET() {
+export const GET = withErrorCatch(async () => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -27,4 +28,4 @@ export async function GET() {
     min_notice_hours: settingRes.data?.value ? Number(settingRes.data.value) : 24,
     admin_phone: profileRes.data?.phone || "",
   });
-}
+}, { action: "GET /api/admin-contact", resource: "admin-contact" });

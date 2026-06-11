@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
 
@@ -82,6 +83,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
   const [deleteInput, setDeleteInput] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
+  const { setServerError } = useError();
 
   const TIMEZONES = [
     { value: "America/New_York", label: "Eastern Time (New York)" },
@@ -195,19 +197,25 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     if (!detail || isNaN(delta) || delta === 0) return;
     setAdjustSaving(true);
     setAdjustResult(null);
-    const res = await fetch("/api/purchases", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: detail.id, delta_minutes: delta, note: adjustNote.trim() || undefined }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setAdjustSaving(false);
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/purchases", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: detail.id, delta_minutes: delta, note: adjustNote.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setAdjustSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setAdjustResult({ ok: false, error: data.error || "Adjustment failed." });
+        return;
+      }
       setAdjustResult({ ok: true, balance_after: data.balance_after });
       setAdjustMinutes("");
       setAdjustNote("");
-    } else {
-      setAdjustResult({ ok: false, error: data.error || "Adjustment failed." });
+    } catch {
+      setAdjustSaving(false);
+      setServerError(SERVER_ERROR);
     }
   };
 
@@ -216,19 +224,25 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     if (!detail || isNaN(dollars) || dollars <= 0) return;
     setChargeSaving(true);
     setChargeResult(null);
-    const res = await fetch("/api/purchases", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "admin_charge", client_id: detail.id, amount_dollars: dollars, note: chargeNote.trim() || undefined }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setChargeSaving(false);
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/purchases", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "admin_charge", client_id: detail.id, amount_dollars: dollars, note: chargeNote.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setChargeSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setChargeResult({ ok: false, error: data.error || "Charge failed." });
+        return;
+      }
       setChargeResult({ ok: true, charged_dollars: data.charged_dollars });
       setChargeDollars("");
       setChargeNote("");
-    } else {
-      setChargeResult({ ok: false, error: data.error || "Charge failed." });
+    } catch {
+      setChargeSaving(false);
+      setServerError(SERVER_ERROR);
     }
   };
 
@@ -237,19 +251,25 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     if (!detail || isNaN(dollars) || dollars <= 0) return;
     setChargeSaving(true);
     setChargeResult(null);
-    const res = await fetch("/api/purchases", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "admin_refund", client_id: detail.id, amount_dollars: dollars, note: chargeNote.trim() || undefined }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setChargeSaving(false);
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/purchases", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "admin_refund", client_id: detail.id, amount_dollars: dollars, note: chargeNote.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setChargeSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setChargeResult({ ok: false, error: data.error || "Refund failed." });
+        return;
+      }
       setChargeResult({ ok: true, refunded_dollars: data.refunded_dollars });
       setChargeDollars("");
       setChargeNote("");
-    } else {
-      setChargeResult({ ok: false, error: data.error || "Refund failed." });
+    } catch {
+      setChargeSaving(false);
+      setServerError(SERVER_ERROR);
     }
   };
 
@@ -258,77 +278,106 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     if (!detail || !detail.group_id || isNaN(rate) || rate <= 0) return;
     setHourlyRateSaving(true);
     setHourlyRateResult(null);
-    const res = await fetch("/api/groups", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: detail.group_id, hourly_rate: rate }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setHourlyRateSaving(false);
-    if (!res.ok) {
-      setHourlyRateResult({ ok: false, error: data.error || "Could not save." });
-      return;
+    try {
+      const res = await fetch("/api/groups", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: detail.group_id, hourly_rate: rate }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setHourlyRateSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setHourlyRateResult({ ok: false, error: data.error || "Could not save." });
+        return;
+      }
+      setHourlyRateResult({ ok: true });
+      setClients(prev => prev.map(c => c.group_id === detail.group_id ? { ...c, group_hourly_rate: rate } : c));
+      setGroups(prev => prev.map(g => g.id === detail.group_id ? { ...g, hourly_rate: rate } : g));
+      setDetail(d => d ? { ...d, group_hourly_rate: rate } : d);
+    } catch {
+      setHourlyRateSaving(false);
+      setServerError(SERVER_ERROR);
     }
-    setHourlyRateResult({ ok: true });
-    // Update all clients in this group and the cached groups list
-    setClients(prev => prev.map(c => c.group_id === detail.group_id ? { ...c, group_hourly_rate: rate } : c));
-    setGroups(prev => prev.map(g => g.id === detail.group_id ? { ...g, hourly_rate: rate } : g));
-    setDetail(d => d ? { ...d, group_hourly_rate: rate } : d);
   };
 
   const saveGroup = async () => {
     if (!detail || !editGroupId) return;
     setGroupSaving(true);
     setGroupResult(null);
-    const res = await fetch("/api/groups/members", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: detail.id, group_id: editGroupId }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setGroupSaving(false);
-    if (!res.ok) {
-      setGroupResult({ ok: false, error: data.error || "Could not save." });
-      return;
+    try {
+      const res = await fetch("/api/groups/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: detail.id, group_id: editGroupId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setGroupSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setGroupResult({ ok: false, error: data.error || "Could not save." });
+        return;
+      }
+      const g = groups.find(gr => gr.id === editGroupId);
+      const updates = { group_id: editGroupId, group_name: g?.name || "", group_hourly_rate: g?.hourly_rate ?? null };
+      setGroupResult({ ok: true });
+      setClients(prev => prev.map(c => c.id === detail.id ? { ...c, ...updates } : c));
+      setDetail(d => d ? { ...d, ...updates } : d);
+    } catch {
+      setGroupSaving(false);
+      setServerError(SERVER_ERROR);
     }
-    const g = groups.find(gr => gr.id === editGroupId);
-    const updates = { group_id: editGroupId, group_name: g?.name || "", group_hourly_rate: g?.hourly_rate ?? null };
-    setGroupResult({ ok: true });
-    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, ...updates } : c));
-    setDetail(d => d ? { ...d, ...updates } : d);
   };
 
   const handleArchiveToggle = async () => {
     if (!detail) return;
     setArchiveLoading(true);
     setArchiveError(null);
-    const res = await fetch("/api/clients", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: detail.id, is_archived: !detail.is_archived }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setArchiveLoading(false);
-    if (!res.ok) { setArchiveError(data.error || "Could not update."); return; }
-    const newArchived = !detail.is_archived;
-    setDetail(d => d ? { ...d, is_archived: newArchived } : d);
-    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, is_archived: newArchived } : c));
+    try {
+      const res = await fetch("/api/clients", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: detail.id, is_archived: !detail.is_archived }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setArchiveLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setArchiveError(data.error || "Could not update.");
+        return;
+      }
+      const newArchived = !detail.is_archived;
+      setDetail(d => d ? { ...d, is_archived: newArchived } : d);
+      setClients(prev => prev.map(c => c.id === detail.id ? { ...c, is_archived: newArchived } : c));
+    } catch {
+      setArchiveLoading(false);
+      setServerError(SERVER_ERROR);
+    }
   };
 
-const handleClientDelete = async () => {
+  const handleClientDelete = async () => {
     if (!detail) return;
     setDeleteLoading(true);
     setDeleteError(null);
-    const res = await fetch("/api/clients", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: detail.id }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setDeleteLoading(false);
-    if (!res.ok) { setDeleteError(data.error || "Delete failed."); return; }
-    setClients(prev => prev.filter(c => c.id !== detail.id));
-    closeDetail();
+    try {
+      const res = await fetch("/api/clients", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: detail.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setDeleteLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setDeleteError(data.error || "Delete failed.");
+        return;
+      }
+      setClients(prev => prev.filter(c => c.id !== detail.id));
+      closeDetail();
+    } catch {
+      setDeleteLoading(false);
+      setServerError(SERVER_ERROR);
+    }
   };
 
   const saveDetail = async () => {
@@ -363,52 +412,75 @@ const handleClientDelete = async () => {
       age: editAge !== "" ? parseInt(editAge) || null : null,
       timezone: editTimezone,
     };
-    const res = await fetch("/api/clients", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    setDetailSaving(false);
-    if (!res.ok) {
-      setDetailError(data.error || "Could not save.");
-      return;
+    try {
+      const res = await fetch("/api/clients", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      setDetailSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setDetailError(data.error || "Could not save.");
+        return;
+      }
+      setDetailSuccess("Saved.");
+      setClients(prev => prev.map(c => c.id === detail.id ? { ...c, ...data } : c));
+      setDetail(d => d ? { ...d, ...data } : d);
+    } catch {
+      setDetailSaving(false);
+      setServerError(SERVER_ERROR);
     }
-    setDetailSuccess("Saved.");
-    setClients(prev => prev.map(c => c.id === detail.id ? { ...c, ...data } : c));
-    setDetail(d => d ? { ...d, ...data } : d);
   };
 
   const sendMagicLink = async () => {
     if (!detail) return;
     setMagicLoading(true);
     setMagicResult(null);
-    const res = await fetch("/api/clients/magic-link", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: detail.id }),
-    });
-    const data = await res.json();
-    setMagicLoading(false);
-    if (!res.ok) {
-      setMagicResult({ ok: false, text: data.error || "Could not send link." });
-      return;
+    try {
+      const res = await fetch("/api/clients/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: detail.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setMagicLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setMagicResult({ ok: false, text: data.error || "Could not send link." });
+        return;
+      }
+      setMagicResult({ ok: true, text: `Sign-in link sent to ${data.deliveredTo}.` });
+    } catch {
+      setMagicLoading(false);
+      setServerError(SERVER_ERROR);
     }
-    setMagicResult({ ok: true, text: `Sign-in link sent to ${data.deliveredTo}.` });
   };
 
   const fetchClients = async () => {
     setListLoading(true);
-    const res = await fetch("/api/clients");
-    const data = await res.json();
-    if (res.ok) setClients(data.clients || []);
-    setListLoading(false);
+    try {
+      const res = await fetch("/api/clients");
+      if (res.status >= 500) { setServerError(SERVER_ERROR); setListLoading(false); return; }
+      const data = await res.json();
+      if (res.ok) setClients(data.clients || []);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setListLoading(false);
+    }
   };
 
   const fetchGroups = async () => {
-    const res = await fetch("/api/groups");
-    const data = await res.json();
-    if (res.ok) setGroups(data.groups || []);
+    try {
+      const res = await fetch("/api/groups");
+      if (!res.ok) { if (res.status >= 500) setServerError(SERVER_ERROR); return; }
+      const data = await res.json();
+      setGroups(data.groups || []);
+    } catch {
+      setServerError(SERVER_ERROR);
+    }
   };
 
   useEffect(() => { fetchClients(); fetchGroups(); }, []);
@@ -450,18 +522,19 @@ const handleClientDelete = async () => {
       }
     }
 
-    const res = await fetch("/api/invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-    setInviteLoading(false);
-
-    if (!res.ok) {
-      setInviteError(data.error || "Something went wrong.");
-    } else {
+    try {
+      const res = await fetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      setInviteLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setInviteError(data.error || "Something went wrong.");
+        return;
+      }
       setInviteSuccess(`Invitation sent to ${email}`);
       setEmail("");
       setInviteHourlyRate("");
@@ -470,6 +543,9 @@ const handleClientDelete = async () => {
       setMakeAdmin(false);
       fetchClients();
       fetchGroups();
+    } catch {
+      setInviteLoading(false);
+      setServerError(SERVER_ERROR);
     }
   };
 

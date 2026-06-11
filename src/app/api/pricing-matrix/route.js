@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
 async function getAuthContext() {
   const cookieStore = await cookies();
@@ -29,8 +30,7 @@ function adminSupabase() {
   );
 }
 
-// GET — list pricing rows. Non-admins get active only.
-export async function GET() {
+export const GET = withErrorCatch(async () => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -41,10 +41,9 @@ export async function GET() {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "GET /api/pricing-matrix", resource: "pricing-matrix" });
 
-// POST — upsert a pricing row by (duration_min, package_size). Admin only.
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -71,10 +70,9 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
-}
+}, { action: "POST /api/pricing-matrix", resource: "pricing-matrix" });
 
-// PUT — bulk update expires_months across every pricing row. Admin only.
-export async function PUT(request) {
+export const PUT = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -91,15 +89,9 @@ export async function PUT(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ updated: data?.length || 0 });
-}
+}, { action: "PUT /api/pricing-matrix", resource: "pricing-matrix" });
 
-// PATCH — update a pricing row (admin only).
-// Two modes:
-//   { id, ...fields }          — single-row update by id
-//   { package_size, is_active } — bulk activate/deactivate all rows for a package size.
-//     Deactivate: sets is_active=false on all rows for that size.
-//     Activate:   sets is_active=true only on rows that already have a price_cents value.
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -107,7 +99,6 @@ export async function PATCH(request) {
   const body = await request.json();
   const { id, package_size, is_active, ...updates } = body;
 
-  // Bulk mode: no id, package_size + is_active provided
   if (!id && package_size !== undefined && is_active !== undefined) {
     const admin = adminSupabase();
     let query = admin
@@ -115,7 +106,6 @@ export async function PATCH(request) {
       .update({ is_active, updated_at: new Date().toISOString() })
       .eq("package_size", parseInt(package_size));
     if (is_active) {
-      // Only reactivate rows that actually have a price set
       query = query.not("price_cents", "is", null);
     }
     const { data, error } = await query.select();
@@ -125,7 +115,6 @@ export async function PATCH(request) {
 
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-  // Single-row mode
   const coerced = { ...updates, updated_at: new Date().toISOString() };
   if (is_active !== undefined) coerced.is_active = is_active;
   for (const k of ["duration_min", "package_size", "price_cents", "expires_months"]) {
@@ -141,10 +130,9 @@ export async function PATCH(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
-}
+}, { action: "PATCH /api/pricing-matrix", resource: "pricing-matrix" });
 
-// DELETE — soft-delete a pricing row (admin only)
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -161,4 +149,4 @@ export async function DELETE(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "DELETE /api/pricing-matrix", resource: "pricing-matrix" });

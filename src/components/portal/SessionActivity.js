@@ -1,6 +1,7 @@
 "use client";
 import { useState, useCallback } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -111,6 +112,7 @@ export default function SessionActivity({ clientId }) {
   const [groupName, setGroupName] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { setServerError } = useError();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,12 +120,23 @@ export default function SessionActivity({ clientId }) {
     const params = new URLSearchParams({ client_id: clientId });
     if (start) params.set("start", start);
     if (end) params.set("end", end);
-    const res = await fetch(`/api/session-activity?${params}`).then(r => r.json()).catch(() => ({ error: "Network error" }));
-    setLoading(false);
-    if (res.error) { setError(res.error); return; }
-    setClientName(res.client_name || null);
-    setGroupName(res.group_name || null);
-    setRows(res.rows || []);
+    try {
+      const res = await fetch(`/api/session-activity?${params}`);
+      setLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Something went wrong");
+        return;
+      }
+      const data = await res.json();
+      setClientName(data.client_name || null);
+      setGroupName(data.group_name || null);
+      setRows(data.rows || []);
+    } catch {
+      setLoading(false);
+      setServerError(SERVER_ERROR);
+    }
   }, [clientId, start, end]);
 
   const handlePrint = () => {

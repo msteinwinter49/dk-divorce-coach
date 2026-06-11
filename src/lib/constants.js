@@ -7,6 +7,8 @@ export const C = {
   gridLine: "rgba(0,0,0,0.3)",
 };
 
+export const SERVER_ERROR = "Something went wrong. Please reload the page and try again.";
+
 export const S = {
   nav: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 1rem", height:56, borderBottom:`0.5px solid ${C.border}`, background:"#fff", position:"sticky", top:0, zIndex:10 },
   logo: { display:"flex", flexDirection:"column", cursor:"pointer", flexShrink:0 },

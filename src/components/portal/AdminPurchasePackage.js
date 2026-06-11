@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 
 export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess }) {
   const [pricing, setPricing] = useState([]);
@@ -13,6 +14,7 @@ export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess 
 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null); // { ok, balance_after, charged_dollars } | { ok:false, error }
+  const { setServerError } = useError();
 
   useEffect(() => {
     if (!client?.id) return;
@@ -20,17 +22,29 @@ export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess 
     setResult(null);
     setChosenDuration("");
     setChosenMatrixId("");
-    Promise.all([
-      fetch("/api/pricing-matrix").then(r => r.json()),
-      fetch("/api/session-types").then(r => r.json()),
-      fetch(`/api/stripe/card?client_id=${encodeURIComponent(client.id)}`).then(r => r.json()).catch(() => ({ card: null })),
-    ]).then(([p, t, c]) => {
-      setPricing(Array.isArray(p) ? p.filter(x => x.is_active) : []);
-      setSessionTypes(Array.isArray(t) ? t.filter(x => x.is_active) : []);
-      setCard(c?.card || null);
-      setLoading(false);
-    });
-  }, [client?.id]);
+    (async () => {
+      try {
+        const [pr, tr, cr] = await Promise.all([
+          fetch("/api/pricing-matrix"),
+          fetch("/api/session-types"),
+          fetch(`/api/stripe/card?client_id=${encodeURIComponent(client.id)}`),
+        ]);
+        if (pr.status >= 500 || tr.status >= 500) { setServerError(SERVER_ERROR); setLoading(false); return; }
+        const [p, t, c] = await Promise.all([
+          pr.json().catch(() => []),
+          tr.json().catch(() => []),
+          cr.ok ? cr.json().catch(() => ({ card: null })) : Promise.resolve({ card: null }),
+        ]);
+        setPricing(Array.isArray(p) ? p.filter(x => x.is_active) : []);
+        setSessionTypes(Array.isArray(t) ? t.filter(x => x.is_active) : []);
+        setCard(c?.card || null);
+      } catch {
+        setServerError(SERVER_ERROR);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [client?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const distinctDurations = Array.from(new Set(pricing.map(p => p.duration_min)))
     .filter(d => sessionTypes.some(st => st.duration === d))
@@ -63,22 +77,24 @@ export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matrix_id: chosenPackage.id, client_id: client.id }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setResult({
-          ok: true,
-          balance_after: data.balance_after,
-          charged_dollars: fmtDollars(effectivePriceCents(chosenPackage)),
-        });
-        setChosenDuration("");
-        setChosenMatrixId("");
-        onDirtyChange?.(false);
-        onSuccess?.(data.balance_after);
-      } else {
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        const data = await res.json().catch(() => ({}));
         setResult({ ok: false, error: data.error || "Charge failed." });
+        return;
       }
+      const data = await res.json();
+      setResult({
+        ok: true,
+        balance_after: data.balance_after,
+        charged_dollars: fmtDollars(effectivePriceCents(chosenPackage)),
+      });
+      setChosenDuration("");
+      setChosenMatrixId("");
+      onDirtyChange?.(false);
+      onSuccess?.(data.balance_after);
     } catch {
-      setResult({ ok: false, error: "Network error. Please try again." });
+      setServerError(SERVER_ERROR);
     } finally {
       setSubmitting(false);
     }

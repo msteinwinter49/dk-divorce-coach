@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useAuth } from "@/context/AuthContext";
 import { useIsMobile } from "@/lib/hooks";
 
@@ -39,6 +40,7 @@ function viewerSrc(url, ext) {
 
 export default function Documents({ viewAsClient, initialShareId }) {
   const { user, profile } = useAuth();
+  const { setServerError } = useError();
   const mobile = useIsMobile();
   const isAdminUser = profile?.role === "admin";
   const isAdmin = isAdminUser && !viewAsClient;
@@ -110,21 +112,37 @@ export default function Documents({ viewAsClient, initialShareId }) {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    if (isAdminUser) {
-      const [docsRes, sharesRes, clientsRes] = await Promise.all([
-        fetch("/api/documents").then(r => r.json()),
-        fetch("/api/documents/shares").then(r => r.json()),
-        fetch("/api/clients").then(r => r.json()),
-      ]);
-      setDocs(Array.isArray(docsRes) ? docsRes : []);
-      setAllShares(Array.isArray(sharesRes) ? sharesRes : []);
-      setAllClients((clientsRes.clients || []).filter(c => c.role === "client" && !c.is_archived));
-    } else {
-      const res = await fetch("/api/documents/shares").then(r => r.json());
-      setOwnShares(Array.isArray(res) ? res : []);
+    try {
+      if (isAdminUser) {
+        const [docsR, sharesR, clientsR] = await Promise.all([
+          fetch("/api/documents"),
+          fetch("/api/documents/shares"),
+          fetch("/api/clients"),
+        ]);
+        if (docsR.status >= 500 || sharesR.status >= 500 || clientsR.status >= 500) {
+          setServerError(SERVER_ERROR);
+          return;
+        }
+        const [docsRes, sharesRes, clientsRes] = await Promise.all([
+          docsR.json().catch(() => []),
+          sharesR.json().catch(() => []),
+          clientsR.json().catch(() => ({ clients: [] })),
+        ]);
+        setDocs(Array.isArray(docsRes) ? docsRes : []);
+        setAllShares(Array.isArray(sharesRes) ? sharesRes : []);
+        setAllClients((clientsRes.clients || []).filter(c => c.role === "client" && !c.is_archived));
+      } else {
+        const r = await fetch("/api/documents/shares");
+        if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
+        const res = await r.json().catch(() => []);
+        setOwnShares(Array.isArray(res) ? res : []);
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [user, isAdminUser]);
+  }, [user, isAdminUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -167,39 +185,64 @@ export default function Documents({ viewAsClient, initialShareId }) {
     fd.append("file", file);
     fd.append("name", file.name.replace(/\.[^/.]+$/, ""));
     fd.append("type", "file");
-    const res = await fetch("/api/documents", { method: "POST", body: fd }).then(r => r.json());
-    if (res.error) setUploadError(res.error);
-    else setDocs(prev => [{ ...res, document_shares: [{ count: 0 }] }, ...prev]);
-    setUploading(false);
-    e.target.value = "";
+    try {
+      const r = await fetch("/api/documents", { method: "POST", body: fd });
+      if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const res = await r.json();
+      if (res.error) setUploadError(res.error);
+      else setDocs(prev => [{ ...res, document_shares: [{ count: 0 }] }, ...prev]);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
   };
 
   const submitRename = async (id) => {
     if (!renameName.trim()) { setRenameId(null); return; }
     setRenameSaving(true);
-    const res = await fetch("/api/documents", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, name: renameName.trim() }),
-    }).then(r => r.json());
-    if (!res.error) setDocs(prev => prev.map(d => d.id === id ? { ...d, name: res.name } : d));
-    setRenameId(null);
-    setRenameSaving(false);
+    try {
+      const r = await fetch("/api/documents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, name: renameName.trim() }),
+      });
+      if (r.status >= 500) { setServerError(SERVER_ERROR); }
+      else {
+        const res = await r.json().catch(() => ({}));
+        if (!res.error) setDocs(prev => prev.map(d => d.id === id ? { ...d, name: res.name } : d));
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setRenameId(null);
+      setRenameSaving(false);
+    }
   };
 
   const handleDelete = async (id) => {
     setDeleteLoading(true);
-    const res = await fetch("/api/documents", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    }).then(r => r.json());
-    if (!res.error) {
-      setDocs(prev => prev.filter(d => d.id !== id));
-      setAllShares(prev => prev.filter(s => s.document_id !== id));
+    try {
+      const r = await fetch("/api/documents", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (r.status >= 500) { setServerError(SERVER_ERROR); }
+      else {
+        const res = await r.json().catch(() => ({}));
+        if (!res.error) {
+          setDocs(prev => prev.filter(d => d.id !== id));
+          setAllShares(prev => prev.filter(s => s.document_id !== id));
+        }
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setDeleteConfirmId(null);
+      setDeleteLoading(false);
     }
-    setDeleteConfirmId(null);
-    setDeleteLoading(false);
   };
 
   const openShareModal = (doc) => {
@@ -215,45 +258,71 @@ export default function Documents({ viewAsClient, initialShareId }) {
     if (!shareClientIds.length) { setShareError("Select at least one client."); return; }
     setShareLoading(true);
     setShareError(null);
-    const res = await fetch("/api/documents/shares", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        document_id: shareDoc.id,
-        client_ids: shareClientIds,
-        require_acknowledgment: shareRequireAck,
-        acknowledgment_label: shareAckLabel,
-      }),
-    }).then(r => r.json());
-    if (res.error) { setShareError(res.error); setShareLoading(false); return; }
-    const [docsRes, sharesRes] = await Promise.all([
-      fetch("/api/documents").then(r => r.json()),
-      fetch("/api/documents/shares").then(r => r.json()),
-    ]);
-    setDocs(Array.isArray(docsRes) ? docsRes : []);
-    setAllShares(Array.isArray(sharesRes) ? sharesRes : []);
-    setShareDoc(null);
-    setShareLoading(false);
+    try {
+      const r = await fetch("/api/documents/shares", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          document_id: shareDoc.id,
+          client_ids: shareClientIds,
+          require_acknowledgment: shareRequireAck,
+          acknowledgment_label: shareAckLabel,
+        }),
+      });
+      if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const res = await r.json().catch(() => ({}));
+      if (res.error) { setShareError(res.error); return; }
+      const [docsR, sharesR] = await Promise.all([
+        fetch("/api/documents"),
+        fetch("/api/documents/shares"),
+      ]);
+      if (docsR.status >= 500 || sharesR.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const [docsRes, sharesRes] = await Promise.all([
+        docsR.json().catch(() => []),
+        sharesR.json().catch(() => []),
+      ]);
+      setDocs(Array.isArray(docsRes) ? docsRes : []);
+      setAllShares(Array.isArray(sharesRes) ? sharesRes : []);
+      setShareDoc(null);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setShareLoading(false);
+    }
   };
 
   const handleUnshare = async (shareId) => {
     setUnshareLoading(shareId);
-    await fetch("/api/documents/shares", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ share_id: shareId }),
-    });
-    setAllShares(prev => prev.filter(s => s.id !== shareId));
-    setUnshareLoading(null);
+    try {
+      const r = await fetch("/api/documents/shares", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ share_id: shareId }),
+      });
+      if (r.ok) setAllShares(prev => prev.filter(s => s.id !== shareId));
+      else if (r.status >= 500) setServerError(SERVER_ERROR);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setUnshareLoading(null);
+    }
   };
 
   const openAdminViewer = async (doc) => {
     setAdminViewerDoc(doc);
     setAdminViewerUrl(null);
     setAdminViewerLoading(true);
-    const res = await fetch(`/api/documents/${doc.id}/url`).then(r => r.json());
-    setAdminViewerUrl(res.url || null);
-    setAdminViewerLoading(false);
+    try {
+      const r = await fetch(`/api/documents/${doc.id}/url`);
+      if (r.status >= 500) { setServerError(SERVER_ERROR); setAdminViewerDoc(null); return; }
+      const res = await r.json().catch(() => ({}));
+      setAdminViewerUrl(res.url || null);
+    } catch {
+      setServerError(SERVER_ERROR);
+      setAdminViewerDoc(null);
+    } finally {
+      setAdminViewerLoading(false);
+    }
   };
 
   const openViewer = async (share) => {
@@ -261,20 +330,35 @@ export default function Documents({ viewAsClient, initialShareId }) {
     setViewerUrl(null);
     setViewerLoading(true);
     setAckError(null);
-    const res = await fetch(`/api/documents/${share.document_id}/url`).then(r => r.json());
-    setViewerUrl(res.url || null);
-    setViewerLoading(false);
+    try {
+      const r = await fetch(`/api/documents/${share.document_id}/url`);
+      if (r.status >= 500) { setServerError(SERVER_ERROR); setViewerShare(null); return; }
+      const res = await r.json().catch(() => ({}));
+      setViewerUrl(res.url || null);
+    } catch {
+      setServerError(SERVER_ERROR);
+      setViewerShare(null);
+    } finally {
+      setViewerLoading(false);
+    }
   };
 
   const handleAcknowledge = async () => {
     setAckLoading(true);
     setAckError(null);
-    const res = await fetch(`/api/documents/shares/${viewerShare.id}/acknowledge`, { method: "POST" }).then(r => r.json());
-    if (res.error) { setAckError(res.error); setAckLoading(false); return; }
-    const now = new Date().toISOString();
-    setOwnShares(prev => prev.map(s => s.id === viewerShare.id ? { ...s, acknowledged_at: now } : s));
-    setViewerShare(prev => ({ ...prev, acknowledged_at: now }));
-    setAckLoading(false);
+    try {
+      const r = await fetch(`/api/documents/shares/${viewerShare.id}/acknowledge`, { method: "POST" });
+      if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const res = await r.json().catch(() => ({}));
+      if (res.error) { setAckError(res.error); return; }
+      const now = new Date().toISOString();
+      setOwnShares(prev => prev.map(s => s.id === viewerShare.id ? { ...s, acknowledged_at: now } : s));
+      setViewerShare(prev => ({ ...prev, acknowledged_at: now }));
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setAckLoading(false);
+    }
   };
 
   const triggerDownload = async (url, name, ext) => {
@@ -314,25 +398,41 @@ export default function Documents({ viewAsClient, initialShareId }) {
     setClientUploadError(null);
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/documents/client-upload", { method: "POST", body: fd }).then(r => r.json());
-    if (res.error) setClientUploadError(res.error);
-    else {
-      const sharesRes = await fetch("/api/documents/shares").then(r => r.json());
-      setOwnShares(Array.isArray(sharesRes) ? sharesRes : []);
+    try {
+      const r = await fetch("/api/documents/client-upload", { method: "POST", body: fd });
+      if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const res = await r.json();
+      if (res.error) setClientUploadError(res.error);
+      else {
+        const sharesR = await fetch("/api/documents/shares");
+        if (sharesR.status >= 500) { setServerError(SERVER_ERROR); return; }
+        const sharesRes = await sharesR.json().catch(() => []);
+        setOwnShares(Array.isArray(sharesRes) ? sharesRes : []);
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setClientUploading(false);
+      e.target.value = "";
     }
-    setClientUploading(false);
-    e.target.value = "";
   };
 
   const handleClientDeleteUpload = async (shareId) => {
     setClientDeleteLoading(shareId);
-    const res = await fetch("/api/documents/client-upload", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ share_id: shareId }),
-    }).then(r => r.json());
-    if (!res.error) setOwnShares(prev => prev.filter(s => s.id !== shareId));
-    setClientDeleteLoading(null);
+    try {
+      const r = await fetch("/api/documents/client-upload", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ share_id: shareId }),
+      });
+      if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const res = await r.json().catch(() => ({}));
+      if (!res.error) setOwnShares(prev => prev.filter(s => s.id !== shareId));
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setClientDeleteLoading(null);
+    }
   };
 
   // Admin shared docs table helpers

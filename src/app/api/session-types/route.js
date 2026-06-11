@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
 async function getAuthContext() {
   const cookieStore = await cookies();
@@ -22,8 +23,7 @@ async function getAuthContext() {
   return { user, profile, supabase };
 }
 
-// GET — list active session types (any authenticated user)
-export async function GET() {
+export const GET = withErrorCatch(async () => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
@@ -33,7 +33,6 @@ export async function GET() {
   );
 
   let query = adminClient.from("session_types").select("*").order("duration");
-  // Non-admin only sees active types
   if (ctx.profile?.role !== "admin") {
     query = query.eq("is_active", true);
   }
@@ -41,10 +40,9 @@ export async function GET() {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "GET /api/session-types", resource: "session-types" });
 
-// POST — create a session type (admin only)
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -67,10 +65,9 @@ export async function POST(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "POST /api/session-types", resource: "session-types" });
 
-// PATCH — update a session type (admin only)
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -92,10 +89,9 @@ export async function PATCH(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "PATCH /api/session-types", resource: "session-types" });
 
-// DELETE — deactivate a session type (admin only)
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const ctx = await getAuthContext();
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
   if (ctx.profile?.role !== "admin") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
@@ -117,4 +113,4 @@ export async function DELETE(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "DELETE /api/session-types", resource: "session-types" });

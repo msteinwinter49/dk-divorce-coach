@@ -2,12 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { notifyAdmin, notifyCoach, notifyClient, formatSessionDate, formatSessionTime, formatSessionDateTime } from "@/lib/notifications";
 import { expireStaleRequests } from "@/lib/bookings-sweep";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
-// Cron job: expire unactioned requests, send admin reminders for pending,
-// and send session reminders for confirmed bookings.
-// Called by Vercel cron daily (Hobby plan limit).
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -21,17 +18,9 @@ export async function GET(request) {
   const now = new Date();
   const results = { expired: 0, pending_reminders: 0, client_reminders: 0, admin_reminders: 0 };
 
-  // ============================================
-  // 1. Expire requests: past-start-time AND TTL (stale unactioned requests).
-  //    Shared with /api/bookings GET via lib/bookings-sweep so the same rules
-  //    apply on opportunistic sweeps.
-  // ============================================
   const sweep = await expireStaleRequests(supabase);
   results.expired = sweep.expired;
 
-  // ============================================
-  // 2. Admin reminders for pending requests (24h and 1h)
-  // ============================================
   const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const in1h = new Date(now.getTime() + 60 * 60 * 1000);
 
@@ -43,7 +32,6 @@ export async function GET(request) {
     .lte("start_time", in24h.toISOString());
 
   if (pendingBookings?.length > 0) {
-    // Fetch profiles separately (no FK between bookings and profiles)
     const userIds = [...new Set(pendingBookings.map(b => b.user_id))];
     const { data: profiles } = await supabase
       .from("profiles")
@@ -78,11 +66,6 @@ export async function GET(request) {
     }
   }
 
-  // ============================================
-  // 3. Confirmed session reminders
-  // ============================================
-
-  // Load the coach profile for session reminder settings
   const { data: coach } = await supabase
     .from("profiles")
     .select("preferred_email, phone, admin_reminder_channel, admin_reminder_minutes")
@@ -92,11 +75,8 @@ export async function GET(request) {
   const coachChannel = coach?.admin_reminder_channel || "none";
   const coachMinutes = parseInt(coach?.admin_reminder_minutes || "0");
 
-  // Buffer to compensate for cron interval — reminders may arrive early by
-  // up to this amount, but never late. Matches the longest cron gap (daily = 1440).
   const CRON_BUFFER_MIN = 1440;
 
-  // Find all confirmed bookings starting within the next 24h + buffer
   const { data: confirmedBookings } = await supabase
     .from("bookings")
     .select("*")
@@ -105,7 +85,6 @@ export async function GET(request) {
     .lte("start_time", new Date(now.getTime() + (24 * 60 + CRON_BUFFER_MIN) * 60000).toISOString());
 
   if (confirmedBookings?.length > 0) {
-    // Fetch client profiles
     const userIds = [...new Set(confirmedBookings.map(b => b.user_id))];
     const { data: profiles } = await supabase
       .from("profiles")
@@ -121,7 +100,6 @@ export async function GET(request) {
       const whenStr = formatSessionDateTime(booking.date, booking.time_slot);
       const minutesUntil = (new Date(booking.start_time) - now) / 60000;
 
-      // --- Client reminders ---
       if (profile && !booking.client_reminder_sent_at) {
         const pref = profile.reminder_preference || "both";
         let shouldNotify = false;
@@ -133,7 +111,6 @@ export async function GET(request) {
         } else if (pref === "1h" && minutesUntil <= 60 + CRON_BUFFER_MIN) {
           shouldNotify = true;
         }
-        // pref === "none" — no reminder
 
         if (shouldNotify) {
           try {
@@ -159,7 +136,6 @@ export async function GET(request) {
         }
       }
 
-      // --- Admin (coach) reminder ---
       if (coachChannel !== "none" && coach && !booking.admin_reminder_sent_at && minutesUntil <= coachMinutes + CRON_BUFFER_MIN) {
         try {
           await notifyCoach(
@@ -186,16 +162,12 @@ export async function GET(request) {
     }
   }
 
-  // ============================================
-  // Expire purchase minutes: debit balance for expired packages.
-  // ============================================
   try {
     const sweepStart = now.toISOString();
     const { data: expiredRows } = await supabase.rpc("expire_purchase_minutes");
     results.expired_purchase_rows = expiredRows ?? 0;
 
     if ((expiredRows ?? 0) > 0) {
-      // Find actual debits (non-zero delta) written during this sweep
       const { data: expirations } = await supabase
         .from("balance_ledger")
         .select("client_id, delta_minutes")
@@ -241,4 +213,4 @@ export async function GET(request) {
   try { await supabase.from("system_alerts").delete().lt("created_at", new Date(Date.now() - 90*24*60*60*1000).toISOString()); } catch {}
 
   return NextResponse.json(results);
-}
+}, { action: "GET /api/bookings/expire", resource: "bookings-expire" });

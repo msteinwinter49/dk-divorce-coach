@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
 
@@ -56,13 +57,20 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
   const [deleteInput, setDeleteInput] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
+  const { setServerError } = useError();
 
   const fetchGroups = async () => {
     setListLoading(true);
-    const res = await fetch("/api/groups");
-    const data = await res.json();
-    if (res.ok) setGroups(data.groups || []);
-    setListLoading(false);
+    try {
+      const res = await fetch("/api/groups");
+      if (res.status >= 500) { setServerError(SERVER_ERROR); setListLoading(false); return; }
+      const data = await res.json();
+      if (res.ok) setGroups(data.groups || []);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setListLoading(false);
+    }
   };
 
   useEffect(() => { fetchGroups(); }, []);
@@ -97,14 +105,20 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
 
     setMembersLoading(true);
     setMembers([]);
-    const res = await fetch(`/api/groups/members?group_id=${group.id}`);
-    const data = await res.json();
-    setMembersLoading(false);
-    if (res.ok) {
-      const list = data.members || [];
-      setMembers(list);
-      const firstActive = list.find(m => m.is_active);
-      if (firstActive) setPurchaseClientId(firstActive.client_id);
+    try {
+      const res = await fetch(`/api/groups/members?group_id=${group.id}`);
+      setMembersLoading(false);
+      if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+      const data = await res.json();
+      if (res.ok) {
+        const list = data.members || [];
+        setMembers(list);
+        const firstActive = list.find(m => m.is_active);
+        if (firstActive) setPurchaseClientId(firstActive.client_id);
+      }
+    } catch {
+      setMembersLoading(false);
+      setServerError(SERVER_ERROR);
     }
   };
 
@@ -135,28 +149,46 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setInfoResult(null);
 
     if (!modal.id) {
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, hourly_rate: rate }),
-      });
-      const data = await res.json();
-      setInfoSaving(false);
-      if (!res.ok) { setInfoResult({ ok: false, error: data.error || "Could not create." }); return; }
-      await fetchGroups();
-      openGroup({ ...data, balance_minutes: 0, member_count: 0 });
+      try {
+        const res = await fetch("/api/groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, hourly_rate: rate }),
+        });
+        const data = await res.json().catch(() => ({}));
+        setInfoSaving(false);
+        if (!res.ok) {
+          if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+          setInfoResult({ ok: false, error: data.error || "Could not create." });
+          return;
+        }
+        await fetchGroups();
+        openGroup({ ...data, balance_minutes: 0, member_count: 0 });
+      } catch {
+        setInfoSaving(false);
+        setServerError(SERVER_ERROR);
+      }
     } else {
-      const res = await fetch("/api/groups", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: modal.id, name, hourly_rate: rate }),
-      });
-      const data = await res.json();
-      setInfoSaving(false);
-      if (!res.ok) { setInfoResult({ ok: false, error: data.error || "Could not save." }); return; }
-      setInfoResult({ ok: true });
-      setModal(prev => ({ ...prev, name: data.name, hourly_rate: data.hourly_rate }));
-      setGroups(prev => prev.map(g => g.id === data.id ? { ...g, name: data.name, hourly_rate: data.hourly_rate } : g));
+      try {
+        const res = await fetch("/api/groups", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: modal.id, name, hourly_rate: rate }),
+        });
+        const data = await res.json().catch(() => ({}));
+        setInfoSaving(false);
+        if (!res.ok) {
+          if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+          setInfoResult({ ok: false, error: data.error || "Could not save." });
+          return;
+        }
+        setInfoResult({ ok: true });
+        setModal(prev => ({ ...prev, name: data.name, hourly_rate: data.hourly_rate }));
+        setGroups(prev => prev.map(g => g.id === data.id ? { ...g, name: data.name, hourly_rate: data.hourly_rate } : g));
+      } catch {
+        setInfoSaving(false);
+        setServerError(SERVER_ERROR);
+      }
     }
   };
 
@@ -164,37 +196,49 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     if (!modal?.id || isNaN(delta) || delta === 0) return;
     setAdjustSaving(true);
     setAdjustResult(null);
-    const res = await fetch("/api/purchases", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group_id: modal.id, delta_minutes: delta, note: adjustNote.trim() || undefined }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setAdjustSaving(false);
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/purchases", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: modal.id, delta_minutes: delta, note: adjustNote.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setAdjustSaving(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setAdjustResult({ ok: false, error: data.error || "Adjustment failed." });
+        return;
+      }
       const newBal = data.balance_after;
       setDisplayBalance(newBal);
       setGroups(prev => prev.map(g => g.id === modal.id ? { ...g, balance_minutes: newBal } : g));
       setAdjustResult({ ok: true, balance_after: newBal });
       setAdjustMinutes("");
       setAdjustNote("");
-    } else {
-      setAdjustResult({ ok: false, error: data.error || "Adjustment failed." });
+    } catch {
+      setAdjustSaving(false);
+      setServerError(SERVER_ERROR);
     }
   };
 
   const toggleMember = async (clientId, newActive) => {
-    const res = await fetch("/api/groups/members", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, is_active: newActive }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/groups/members", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: clientId, is_active: newActive }),
+      });
+      if (!res.ok) {
+        if (res.status >= 500) setServerError(SERVER_ERROR);
+        return;
+      }
       setMembers(prev => prev.map(m => m.client_id === clientId ? { ...m, is_active: newActive } : m));
       if (!newActive && purchaseClientId === clientId) {
         const next = members.find(m => m.client_id !== clientId && m.is_active);
         setPurchaseClientId(next?.client_id || "");
       }
+    } catch {
+      setServerError(SERVER_ERROR);
     }
   };
 
@@ -203,33 +247,51 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setArchiveLoading(true);
     setArchiveResult(null);
     const newArchived = !modal.is_archived;
-    const res = await fetch("/api/groups", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: modal.id, is_archived: newArchived }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setArchiveLoading(false);
-    if (!res.ok) { setArchiveResult({ ok: false, error: data.error || "Could not update." }); return; }
-    setArchiveResult({ ok: true, archived: newArchived });
-    setModal(prev => ({ ...prev, is_archived: newArchived }));
-    setGroups(prev => prev.map(g => g.id === modal.id ? { ...g, is_archived: newArchived } : g));
+    try {
+      const res = await fetch("/api/groups", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: modal.id, is_archived: newArchived }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setArchiveLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setArchiveResult({ ok: false, error: data.error || "Could not update." });
+        return;
+      }
+      setArchiveResult({ ok: true, archived: newArchived });
+      setModal(prev => ({ ...prev, is_archived: newArchived }));
+      setGroups(prev => prev.map(g => g.id === modal.id ? { ...g, is_archived: newArchived } : g));
+    } catch {
+      setArchiveLoading(false);
+      setServerError(SERVER_ERROR);
+    }
   };
 
   const handleGroupDelete = async () => {
     if (!modal?.id) return;
     setDeleteLoading(true);
     setDeleteError(null);
-    const res = await fetch("/api/groups", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: modal.id }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setDeleteLoading(false);
-    if (!res.ok) { setDeleteError(data.error || "Delete failed."); return; }
-    setGroups(prev => prev.filter(g => g.id !== modal.id));
-    closeModal();
+    try {
+      const res = await fetch("/api/groups", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: modal.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setDeleteLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        setDeleteError(data.error || "Delete failed.");
+        return;
+      }
+      setGroups(prev => prev.filter(g => g.id !== modal.id));
+      closeModal();
+    } catch {
+      setDeleteLoading(false);
+      setServerError(SERVER_ERROR);
+    }
   };
 
   const isCreateMode = modal?.id == null;

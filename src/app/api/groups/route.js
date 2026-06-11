@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
+import { withErrorCatch } from "@/lib/alert";
 
 function adminSupabase() {
   return createClient(
@@ -29,8 +30,7 @@ async function requireAdmin() {
   return { user };
 }
 
-// GET — list all groups with current balance and active member count
-export async function GET() {
+export const GET = withErrorCatch(async () => {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -60,10 +60,9 @@ export async function GET() {
   }));
 
   return NextResponse.json({ groups: enriched });
-}
+}, { action: "GET /api/groups", resource: "groups" });
 
-// POST — create a group
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -78,10 +77,9 @@ export async function POST(request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json(data);
-}
+}, { action: "POST /api/groups", resource: "groups" });
 
-// PATCH — update group name or hourly_rate
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -97,7 +95,6 @@ export async function PATCH(request) {
   const { data, error } = await admin.from("groups").update(updates).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Cascade archive/unarchive to all group members
   if (is_archived !== undefined) {
     const { data: memberRows } = await admin.from("group_members").select("client_id").eq("group_id", id);
     const memberIds = (memberRows || []).map(m => m.client_id);
@@ -107,10 +104,9 @@ export async function PATCH(request) {
   }
 
   return NextResponse.json(data);
-}
+}, { action: "PATCH /api/groups", resource: "groups" });
 
-// DELETE — fully delete a group and all its members
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -119,10 +115,8 @@ export async function DELETE(request) {
 
   const admin = adminSupabase();
 
-  // Get all members
   const { data: memberRows } = await admin.from("group_members").select("client_id").eq("group_id", id);
 
-  // Fully delete each member
   for (const { client_id } of memberRows || []) {
     const { data: profile } = await admin.from("profiles").select("stripe_customer_id").eq("id", client_id).single();
 
@@ -140,9 +134,8 @@ export async function DELETE(request) {
     await admin.auth.admin.deleteUser(client_id);
   }
 
-  // Delete group record — cascades balance_ledger, purchases, remaining group_members
   const { error } = await admin.from("groups").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/groups", resource: "groups" });

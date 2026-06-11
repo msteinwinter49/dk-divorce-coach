@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { constructWebhookEvent } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
-export async function POST(request) {
-  // App Router gives us the raw body via request.text()
+export const POST = withErrorCatch(async (request) => {
   const body = await request.text();
   const signature = request.headers.get("stripe-signature");
 
@@ -24,7 +23,6 @@ export async function POST(request) {
   switch (event.type) {
     case "payment_intent.succeeded": {
       const paymentIntent = event.data.object;
-      // Update booking payment status if needed
       await supabase
         .from("bookings")
         .update({ stripe_payment_intent_id: paymentIntent.id })
@@ -40,7 +38,6 @@ export async function POST(request) {
     }
 
     case "setup_intent.succeeded": {
-      // Card saved successfully — set as default payment method
       const setupIntent = event.data.object;
       if (setupIntent.customer && setupIntent.payment_method) {
         const { stripe } = await import("@/lib/stripe");
@@ -55,4 +52,4 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ received: true });
-}
+}, { action: "POST /api/stripe/webhook", resource: "stripe-webhook" });

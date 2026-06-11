@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
@@ -38,6 +39,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
   const isAdminViewing = !!viewAsClient && profile?.role === "admin";
   const readOnly = !!viewAsClient && !isAdminViewing;
   const mobile = useIsMobile();
+  const { setServerError } = useError();
   const [view, setView] = useState("week");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [availability, setAvailability] = useState({});
@@ -122,33 +124,45 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
 
     // Availability: fetch a wide window once on mount (prev month → end of month+2).
     // Subsequent navigations reuse the cached state — no re-fetch needed.
-    let availPromise;
+    let availRawPromise;
     if (!availLoadedRef.current) {
       const now = new Date();
       const aStart = dateStr(new Date(now.getFullYear(), now.getMonth() - 1, 1));
       const aEnd = dateStr(new Date(now.getFullYear(), now.getMonth() + 3, 0));
-      availPromise = fetch(`/api/availability?start=${aStart}&end=${aEnd}`).then(r => r.json()).catch(() => ({}));
+      availRawPromise = fetch(`/api/availability?start=${aStart}&end=${aEnd}`);
     } else {
-      availPromise = Promise.resolve(null);
+      availRawPromise = Promise.resolve(null);
     }
 
-    const [availRes, bookingsRes, typesRes] = await Promise.all([
-      availPromise,
-      fetch(`/api/bookings?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
-      fetch("/api/session-types").then(r => r.json()).catch(() => []),
-    ]);
-
-    if (availRes !== null) {
-      availLoadedRef.current = true;
-      const { __increment, ...slotsByDate } = availRes && !availRes.error ? availRes : {};
-      setAvailability(slotsByDate);
-      if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
+    try {
+      const [availR, bookingsR, typesR] = await Promise.all([
+        availRawPromise,
+        fetch(`/api/bookings?start=${start}&end=${end}`),
+        fetch("/api/session-types"),
+      ]);
+      if ((availR && availR.status >= 500) || bookingsR.status >= 500 || typesR.status >= 500) {
+        setServerError(SERVER_ERROR);
+        return;
+      }
+      const [availRes, bookingsRes, typesRes] = await Promise.all([
+        availR ? availR.json().catch(() => ({})) : Promise.resolve(null),
+        bookingsR.json().catch(() => []),
+        typesR.json().catch(() => []),
+      ]);
+      if (availRes !== null) {
+        availLoadedRef.current = true;
+        const { __increment, ...slotsByDate } = availRes && !availRes.error ? availRes : {};
+        setAvailability(slotsByDate);
+        if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
+      }
+      setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
+      setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      setLoading(false);
     }
-
-    setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
-    setSessionTypes(Array.isArray(typesRes) ? typesRes : []);
-    setLoading(false);
-  }, [getRange]);
+  }, [getRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (user) loadData(); }, [user, loadData]);
 
@@ -286,100 +300,114 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     setBookingError(null);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
 
-    let res;
-    if (editingBooking) {
-      // Update existing booking
-      res = await fetch("/api/bookings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editingBooking.id,
-          action: "update",
+    try {
+      let res;
+      if (editingBooking) {
+        // Update existing booking
+        res = await fetch("/api/bookings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: editingBooking.id,
+            action: "update",
+            date: bookingDate,
+            start_time: selectedTime,
+            session_type_id: selectedType.id,
+            tz_offset: new Date().getTimezoneOffset(),
+          }),
+        });
+      } else {
+        const body = {
+          session_type_id: selectedType.id,
           date: bookingDate,
           start_time: selectedTime,
-          session_type_id: selectedType.id,
           tz_offset: new Date().getTimezoneOffset(),
-        }),
-      });
-    } else {
-      const body = {
-        session_type_id: selectedType.id,
-        date: bookingDate,
-        start_time: selectedTime,
-        tz_offset: new Date().getTimezoneOffset(),
-      };
-      if (isAdminViewing) {
-        body.user_id = viewAsClient.id;
-      } else if (selectedParticipants.length > 1) {
-        body.participant_ids = selectedParticipants;
+        };
+        if (isAdminViewing) {
+          body.user_id = viewAsClient.id;
+        } else if (selectedParticipants.length > 1) {
+          body.participant_ids = selectedParticipants;
+        }
+
+        res = await fetch("/api/bookings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
       }
 
-      res = await fetch("/api/bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    }
-
-    if (res.ok) {
-      const responseData = await res.json();
-      if (!editingBooking) {
-        setLowBalance(!!responseData.low_balance);
-        if (responseData.balance_after != null) setBookingBalanceAfter(responseData.balance_after);
-      }
-      const { start, end } = getRange();
-      const [availRes, bookingsRes] = await Promise.all([
-        fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
-        fetch(`/api/bookings?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
-      ]);
-      const availOk = availRes && !availRes.error ? availRes : {};
-      const { __increment, ...slotsByDate } = availOk;
-      setAvailability(slotsByDate);
-      if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
-      setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
-      refreshBalance();
-      lastOwnActionAt.current = Date.now();
-      setNeedsRefresh(false);
-      setBookingSuccess(true);
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setBookingError(err.error || "Could not book. Please try again.");
-      // Refresh availability so the UI reflects the real state after a conflict
-      if (res.status === 409) {
+      if (res.ok) {
+        const responseData = await res.json();
+        if (!editingBooking) {
+          setLowBalance(!!responseData.low_balance);
+          if (responseData.balance_after != null) setBookingBalanceAfter(responseData.balance_after);
+        }
         const { start, end } = getRange();
-        fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).then(availRes => {
-          const availOk = availRes && !availRes.error ? availRes : {};
-          const { __increment, ...slotsByDate } = availOk;
-          setAvailability(slotsByDate);
-          if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
-        }).catch(() => {});
+        const [availRes, bookingsRes] = await Promise.all([
+          fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).catch(() => ({})),
+          fetch(`/api/bookings?start=${start}&end=${end}`).then(r => r.json()).catch(() => []),
+        ]);
+        const availOk = availRes && !availRes.error ? availRes : {};
+        const { __increment, ...slotsByDate } = availOk;
+        setAvailability(slotsByDate);
+        if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
+        setBookings(Array.isArray(bookingsRes) ? bookingsRes : []);
+        refreshBalance();
+        lastOwnActionAt.current = Date.now();
+        setNeedsRefresh(false);
+        setBookingSuccess(true);
+      } else if (res.status >= 500) {
+        setServerError(SERVER_ERROR);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setBookingError(err.error || "Could not book. Please try again.");
+        // Refresh availability so the UI reflects the real state after a conflict
+        if (res.status === 409) {
+          const { start, end } = getRange();
+          fetch(`/api/availability?start=${start}&end=${end}`).then(r => r.json()).then(availRes => {
+            const availOk = availRes && !availRes.error ? availRes : {};
+            const { __increment, ...slotsByDate } = availOk;
+            setAvailability(slotsByDate);
+            if (typeof __increment === "number" && __increment > 0) setIncrement(__increment);
+          }).catch(() => {});
+        }
       }
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      clearTimeout(spinnerTimer);
+      setShowSpinner(false);
+      setConfirming(false);
     }
-    clearTimeout(spinnerTimer);
-    setShowSpinner(false);
-    setConfirming(false);
   };
 
   const handleCancel = async () => {
     if (!cancelTarget) return;
     setConfirming(true);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
-    const res = await fetch("/api/bookings", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: cancelTarget.id }),
-    });
-    clearTimeout(spinnerTimer);
-    setShowSpinner(false);
-    setConfirming(false);
-    if (res.ok) {
-      setCancelSuccess(true);
-      lastOwnActionAt.current = Date.now();
-      setNeedsRefresh(false);
-      refreshBalance();
-      loadData();
-    } else {
-      alert("Could not cancel request.");
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: cancelTarget.id }),
+      });
+      if (res.ok) {
+        setCancelSuccess(true);
+        lastOwnActionAt.current = Date.now();
+        setNeedsRefresh(false);
+        refreshBalance();
+        loadData();
+      } else if (res.status >= 500) {
+        setServerError(SERVER_ERROR);
+      } else {
+        alert("Could not cancel request.");
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
+    } finally {
+      clearTimeout(spinnerTimer);
+      setShowSpinner(false);
+      setConfirming(false);
     }
   };
 
@@ -664,29 +692,38 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     if (isChangeBlocked(booking)) { setPendingMove(null); showBlockedAlert(booking); return; }
     setConfirming(true);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
-    const res = await fetch("/api/bookings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: booking.id,
-        action: "update",
-        date: newDate,
-        start_time: newTime,
-        tz_offset: new Date().getTimezoneOffset(),
-      }),
-    });
-    clearTimeout(spinnerTimer);
-    setShowSpinner(false);
-    setConfirming(false);
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: booking.id,
+          action: "update",
+          date: newDate,
+          start_time: newTime,
+          tz_offset: new Date().getTimezoneOffset(),
+        }),
+      });
+      if (res.ok) {
+        setPendingMove(null);
+        lastOwnActionAt.current = Date.now();
+        setNeedsRefresh(false);
+        loadData();
+      } else if (res.status >= 500) {
+        setServerError(SERVER_ERROR);
+        setPendingMove(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Could not move session.");
+        setPendingMove(null);
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
       setPendingMove(null);
-      lastOwnActionAt.current = Date.now();
-      setNeedsRefresh(false);
-      loadData();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      alert(err.error || "Could not move session.");
-      setPendingMove(null);
+    } finally {
+      clearTimeout(spinnerTimer);
+      setShowSpinner(false);
+      setConfirming(false);
     }
   };
 

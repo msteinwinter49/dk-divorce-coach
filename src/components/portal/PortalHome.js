@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
@@ -21,6 +22,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
   const [balanceMinutes, setBalanceMinutes] = useState(null);
   const [hasCard, setHasCard] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { setServerError } = useError();
 
   const targetId = viewAsClient?.id || user?.id;
   const targetProfile = viewAsClient || profile;
@@ -33,57 +35,76 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
     const today = new Date();
     const todayStr = today.toLocaleDateString("en-CA");
 
-    if (isAdmin) {
-      const in28d = new Date(today);
-      in28d.setDate(in28d.getDate() + 28);
-      const end28dStr = in28d.toLocaleDateString("en-CA");
+    (async () => {
+      if (isAdmin) {
+        const in28d = new Date(today);
+        in28d.setDate(in28d.getDate() + 28);
+        const end28dStr = in28d.toLocaleDateString("en-CA");
 
-      Promise.all([
-        fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end28dStr}`).then(r => r.json()).catch(() => []),
-        fetch(`/api/calendar/events?start=${todayStr}&end=${end28dStr}`).then(r => r.json()).catch(() => ({})),
-      ]).then(([bookingsData, eventsData]) => {
-        const bookings = Array.isArray(bookingsData) ? bookingsData : [];
-        const events = Array.isArray(eventsData) ? eventsData : (eventsData?.events || []);
+        try {
+          const [bookingsRes, eventsRes] = await Promise.all([
+            fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end28dStr}`),
+            fetch(`/api/calendar/events?start=${todayStr}&end=${end28dStr}`),
+          ]);
+          if (bookingsRes.status >= 500 || eventsRes.status >= 500) {
+            setServerError(SERVER_ERROR);
+            setLoading(false);
+            return;
+          }
+          const [bookingsData, eventsData] = await Promise.all([
+            bookingsRes.json().catch(() => []),
+            eventsRes.json().catch(() => ({})),
+          ]);
+          const bookings = Array.isArray(bookingsData) ? bookingsData : [];
+          const events = Array.isArray(eventsData) ? eventsData : (eventsData?.events || []);
 
-        const w1 = { booked: 0, requested: 0, sp: 0 };
-        const w2 = { booked: 0, requested: 0, sp: 0 };
-        const w3 = { booked: 0, requested: 0, sp: 0 };
-        const w4 = { booked: 0, requested: 0, sp: 0 };
-        const tDate = new Date(todayStr + "T12:00:00");
+          const w1 = { booked: 0, requested: 0, sp: 0 };
+          const w2 = { booked: 0, requested: 0, sp: 0 };
+          const w3 = { booked: 0, requested: 0, sp: 0 };
+          const w4 = { booked: 0, requested: 0, sp: 0 };
+          const tDate = new Date(todayStr + "T12:00:00");
 
-        bookings.forEach(b => {
-          const diff = Math.round((new Date(b.date + "T12:00:00") - tDate) / 86400000);
-          const key = b.status === "booked" ? "booked" : b.status === "requested" ? "requested" : null;
-          if (!key || diff < 0 || diff > 28) return;
-          if (diff <= 7)       w1[key]++;
-          else if (diff <= 14) w2[key]++;
-          else if (diff <= 21) w3[key]++;
-          else                 w4[key]++;
-        });
+          bookings.forEach(b => {
+            const diff = Math.round((new Date(b.date + "T12:00:00") - tDate) / 86400000);
+            const key = b.status === "booked" ? "booked" : b.status === "requested" ? "requested" : null;
+            if (!key || diff < 0 || diff > 28) return;
+            if (diff <= 7)       w1[key]++;
+            else if (diff <= 14) w2[key]++;
+            else if (diff <= 21) w3[key]++;
+            else                 w4[key]++;
+          });
 
-        events.forEach(ev => {
-          if (ev._type !== "sp" || !ev.start?.dateTime) return;
-          const eLocalDate = new Date(ev.start.dateTime).toLocaleDateString("en-CA");
-          const diff = Math.round((new Date(eLocalDate + "T12:00:00") - tDate) / 86400000);
-          if (diff < 0 || diff > 28) return;
-          if (diff <= 7)       w1.sp++;
-          else if (diff <= 14) w2.sp++;
-          else if (diff <= 21) w3.sp++;
-          else                 w4.sp++;
-        });
+          events.forEach(ev => {
+            if (ev._type !== "sp" || !ev.start?.dateTime) return;
+            const eLocalDate = new Date(ev.start.dateTime).toLocaleDateString("en-CA");
+            const diff = Math.round((new Date(eLocalDate + "T12:00:00") - tDate) / 86400000);
+            if (diff < 0 || diff > 28) return;
+            if (diff <= 7)       w1.sp++;
+            else if (diff <= 14) w2.sp++;
+            else if (diff <= 21) w3.sp++;
+            else                 w4.sp++;
+          });
 
-        setAdminStats({ w1, w2, w3, w4 });
-        setLoading(false);
-      }).catch(() => setLoading(false));
-    } else if (viewAsClient) {
-      // Admin viewing as client — keep separate calls (infrequent, admin path)
-      const in12mo = new Date(today);
-      in12mo.setFullYear(in12mo.getFullYear() + 1);
-      const end12moStr = in12mo.toLocaleDateString("en-CA");
+          setAdminStats({ w1, w2, w3, w4 });
+        } catch {
+          setServerError(SERVER_ERROR);
+        } finally {
+          setLoading(false);
+        }
+      } else if (viewAsClient) {
+        // Admin viewing as client — keep separate calls (infrequent, admin path)
+        const in12mo = new Date(today);
+        in12mo.setFullYear(in12mo.getFullYear() + 1);
+        const end12moStr = in12mo.toLocaleDateString("en-CA");
 
-      fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`)
-        .then(r => r.json())
-        .then(data => {
+        try {
+          const res = await fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`);
+          if (!res.ok) {
+            if (res.status >= 500) setServerError(SERVER_ERROR);
+            setLoading(false);
+            return;
+          }
+          const data = await res.json();
           if (!Array.isArray(data)) { setLoading(false); return; }
           const end30d = new Date(today);
           end30d.setDate(end30d.getDate() + 30);
@@ -92,20 +113,27 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
           if (booked.length > 0) setNextBooking(booked[0]);
           setBookedCount(booked.filter(b => b.date <= end30dStr).length);
           setRequestedCount(data.filter(b => b.status === "requested" && b.date <= end30dStr).length);
+        } catch {
+          setServerError(SERVER_ERROR);
+        } finally {
           setLoading(false);
-        })
-        .catch(() => setLoading(false));
+        }
 
-      fetch(`/api/purchases?client_id=${targetId}`).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
-    } else {
-      // Client viewing own portal — single combined request
-      const in12mo = new Date(today);
-      in12mo.setFullYear(in12mo.getFullYear() + 1);
-      const end12moStr = in12mo.toLocaleDateString("en-CA");
+        fetch(`/api/purchases?client_id=${targetId}`).then(r => r.json()).then(b => setBalanceMinutes(b?.balance_minutes ?? 0)).catch(() => {});
+      } else {
+        // Client viewing own portal — single combined request
+        const in12mo = new Date(today);
+        in12mo.setFullYear(in12mo.getFullYear() + 1);
+        const end12moStr = in12mo.toLocaleDateString("en-CA");
 
-      fetch(`/api/portal-home?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`)
-        .then(r => r.json())
-        .then(data => {
+        try {
+          const res = await fetch(`/api/portal-home?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`);
+          if (!res.ok) {
+            if (res.status >= 500) setServerError(SERVER_ERROR);
+            setLoading(false);
+            return;
+          }
+          const data = await res.json();
           const bookings = Array.isArray(data.bookings) ? data.bookings : [];
           const end30d = new Date(today);
           end30d.setDate(end30d.getDate() + 30);
@@ -116,27 +144,30 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
           setRequestedCount(bookings.filter(b => b.status === "requested" && b.date <= end30dStr).length);
           setBalanceMinutes(data.balance_minutes ?? 0);
           setHasCard(!!data.card);
+        } catch {
+          setServerError(SERVER_ERROR);
+        } finally {
           setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    }
+        }
+      }
 
-    supabase.from("documents")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", targetId)
-      .then(({ count }) => setDocCount(count || 0));
+      supabase.from("documents")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", targetId)
+        .then(({ count }) => setDocCount(count || 0));
 
-    supabase.from("messages")
-      .select("id", { count: "exact", head: true })
-      .eq("conversation_id", targetId)
-      .neq("sender_id", targetId)
-      .then(({ count }) => setUnreadCount(count || 0));
+      supabase.from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", targetId)
+        .neq("sender_id", targetId)
+        .then(({ count }) => setUnreadCount(count || 0));
 
-    if (viewAsClient) {
-      // Admin "view as client" — no card check needed (admin doesn't manage their own card here)
-      setHasCard(null);
-    }
-  }, [targetId]);
+      if (viewAsClient) {
+        // Admin "view as client" — no card check needed (admin doesn't manage their own card here)
+        setHasCard(null);
+      }
+    })();
+  }, [targetId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allReady = !loading && (isAdmin || balanceMinutes !== null);
   const [showSpinner, setShowSpinner] = useState(false);

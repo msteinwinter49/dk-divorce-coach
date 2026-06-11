@@ -2,8 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
-export async function GET(request, { params }) {
+export const GET = withErrorCatch(async (request, { params }) => {
   const { id } = await params;
   const cookieStore = await cookies();
 
@@ -48,4 +49,4 @@ export async function GET(request, { params }) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ url: data.signedUrl });
-}
+}, { action: "GET /api/documents/[id]/url", resource: "document-url" });

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useCallback } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 
 function fmtDate(iso) {
   const d = new Date(iso);
@@ -98,18 +99,30 @@ export default function Statement({ groupId }) {
   const [balanceForward, setBalanceForward] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { setServerError } = useError();
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({ start, end });
     if (groupId) params.set("group_id", groupId);
-    const res = await fetch(`/api/statement?${params}`).then(r => r.json()).catch(() => ({ error: "Network error" }));
-    setLoading(false);
-    if (res.error) { setError(res.error); return; }
-    setGroupName(res.group_name || null);
-    setBalanceForward(res.balance_forward ?? 0);
-    setRows(res.rows || []);
+    try {
+      const res = await fetch(`/api/statement?${params}`);
+      setLoading(false);
+      if (!res.ok) {
+        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Something went wrong");
+        return;
+      }
+      const data = await res.json();
+      setGroupName(data.group_name || null);
+      setBalanceForward(data.balance_forward ?? 0);
+      setRows(data.rows || []);
+    } catch {
+      setLoading(false);
+      setServerError(SERVER_ERROR);
+    }
   }, [groupId, start, end]);
 
   const handlePrint = () => {

@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
 async function getCallerInfo(cookieStore) {
   const supabase = createServerClient(
@@ -15,7 +16,7 @@ async function getCallerInfo(cookieStore) {
   return { user, isAdmin: profile?.role === "admin" };
 }
 
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const { user, isAdmin } = await getCallerInfo(cookieStore);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -34,9 +35,9 @@ export async function GET(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "GET /api/documents", resource: "documents" });
 
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const { user, isAdmin } = await getCallerInfo(cookieStore);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -83,9 +84,9 @@ export async function POST(request) {
   await adminClient.from("documents").update({ storage_path: storagePath }).eq("id", doc.id);
 
   return NextResponse.json({ ...doc, storage_path: storagePath });
-}
+}, { action: "POST /api/documents", resource: "documents" });
 
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const { user, isAdmin } = await getCallerInfo(cookieStore);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -108,9 +109,9 @@ export async function PATCH(request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+}, { action: "PATCH /api/documents", resource: "documents" });
 
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const { user, isAdmin } = await getCallerInfo(cookieStore);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -133,4 +134,4 @@ export async function DELETE(request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/documents", resource: "documents" });

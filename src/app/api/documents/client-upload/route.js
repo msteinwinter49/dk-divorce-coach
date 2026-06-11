@@ -3,9 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { notifyAdmin } from "@/lib/notifications";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -80,9 +80,9 @@ export async function POST(request) {
   }
 
   return NextResponse.json({ success: true, document_id: doc.id });
-}
+}, { action: "POST /api/documents/client-upload", resource: "documents" });
 
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -119,4 +119,4 @@ export async function DELETE(request) {
   await adminClient.from("documents").delete().eq("id", share.document_id);
 
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/documents/client-upload", resource: "documents" });

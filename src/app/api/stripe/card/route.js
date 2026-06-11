@@ -3,10 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
+import { withErrorCatch } from "@/lib/alert";
 
-// GET — fetch the client's card on file. Admins may pass ?client_id=X to look up
-// another client's card.
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -64,4 +63,4 @@ export async function GET(request) {
       exp_year: pm.card.exp_year,
     },
   });
-}
+}, { action: "GET /api/stripe/card", resource: "stripe-card" });

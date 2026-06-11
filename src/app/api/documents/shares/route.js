@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
 async function getCallerInfo(cookieStore) {
   const supabase = createServerClient(
@@ -17,7 +17,7 @@ async function getCallerInfo(cookieStore) {
   return { user, isAdmin: profile?.role === "admin" };
 }
 
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const { user, isAdmin } = await getCallerInfo(cookieStore);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -48,9 +48,9 @@ export async function GET(request) {
   }
 
   return NextResponse.json(shares);
-}
+}, { action: "GET /api/documents/shares", resource: "document-shares" });
 
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const { user, isAdmin } = await getCallerInfo(cookieStore);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -113,9 +113,9 @@ export async function POST(request) {
   }
 
   return NextResponse.json(data);
-}
+}, { action: "POST /api/documents/shares", resource: "document-shares" });
 
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const { user, isAdmin } = await getCallerInfo(cookieStore);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -132,4 +132,4 @@ export async function DELETE(request) {
   const { error } = await adminClient.from("document_shares").delete().eq("id", share_id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/documents/shares", resource: "document-shares" });

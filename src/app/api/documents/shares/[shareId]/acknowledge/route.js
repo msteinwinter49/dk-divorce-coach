@@ -3,9 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { notifyAdmin } from "@/lib/notifications";
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, withErrorCatch } from "@/lib/alert";
 
-export async function POST(request, { params }) {
+export const POST = withErrorCatch(async (request, { params }) => {
   const { shareId } = await params;
   const cookieStore = await cookies();
 
@@ -60,4 +60,4 @@ export async function POST(request, { params }) {
   }
 
   return NextResponse.json({ success: true });
-}
+}, { action: "POST /api/documents/shares/[shareId]/acknowledge", resource: "document-shares" });

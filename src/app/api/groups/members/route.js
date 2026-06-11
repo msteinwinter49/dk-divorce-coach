@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
 function adminSupabase() {
   return createClient(
@@ -28,9 +29,7 @@ async function requireAdmin() {
   return { user };
 }
 
-// GET — list members of a group.
-// Admin: requires group_id param. Client: returns their own group's members.
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -74,11 +73,9 @@ export async function GET(request) {
   }
 
   return NextResponse.json({ members: data || [] });
-}
+}, { action: "GET /api/groups/members", resource: "group-members" });
 
-// POST — add (or move) a client to a group
-// client_id is the PK so upsert reassigns to the new group if they were in another
-export async function POST(request) {
+export const POST = withErrorCatch(async (request) => {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -95,10 +92,9 @@ export async function POST(request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json(data);
-}
+}, { action: "POST /api/groups/members", resource: "group-members" });
 
-// PATCH — toggle is_active for a member
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -116,10 +112,9 @@ export async function PATCH(request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json(data);
-}
+}, { action: "PATCH /api/groups/members", resource: "group-members" });
 
-// DELETE — remove a client from their group
-export async function DELETE(request) {
+export const DELETE = withErrorCatch(async (request) => {
   const auth = await requireAdmin();
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -133,4 +128,4 @@ export async function DELETE(request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ success: true });
-}
+}, { action: "DELETE /api/groups/members", resource: "group-members" });

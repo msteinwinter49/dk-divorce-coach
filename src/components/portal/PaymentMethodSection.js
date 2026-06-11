@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { C, S } from "@/lib/constants";
+import { C, S, SERVER_ERROR } from "@/lib/constants";
+import { useError } from "@/context/ErrorContext";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
@@ -17,32 +18,63 @@ export function PaymentMethodSection({ hasCard, onSaved }) {
   const [clientSecret, setClientSecret] = useState(null);
   const [loadingSecret, setLoadingSecret] = useState(false);
   const [initError, setInitError] = useState(null);
+  const { setServerError } = useError();
 
   useEffect(() => {
     if (hasCard) {
-      fetch("/api/stripe/card").then(r => r.json()).then(data => {
-        if (data.card) setCardInfo(data.card);
-      });
+      (async () => {
+        try {
+          const res = await fetch("/api/stripe/card");
+          if (res.ok) {
+            const data = await res.json();
+            if (data.card) setCardInfo(data.card);
+          } else if (res.status >= 500) {
+            setServerError(SERVER_ERROR);
+          }
+        } catch {
+          setServerError(SERVER_ERROR);
+        }
+      })();
     }
-  }, [hasCard]);
+  }, [hasCard]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (showForm && !clientSecret && !loadingSecret && !initError) {
       setLoadingSecret(true);
-      fetch("/api/stripe/setup", { method: "POST" })
-        .then(r => r.json().then(body => ({ ok: r.ok, body })))
-        .then(({ ok, body }) => {
-          if (!ok) throw new Error(body.error || "init failed");
-          setClientSecret(body.clientSecret);
-        })
-        .catch(err => setInitError(err.message || "Could not initialize payment setup."))
-        .finally(() => setLoadingSecret(false));
+      (async () => {
+        try {
+          const res = await fetch("/api/stripe/setup", { method: "POST" });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (res.status >= 500) {
+              setServerError(SERVER_ERROR);
+            } else {
+              setInitError(body.error || "Could not initialize payment setup.");
+            }
+          } else {
+            setClientSecret(body.clientSecret);
+          }
+        } catch {
+          setServerError(SERVER_ERROR);
+        } finally {
+          setLoadingSecret(false);
+        }
+      })();
     }
-  }, [showForm, clientSecret, loadingSecret, initError]);
+  }, [showForm, clientSecret, loadingSecret, initError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaved = async () => {
-    const cardRes = await fetch("/api/stripe/card").then(r => r.json());
-    if (cardRes.card) setCardInfo(cardRes.card);
+    try {
+      const res = await fetch("/api/stripe/card");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.card) setCardInfo(data.card);
+      } else if (res.status >= 500) {
+        setServerError(SERVER_ERROR);
+      }
+    } catch {
+      setServerError(SERVER_ERROR);
+    }
     setShowForm(false);
     setClientSecret(null);
     if (onSaved) onSaved();

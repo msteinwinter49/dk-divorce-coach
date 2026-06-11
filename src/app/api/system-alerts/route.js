@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { withErrorCatch } from "@/lib/alert";
 
 async function getAdminClient(request) {
   const cookieStore = await cookies();
@@ -36,7 +37,7 @@ async function getAdminClient(request) {
   return { adminClient };
 }
 
-export async function GET(request) {
+export const GET = withErrorCatch(async (request) => {
   const { adminClient, error, status } = await getAdminClient(request);
   if (error) return NextResponse.json({ error }, { status });
 
@@ -78,7 +79,6 @@ export async function GET(request) {
     });
   }
 
-  // Default: paginated list
   const limit = parseInt(searchParams.get("limit") || "100");
   const offset = parseInt(searchParams.get("offset") || "0");
 
@@ -90,9 +90,9 @@ export async function GET(request) {
 
   if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
   return NextResponse.json({ alerts: data || [], total: count });
-}
+}, { action: "GET /api/system-alerts", resource: "system-alerts" });
 
-export async function PATCH(request) {
+export const PATCH = withErrorCatch(async (request) => {
   const { adminClient, error, status } = await getAdminClient(request);
   if (error) return NextResponse.json({ error }, { status });
 
@@ -103,4 +103,4 @@ export async function PATCH(request) {
 
   if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
   return NextResponse.json({ success: true });
-}
+}, { action: "PATCH /api/system-alerts", resource: "system-alerts" });

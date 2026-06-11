@@ -1,4 +1,5 @@
 import { AuthProvider } from "@/context/AuthContext";
+import { ErrorProvider } from "@/context/ErrorContext";
 
 export const viewport = {
   width: "device-width",
@@ -18,9 +19,11 @@ export default function RootLayout({ children }) {
     <html lang="en" style={{ overscrollBehavior: "none" }}>
       <head><style>{`html, body { overscroll-behavior: none; }`}</style></head>
       <body style={{ margin: 0, padding: 0, fontFamily: "system-ui, sans-serif", overscrollBehavior: "none", overflowX: "hidden" }}>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <ErrorProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </ErrorProvider>
       </body>
     </html>
   );
