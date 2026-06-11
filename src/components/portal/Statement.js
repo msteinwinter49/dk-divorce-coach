@@ -2,6 +2,7 @@
 import { useState, useCallback } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 
 function fmtDate(iso) {
   const d = new Date(iso);
@@ -107,7 +108,7 @@ export default function Statement({ groupId }) {
     const params = new URLSearchParams({ start, end });
     if (groupId) params.set("group_id", groupId);
     try {
-      const res = await fetch(`/api/statement?${params}`);
+      const res = await retryFetch(`/api/statement?${params}`);
       setLoading(false);
       if (!res.ok) {
         if (res.status >= 500) { setServerError(SERVER_ERROR); return; }

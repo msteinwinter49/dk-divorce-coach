@@ -5,6 +5,7 @@ import { useError } from "@/context/ErrorContext";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { useSmsEnabled } from "@/lib/hooks";
+import { retryFetch } from "@/lib/fetchUtils";
 import { PaymentMethodSection } from "@/components/portal/PaymentMethodSection";
 
 const TA = {
@@ -154,7 +155,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
     if (zip.length !== 5 || !/^\d{5}$/.test(zip)) return;
     setZipLooking(true);
     try {
-      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      const res = await retryFetch(`https://api.zippopotam.us/us/${zip}`);
       if (res.ok) {
         const data = await res.json();
         const place = data.places?.[0];
@@ -198,7 +199,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
         ...profilePayload(),
       };
       try {
-        const res = await fetch("/api/clients", {
+        const res = await retryFetch("/api/clients", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -258,7 +259,7 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
       bg_other: bgOther.trim() || null,
     };
     try {
-      const res = await fetch("/api/clients", {
+      const res = await retryFetch("/api/clients", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: viewAsClient.id, ...bgPayload }),

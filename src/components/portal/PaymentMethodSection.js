@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
@@ -24,7 +25,7 @@ export function PaymentMethodSection({ hasCard, onSaved }) {
     if (hasCard) {
       (async () => {
         try {
-          const res = await fetch("/api/stripe/card");
+          const res = await retryFetch("/api/stripe/card");
           if (res.ok) {
             const data = await res.json();
             if (data.card) setCardInfo(data.card);
@@ -65,7 +66,7 @@ export function PaymentMethodSection({ hasCard, onSaved }) {
 
   const handleSaved = async () => {
     try {
-      const res = await fetch("/api/stripe/card");
+      const res = await retryFetch("/api/stripe/card");
       if (res.ok) {
         const data = await res.json();
         if (data.card) setCardInfo(data.card);

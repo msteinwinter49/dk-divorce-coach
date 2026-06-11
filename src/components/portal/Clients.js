@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
 
@@ -127,7 +128,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     if (zip.length !== 5 || !/^\d{5}$/.test(zip)) return;
     setEditZipLooking(true);
     try {
-      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      const res = await retryFetch(`https://api.zippopotam.us/us/${zip}`);
       if (res.ok) {
         const data = await res.json();
         const place = data.places?.[0];
@@ -279,7 +280,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setHourlyRateSaving(true);
     setHourlyRateResult(null);
     try {
-      const res = await fetch("/api/groups", {
+      const res = await retryFetch("/api/groups", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: detail.group_id, hourly_rate: rate }),
@@ -306,7 +307,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setGroupSaving(true);
     setGroupResult(null);
     try {
-      const res = await fetch("/api/groups/members", {
+      const res = await retryFetch("/api/groups/members", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client_id: detail.id, group_id: editGroupId }),
@@ -334,7 +335,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setArchiveLoading(true);
     setArchiveError(null);
     try {
-      const res = await fetch("/api/clients", {
+      const res = await retryFetch("/api/clients", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: detail.id, is_archived: !detail.is_archived }),
@@ -360,7 +361,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setDeleteLoading(true);
     setDeleteError(null);
     try {
-      const res = await fetch("/api/clients", {
+      const res = await retryFetch("/api/clients", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: detail.id }),
@@ -413,7 +414,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
       timezone: editTimezone,
     };
     try {
-      const res = await fetch("/api/clients", {
+      const res = await retryFetch("/api/clients", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -461,7 +462,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
   const fetchClients = async () => {
     setListLoading(true);
     try {
-      const res = await fetch("/api/clients");
+      const res = await retryFetch("/api/clients");
       if (res.status >= 500) { setServerError(SERVER_ERROR); setListLoading(false); return; }
       const data = await res.json();
       if (res.ok) setClients(data.clients || []);
@@ -474,7 +475,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
 
   const fetchGroups = async () => {
     try {
-      const res = await fetch("/api/groups");
+      const res = await retryFetch("/api/groups");
       if (!res.ok) { if (res.status >= 500) setServerError(SERVER_ERROR); return; }
       const data = await res.json();
       setGroups(data.groups || []);

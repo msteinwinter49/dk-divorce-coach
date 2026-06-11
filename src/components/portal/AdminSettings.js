@@ -4,6 +4,7 @@ import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import { createClient } from "@/lib/supabase/client";
+import { retryFetch } from "@/lib/fetchUtils";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -79,9 +80,9 @@ export default function AdminSettings({ setPage }) {
           "package_sizes", "default_expires_months",
           "sms_enabled", "min_client_change_notice_hours"
         ]),
-        fetch("/api/session-types"),
+        retryFetch("/api/session-types"),
         supabase.from("availability_rules").select("*").order("day_of_week").order("start_time"),
-        fetch("/api/pricing-matrix"),
+        retryFetch("/api/pricing-matrix"),
       ]);
       if (typesR.status >= 500 || pricingR.status >= 500) { setServerError(SERVER_ERROR); setLoading(false); return; }
       const typesRes = await typesR.json().catch(() => []);
@@ -153,7 +154,7 @@ export default function AdminSettings({ setPage }) {
 
   const updateSessionType = async (id, updates) => {
     try {
-      const res = await fetch("/api/session-types", {
+      const res = await retryFetch("/api/session-types", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, ...updates }),
@@ -167,7 +168,7 @@ export default function AdminSettings({ setPage }) {
 
   const removeSessionType = async (id) => {
     try {
-      const res = await fetch("/api/session-types", {
+      const res = await retryFetch("/api/session-types", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -186,13 +187,13 @@ export default function AdminSettings({ setPage }) {
     setPackageSizes(next);
     await saveSetting("package_sizes", next.join(","));
     try {
-      const patchRes = await fetch("/api/pricing-matrix", {
+      const patchRes = await retryFetch("/api/pricing-matrix", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ package_size: n, is_active: adding }),
       });
       if (patchRes.status >= 500) { setServerError(SERVER_ERROR); return; }
-      const getRes = await fetch("/api/pricing-matrix");
+      const getRes = await retryFetch("/api/pricing-matrix");
       if (getRes.ok) {
         const pm = await getRes.json().catch(() => []);
         if (Array.isArray(pm)) setPricingRows(pm);
@@ -221,7 +222,7 @@ export default function AdminSettings({ setPage }) {
     if (!m || m < 1) return;
     const price_cents = Math.round((hourlyRate * d * s / 60) * 100);
     try {
-      const res = await fetch("/api/pricing-matrix", {
+      const res = await retryFetch("/api/pricing-matrix", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -286,7 +287,7 @@ export default function AdminSettings({ setPage }) {
     await saveSetting("default_expires_months", String(m));
     if (pricingRows.length === 0) return;
     try {
-      const res = await fetch("/api/pricing-matrix", {
+      const res = await retryFetch("/api/pricing-matrix", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expires_months: m }),
@@ -316,7 +317,7 @@ export default function AdminSettings({ setPage }) {
 
   const removeRule = async (id) => {
     try {
-      const res = await fetch("/api/availability", {
+      const res = await retryFetch("/api/availability", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "rule", id }),

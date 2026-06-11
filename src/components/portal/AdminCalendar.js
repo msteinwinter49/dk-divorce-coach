@@ -5,6 +5,7 @@ import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import { createClient } from "@/lib/supabase/client";
 import MiniCalendar from "@/components/portal/MiniCalendar";
+import { retryFetch } from "@/lib/fetchUtils";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
 const DAY_ROW_H = 52;
@@ -133,11 +134,11 @@ export default function AdminCalendar({ setPage }) {
     const { start, end } = getRange();
     try {
       const [bookingsR, availR, eventsR, clientsR, typesR] = await Promise.all([
-        fetch(`/api/bookings?start=${start}&end=${end}`),
-        fetch(`/api/availability?start=${start}&end=${end}`),
-        fetch(`/api/calendar/events?start=${start}&end=${end}`),
-        fetch("/api/clients"),
-        fetch("/api/session-types"),
+        retryFetch(`/api/bookings?start=${start}&end=${end}`),
+        retryFetch(`/api/availability?start=${start}&end=${end}`),
+        retryFetch(`/api/calendar/events?start=${start}&end=${end}`),
+        retryFetch("/api/clients"),
+        retryFetch("/api/session-types"),
       ]);
       if (bookingsR.status >= 500 || availR.status >= 500 || eventsR.status >= 500 || clientsR.status >= 500 || typesR.status >= 500) {
         setServerError(SERVER_ERROR);
@@ -257,7 +258,7 @@ export default function AdminCalendar({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: modal.booking.id, action }),
@@ -307,7 +308,7 @@ export default function AdminCalendar({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -364,7 +365,7 @@ export default function AdminCalendar({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/calendar/events", {
+      const res = await retryFetch("/api/calendar/events", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(eventAllDay
@@ -388,7 +389,7 @@ export default function AdminCalendar({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/calendar/events", {
+      const res = await retryFetch("/api/calendar/events", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: modal.event.id }),
@@ -410,7 +411,7 @@ export default function AdminCalendar({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -586,7 +587,7 @@ export default function AdminCalendar({ setPage }) {
       const endTimeStr = `${String(Math.floor(newEndMin / 60)).padStart(2, "0")}:${String(newEndMin % 60).padStart(2, "0")}`;
 
       try {
-        const res = await fetch("/api/calendar/events", {
+        const res = await retryFetch("/api/calendar/events", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: item.id, date, start_time: newTime, end_time: endTimeStr, tz_offset: new Date().getTimezoneOffset() }),
@@ -599,7 +600,7 @@ export default function AdminCalendar({ setPage }) {
       // Moving a booking
       if (item.date === date && item.time_slot === newTime) return;
       try {
-        const res = await fetch("/api/bookings", {
+        const res = await retryFetch("/api/bookings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: item.id, action: "update", date, start_time: newTime }),

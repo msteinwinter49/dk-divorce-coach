@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useIsMobile } from "@/lib/hooks";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 
 export default function Admin({ setPage }) {
   const mobile = useIsMobile();
@@ -34,7 +35,7 @@ export default function Admin({ setPage }) {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/system-alerts");
+        const res = await retryFetch("/api/system-alerts");
         if (!res.ok) {
           if (res.status >= 500) setServerError(SERVER_ERROR);
         } else {
@@ -52,7 +53,7 @@ export default function Admin({ setPage }) {
   const markAllRead = async () => {
     setMarking(true);
     try {
-      const res = await fetch("/api/system-alerts", { method: "PATCH" });
+      const res = await retryFetch("/api/system-alerts", { method: "PATCH" });
       if (res.status >= 500) { setServerError(SERVER_ERROR); setMarking(false); return; }
     } catch {
       setServerError(SERVER_ERROR);

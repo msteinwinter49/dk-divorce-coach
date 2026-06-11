@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 
@@ -39,10 +40,10 @@ export default function BuySessions({ setPage, setProfileFocus, viewAsClient }) 
     (async () => {
       try {
         const [pr, tr, cr, br] = await Promise.all([
-          fetch("/api/pricing-matrix"),
-          fetch("/api/session-types"),
-          fetch(cardUrl),
-          fetch(balanceUrl),
+          retryFetch("/api/pricing-matrix"),
+          retryFetch("/api/session-types"),
+          retryFetch(cardUrl),
+          retryFetch(balanceUrl),
         ]);
         if (pr.status >= 500 || tr.status >= 500) { setServerError(SERVER_ERROR); setLoading(false); return; }
         const [p, t, c, b] = await Promise.all([

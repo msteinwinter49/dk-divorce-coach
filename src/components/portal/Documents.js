@@ -4,6 +4,7 @@ import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
 import { useAuth } from "@/context/AuthContext";
 import { useIsMobile } from "@/lib/hooks";
+import { retryFetch } from "@/lib/fetchUtils";
 
 function formatDate(ts) {
   if (!ts) return "—";
@@ -115,9 +116,9 @@ export default function Documents({ viewAsClient, initialShareId }) {
     try {
       if (isAdminUser) {
         const [docsR, sharesR, clientsR] = await Promise.all([
-          fetch("/api/documents"),
-          fetch("/api/documents/shares"),
-          fetch("/api/clients"),
+          retryFetch("/api/documents"),
+          retryFetch("/api/documents/shares"),
+          retryFetch("/api/clients"),
         ]);
         if (docsR.status >= 500 || sharesR.status >= 500 || clientsR.status >= 500) {
           setServerError(SERVER_ERROR);
@@ -132,7 +133,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
         setAllShares(Array.isArray(sharesRes) ? sharesRes : []);
         setAllClients((clientsRes.clients || []).filter(c => c.role === "client" && !c.is_archived));
       } else {
-        const r = await fetch("/api/documents/shares");
+        const r = await retryFetch("/api/documents/shares");
         if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
         const res = await r.json().catch(() => []);
         setOwnShares(Array.isArray(res) ? res : []);
@@ -203,7 +204,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
     if (!renameName.trim()) { setRenameId(null); return; }
     setRenameSaving(true);
     try {
-      const r = await fetch("/api/documents", {
+      const r = await retryFetch("/api/documents", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, name: renameName.trim() }),
@@ -224,7 +225,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
   const handleDelete = async (id) => {
     setDeleteLoading(true);
     try {
-      const r = await fetch("/api/documents", {
+      const r = await retryFetch("/api/documents", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -273,8 +274,8 @@ export default function Documents({ viewAsClient, initialShareId }) {
       const res = await r.json().catch(() => ({}));
       if (res.error) { setShareError(res.error); return; }
       const [docsR, sharesR] = await Promise.all([
-        fetch("/api/documents"),
-        fetch("/api/documents/shares"),
+        retryFetch("/api/documents"),
+        retryFetch("/api/documents/shares"),
       ]);
       if (docsR.status >= 500 || sharesR.status >= 500) { setServerError(SERVER_ERROR); return; }
       const [docsRes, sharesRes] = await Promise.all([
@@ -294,7 +295,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
   const handleUnshare = async (shareId) => {
     setUnshareLoading(shareId);
     try {
-      const r = await fetch("/api/documents/shares", {
+      const r = await retryFetch("/api/documents/shares", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ share_id: shareId }),
@@ -313,7 +314,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
     setAdminViewerUrl(null);
     setAdminViewerLoading(true);
     try {
-      const r = await fetch(`/api/documents/${doc.id}/url`);
+      const r = await retryFetch(`/api/documents/${doc.id}/url`);
       if (r.status >= 500) { setServerError(SERVER_ERROR); setAdminViewerDoc(null); return; }
       const res = await r.json().catch(() => ({}));
       setAdminViewerUrl(res.url || null);
@@ -331,7 +332,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
     setViewerLoading(true);
     setAckError(null);
     try {
-      const r = await fetch(`/api/documents/${share.document_id}/url`);
+      const r = await retryFetch(`/api/documents/${share.document_id}/url`);
       if (r.status >= 500) { setServerError(SERVER_ERROR); setViewerShare(null); return; }
       const res = await r.json().catch(() => ({}));
       setViewerUrl(res.url || null);
@@ -347,7 +348,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
     setAckLoading(true);
     setAckError(null);
     try {
-      const r = await fetch(`/api/documents/shares/${viewerShare.id}/acknowledge`, { method: "POST" });
+      const r = await retryFetch(`/api/documents/shares/${viewerShare.id}/acknowledge`, { method: "POST" });
       if (r.status >= 500) { setServerError(SERVER_ERROR); return; }
       const res = await r.json().catch(() => ({}));
       if (res.error) { setAckError(res.error); return; }
@@ -366,7 +367,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
     if (window.showSaveFilePicker) {
       try {
         const handle = await window.showSaveFilePicker({ suggestedName: filename });
-        const res = await fetch(url);
+        const res = await retryFetch(url);
         const blob = await res.blob();
         const writable = await handle.createWritable();
         await writable.write(blob);
@@ -377,7 +378,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
         // unsupported or permission denied — fall through to legacy
       }
     }
-    const res = await fetch(url);
+    const res = await retryFetch(url);
     const blob = await res.blob();
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -404,7 +405,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
       const res = await r.json();
       if (res.error) setClientUploadError(res.error);
       else {
-        const sharesR = await fetch("/api/documents/shares");
+        const sharesR = await retryFetch("/api/documents/shares");
         if (sharesR.status >= 500) { setServerError(SERVER_ERROR); return; }
         const sharesRes = await sharesR.json().catch(() => []);
         setOwnShares(Array.isArray(sharesRes) ? sharesRes : []);
@@ -420,7 +421,7 @@ export default function Documents({ viewAsClient, initialShareId }) {
   const handleClientDeleteUpload = async (shareId) => {
     setClientDeleteLoading(shareId);
     try {
-      const r = await fetch("/api/documents/client-upload", {
+      const r = await retryFetch("/api/documents/client-upload", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ share_id: shareId }),

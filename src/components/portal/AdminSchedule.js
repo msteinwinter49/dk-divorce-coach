@@ -4,6 +4,7 @@ import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import MiniCalendar from "@/components/portal/MiniCalendar";
+import { retryFetch } from "@/lib/fetchUtils";
 
 // Diana's business timezone — used for all schedule comparisons so Vercel's UTC
 // server never leaks through and the client-side conflict scan is portable to
@@ -425,10 +426,10 @@ export default function AdminSchedule({ setPage }) {
     const { start: wideStart, end: wideEnd } = getConflictRange();
     try {
       const [bookingsR, availR, eventsR, typesR] = await Promise.all([
-        fetch(`/api/bookings?start=${wideStart}&end=${wideEnd}`),
-        fetch(`/api/availability?start=${start}&end=${end}`),
-        fetch(`/api/calendar/events?start=${wideStart}&end=${wideEnd}`),
-        fetch("/api/session-types"),
+        retryFetch(`/api/bookings?start=${wideStart}&end=${wideEnd}`),
+        retryFetch(`/api/availability?start=${start}&end=${end}`),
+        retryFetch(`/api/calendar/events?start=${wideStart}&end=${wideEnd}`),
+        retryFetch("/api/session-types"),
       ]);
       if (bookingsR.status >= 500 || availR.status >= 500 || eventsR.status >= 500 || typesR.status >= 500) {
         setServerError(SERVER_ERROR);
@@ -473,8 +474,8 @@ export default function AdminSchedule({ setPage }) {
       setSearchLoading(true);
       try {
         const [bR, eR] = await Promise.all([
-          fetch(`/api/bookings?start=${committedStart}&end=${committedEnd}`),
-          fetch(`/api/calendar/events?start=${committedStart}&end=${committedEnd}`),
+          retryFetch(`/api/bookings?start=${committedStart}&end=${committedEnd}`),
+          retryFetch(`/api/calendar/events?start=${committedStart}&end=${committedEnd}`),
         ]);
         if (cancelled) return;
         if (bR.status >= 500 || eR.status >= 500) { setServerError(SERVER_ERROR); return; }
@@ -798,7 +799,7 @@ export default function AdminSchedule({ setPage }) {
     const body = { id: modal.booking.id, action };
     if (action === "decline" && declineMessage.trim()) body.message = declineMessage.trim();
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -860,7 +861,7 @@ export default function AdminSchedule({ setPage }) {
     setModalError(null);
     const ownerOnly = editParticipantIds.length === 1 && editParticipantIds[0] === modal.booking.user_id;
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -939,7 +940,7 @@ export default function AdminSchedule({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/calendar/events", {
+      const res = await retryFetch("/api/calendar/events", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(eventAllDay
@@ -963,7 +964,7 @@ export default function AdminSchedule({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/calendar/events", {
+      const res = await retryFetch("/api/calendar/events", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: modal.event.id }),
@@ -985,7 +986,7 @@ export default function AdminSchedule({ setPage }) {
     setModalSaving(true);
     setModalError(null);
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -1247,7 +1248,7 @@ export default function AdminSchedule({ setPage }) {
     try {
       let res;
       if (kind === "booking") {
-        res = await fetch("/api/bookings", {
+        res = await retryFetch("/api/bookings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: item.id, action: "update", date: newDate, start_time: newTime, tz_offset: new Date().getTimezoneOffset() }),
@@ -1261,7 +1262,7 @@ export default function AdminSchedule({ setPage }) {
         const newStartMin = newH * 60 + newM;
         const newEndMin = newStartMin + durationMin;
         const endTimeStr = `${String(Math.floor(newEndMin / 60)).padStart(2, "0")}:${String(newEndMin % 60).padStart(2, "0")}`;
-        res = await fetch("/api/calendar/events", {
+        res = await retryFetch("/api/calendar/events", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

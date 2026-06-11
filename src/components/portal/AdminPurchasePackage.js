@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 
 export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess }) {
   const [pricing, setPricing] = useState([]);
@@ -25,9 +26,9 @@ export default function AdminPurchasePackage({ client, onDirtyChange, onSuccess 
     (async () => {
       try {
         const [pr, tr, cr] = await Promise.all([
-          fetch("/api/pricing-matrix"),
-          fetch("/api/session-types"),
-          fetch(`/api/stripe/card?client_id=${encodeURIComponent(client.id)}`),
+          retryFetch("/api/pricing-matrix"),
+          retryFetch("/api/session-types"),
+          retryFetch(`/api/stripe/card?client_id=${encodeURIComponent(client.id)}`),
         ]);
         if (pr.status >= 500 || tr.status >= 500) { setServerError(SERVER_ERROR); setLoading(false); return; }
         const [p, t, c] = await Promise.all([

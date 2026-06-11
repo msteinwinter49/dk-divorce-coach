@@ -5,6 +5,7 @@ import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
+import { retryFetch } from "@/lib/fetchUtils";
 import MiniCalendar from "@/components/portal/MiniCalendar";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 7am - 8pm
@@ -129,7 +130,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
       const now = new Date();
       const aStart = dateStr(new Date(now.getFullYear(), now.getMonth() - 1, 1));
       const aEnd = dateStr(new Date(now.getFullYear(), now.getMonth() + 3, 0));
-      availRawPromise = fetch(`/api/availability?start=${aStart}&end=${aEnd}`);
+      availRawPromise = retryFetch(`/api/availability?start=${aStart}&end=${aEnd}`);
     } else {
       availRawPromise = Promise.resolve(null);
     }
@@ -137,8 +138,8 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     try {
       const [availR, bookingsR, typesR] = await Promise.all([
         availRawPromise,
-        fetch(`/api/bookings?start=${start}&end=${end}`),
-        fetch("/api/session-types"),
+        retryFetch(`/api/bookings?start=${start}&end=${end}`),
+        retryFetch("/api/session-types"),
       ]);
       if ((availR && availR.status >= 500) || bookingsR.status >= 500 || typesR.status >= 500) {
         setServerError(SERVER_ERROR);
@@ -304,7 +305,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
       let res;
       if (editingBooking) {
         // Update existing booking
-        res = await fetch("/api/bookings", {
+        res = await retryFetch("/api/bookings", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -386,7 +387,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     setConfirming(true);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: cancelTarget.id }),
@@ -693,7 +694,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
     setConfirming(true);
     const spinnerTimer = setTimeout(() => setShowSpinner(true), 500);
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await retryFetch("/api/bookings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -17,7 +17,8 @@ export function withErrorCatch(handler, { action, resource }) {
         process.env.NEXT_PUBLIC_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY
       );
-      await recordAlert(admin, { category: "server_error", action, resource, error: err });
+      // DB insert only — client fires ntfy/email after its own retries exhaust
+      await recordAlert(admin, { category: "server_error", action, resource, error: err, push: false });
       return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
   };
@@ -112,20 +113,23 @@ async function sendEmailAlert(rows) {
 }
 
 // Records a system alert to the DB and pushes notifications.
+// Pass push: false to skip ntfy/email (DB insert only).
 // Never throws — all errors are caught internally.
-export async function recordAlert(adminClient, { category, action, resource, summary, error: errorInput }) {
+export async function recordAlert(adminClient, { category, action, resource, summary, error: errorInput, push = true }) {
   const errorMsg = errorInput?.message || String(errorInput ?? "Unknown error");
   const title = [action, resource].filter(Boolean).join(" ") || category;
   const ntfyBody = [summary, errorMsg].filter(Boolean).join(" — ");
 
   // DB-down path: adminClient is null
   if (!adminClient) {
-    pushNtfy(title, ntfyBody);
-    if (Date.now() - lastDbDownAlertAt > 10 * 60 * 1000) {
-      try {
-        await sendEmailAlert([`<strong>${title}</strong>: ${ntfyBody}`]);
-        lastDbDownAlertAt = Date.now();
-      } catch {}
+    if (push) {
+      pushNtfy(title, ntfyBody);
+      if (Date.now() - lastDbDownAlertAt > 10 * 60 * 1000) {
+        try {
+          await sendEmailAlert([`<strong>${title}</strong>: ${ntfyBody}`]);
+          lastDbDownAlertAt = Date.now();
+        } catch {}
+      }
     }
     return;
   }
@@ -142,15 +146,19 @@ export async function recordAlert(adminClient, { category, action, resource, sum
     insertedId = inserted?.id;
   } catch (e) {
     // Fall to DB-down path
-    pushNtfy(title, ntfyBody);
-    if (Date.now() - lastDbDownAlertAt > 10 * 60 * 1000) {
-      try {
-        await sendEmailAlert([`<strong>${title}</strong>: ${ntfyBody}`]);
-        lastDbDownAlertAt = Date.now();
-      } catch {}
+    if (push) {
+      pushNtfy(title, ntfyBody);
+      if (Date.now() - lastDbDownAlertAt > 10 * 60 * 1000) {
+        try {
+          await sendEmailAlert([`<strong>${title}</strong>: ${ntfyBody}`]);
+          lastDbDownAlertAt = Date.now();
+        } catch {}
+      }
     }
     return;
   }
+
+  if (!push) return;
 
   // Push ntfy notification
   pushNtfy(title, ntfyBody);

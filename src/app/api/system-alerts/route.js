@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { withErrorCatch } from "@/lib/alert";
+import { withErrorCatch, recordAlert } from "@/lib/alert";
 
 async function getAdminClient(request) {
   const cookieStore = await cookies();
@@ -91,6 +91,27 @@ export const GET = withErrorCatch(async (request) => {
   if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
   return NextResponse.json({ alerts: data || [], total: count });
 }, { action: "GET /api/system-alerts", resource: "system-alerts" });
+
+// Client-side alert submission — any authenticated user, no admin required.
+// retryFetch() POSTs here after exhausting retries so one ntfy/email fires per incident.
+export const POST = withErrorCatch(async (request) => {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    { cookies: { getAll() { return cookieStore.getAll(); } } }
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const { category = "client_error", action, resource, summary, error: errorMsg } = await request.json();
+  const adminClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+  await recordAlert(adminClient, { category, action, resource, summary, error: errorMsg });
+  return NextResponse.json({ ok: true });
+}, { action: "POST /api/system-alerts", resource: "system-alerts" });
 
 export const PATCH = withErrorCatch(async (request) => {
   const { adminClient, error, status } = await getAdminClient(request);

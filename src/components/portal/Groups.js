@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
 
@@ -62,7 +63,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
   const fetchGroups = async () => {
     setListLoading(true);
     try {
-      const res = await fetch("/api/groups");
+      const res = await retryFetch("/api/groups");
       if (res.status >= 500) { setServerError(SERVER_ERROR); setListLoading(false); return; }
       const data = await res.json();
       if (res.ok) setGroups(data.groups || []);
@@ -106,7 +107,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setMembersLoading(true);
     setMembers([]);
     try {
-      const res = await fetch(`/api/groups/members?group_id=${group.id}`);
+      const res = await retryFetch(`/api/groups/members?group_id=${group.id}`);
       setMembersLoading(false);
       if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
       const data = await res.json();
@@ -170,7 +171,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
       }
     } else {
       try {
-        const res = await fetch("/api/groups", {
+        const res = await retryFetch("/api/groups", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: modal.id, name, hourly_rate: rate }),
@@ -223,7 +224,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
 
   const toggleMember = async (clientId, newActive) => {
     try {
-      const res = await fetch("/api/groups/members", {
+      const res = await retryFetch("/api/groups/members", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client_id: clientId, is_active: newActive }),
@@ -248,7 +249,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setArchiveResult(null);
     const newArchived = !modal.is_archived;
     try {
-      const res = await fetch("/api/groups", {
+      const res = await retryFetch("/api/groups", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: modal.id, is_archived: newArchived }),
@@ -274,7 +275,7 @@ export default function Groups({ setPage, initialGroupId, onGroupOpened }) {
     setDeleteLoading(true);
     setDeleteError(null);
     try {
-      const res = await fetch("/api/groups", {
+      const res = await retryFetch("/api/groups", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: modal.id }),

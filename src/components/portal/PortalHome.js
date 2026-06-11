@@ -5,6 +5,7 @@ import { useError } from "@/context/ErrorContext";
 import { useIsMobile } from "@/lib/hooks";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
+import { retryFetch } from "@/lib/fetchUtils";
 
 const Skel = ({ w = "70%", h = 16, mb = 8 }) => (
   <div style={{ width: w, height: h, background: "rgba(0,0,0,0.08)", borderRadius: 6, marginBottom: mb, animation: "skel-pulse 1.5s ease-in-out infinite" }} />
@@ -43,8 +44,8 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
 
         try {
           const [bookingsRes, eventsRes] = await Promise.all([
-            fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end28dStr}`),
-            fetch(`/api/calendar/events?start=${todayStr}&end=${end28dStr}`),
+            retryFetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end28dStr}`),
+            retryFetch(`/api/calendar/events?start=${todayStr}&end=${end28dStr}`),
           ]);
           if (bookingsRes.status >= 500 || eventsRes.status >= 500) {
             setServerError(SERVER_ERROR);
@@ -98,7 +99,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
         const end12moStr = in12mo.toLocaleDateString("en-CA");
 
         try {
-          const res = await fetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`);
+          const res = await retryFetch(`/api/bookings?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`);
           if (!res.ok) {
             if (res.status >= 500) setServerError(SERVER_ERROR);
             setLoading(false);
@@ -127,7 +128,7 @@ export default function PortalHome({ setPage, viewAsClient, setProfileFocus }) {
         const end12moStr = in12mo.toLocaleDateString("en-CA");
 
         try {
-          const res = await fetch(`/api/portal-home?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`);
+          const res = await retryFetch(`/api/portal-home?start=${encodeURIComponent(today.toISOString())}&end=${end12moStr}`);
           if (!res.ok) {
             if (res.status >= 500) setServerError(SERVER_ERROR);
             setLoading(false);

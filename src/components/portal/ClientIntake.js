@@ -4,6 +4,7 @@ import { C, S } from "@/lib/constants";
 import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile, useSmsEnabled } from "@/lib/hooks";
+import { retryFetch } from "@/lib/fetchUtils";
 import { PaymentMethodSection } from "@/components/portal/PaymentMethodSection";
 
 const TIMEZONES = [
@@ -144,7 +145,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     if (zip.length !== 5 || !/^\d{5}$/.test(zip)) return;
     setZipLooking(true);
     try {
-      const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
+      const res = await retryFetch(`https://api.zippopotam.us/us/${zip}`);
       if (res.ok) {
         const data = await res.json();
         const place = data.places?.[0];

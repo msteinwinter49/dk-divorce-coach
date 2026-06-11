@@ -2,6 +2,7 @@
 import { useState, useCallback } from "react";
 import { C, S, SERVER_ERROR } from "@/lib/constants";
 import { useError } from "@/context/ErrorContext";
+import { retryFetch } from "@/lib/fetchUtils";
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -121,7 +122,7 @@ export default function SessionActivity({ clientId }) {
     if (start) params.set("start", start);
     if (end) params.set("end", end);
     try {
-      const res = await fetch(`/api/session-activity?${params}`);
+      const res = await retryFetch(`/api/session-activity?${params}`);
       setLoading(false);
       if (!res.ok) {
         if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
