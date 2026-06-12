@@ -56,12 +56,12 @@ export const GET = withErrorCatch(async (request) => {
   if (searchParams.get("format") === "csv") {
     const { data, error: dbError } = await adminClient
       .from("system_alerts")
-      .select("id, created_at, category, action, resource, summary, error_detail, acknowledged, user_id, user_name")
+      .select("id, created_at, category, action, resource, summary, error_detail, acknowledged, user_id, user_name, user_email")
       .order("created_at", { ascending: false });
 
     if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
 
-    const headers = ["id", "created_at", "category", "action", "resource", "summary", "error_detail", "acknowledged", "user_id", "user_name"];
+    const headers = ["id", "created_at", "category", "action", "resource", "summary", "error_detail", "acknowledged", "user_id", "user_name", "user_email"];
     const escapeField = (val) => {
       const str = val == null ? "" : String(val);
       return str.includes(",") ? `"${str.replace(/"/g, '""')}"` : str;
@@ -117,7 +117,7 @@ export const POST = withErrorCatch(async (request) => {
     .single();
   const userName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || null;
 
-  await recordAlert(adminClient, { category, action, resource, summary, error: errorMsg, userId: user.id, userName });
+  await recordAlert(adminClient, { category, action, resource, summary, error: errorMsg, userId: user.id, userName, userEmail: user.email });
   return NextResponse.json({ ok: true });
 }, { action: "POST /api/system-alerts", resource: "system-alerts" });
 

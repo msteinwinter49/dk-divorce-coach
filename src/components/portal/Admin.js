@@ -151,8 +151,8 @@ export default function Admin({ setPage }) {
                     {alert.user_name && (
                       <span style={{ marginRight:6, color:C.text }}>{alert.user_name}</span>
                     )}
-                    {alert.user_id && !alert.user_name && (
-                      <span style={{ marginRight:6, fontFamily:"monospace", fontSize:11 }}>{alert.user_id}</span>
+                    {!alert.user_name && alert.user_email && (
+                      <span style={{ marginRight:6 }}>{alert.user_email}</span>
                     )}
                     {alert.summary && (
                       <span style={{ fontWeight:700, fontSize:14, color:C.text }}>{alert.summary}</span>

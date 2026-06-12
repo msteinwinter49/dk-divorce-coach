@@ -115,18 +115,18 @@ async function sendEmailAlert(rows) {
 // Records a system alert to the DB and pushes notifications.
 // Pass push: false to skip ntfy/email (DB insert only).
 // Never throws — all errors are caught internally.
-export async function recordAlert(adminClient, { category, action, resource, summary, error: errorInput, push = true, userId, userName }) {
+export async function recordAlert(adminClient, { category, action, resource, summary, error: errorInput, push = true, userId, userName, userEmail }) {
   const errorMsg = errorInput?.message || String(errorInput ?? "Unknown error");
   const httpMatch = errorMsg.match(/^HTTP (\d{3})$/);
   const base = action ? `${action}${httpMatch ? ` ${httpMatch[1]}` : ""}` : category;
-  const title = `DK Divorce Coach — ${base}`;
+  const title = `DK Divorce Coach - ${base}`;
   const ntfyBody = [summary, errorMsg].filter(Boolean).join(" — ");
 
   // DB-down path: adminClient is null
   if (!adminClient) {
     if (push) {
       pushNtfy(title, ntfyBody);
-      if (Date.now() - lastDbDownAlertAt > 10 * 60 * 1000) {
+      if (Date.now() - lastDbDownAlertAt > 60 * 1000) {
         try {
           await sendEmailAlert([`<strong>${title}</strong>: ${ntfyBody}`]);
           lastDbDownAlertAt = Date.now();
@@ -141,7 +141,7 @@ export async function recordAlert(adminClient, { category, action, resource, sum
   try {
     const { data: inserted, error: insertError } = await adminClient
       .from("system_alerts")
-      .insert({ category, action, resource, summary, error_detail: errorMsg, user_id: userId || null, user_name: userName || null })
+      .insert({ category, action, resource, summary, error_detail: errorMsg, user_id: userId || null, user_name: userName || null, user_email: userEmail || null })
       .select("id")
       .single();
     if (insertError) throw insertError;
@@ -150,7 +150,7 @@ export async function recordAlert(adminClient, { category, action, resource, sum
     // Fall to DB-down path
     if (push) {
       pushNtfy(title, ntfyBody);
-      if (Date.now() - lastDbDownAlertAt > 10 * 60 * 1000) {
+      if (Date.now() - lastDbDownAlertAt > 60 * 1000) {
         try {
           await sendEmailAlert([`<strong>${title}</strong>: ${ntfyBody}`]);
           lastDbDownAlertAt = Date.now();
@@ -176,12 +176,12 @@ export async function recordAlert(adminClient, { category, action, resource, sum
       .maybeSingle();
 
     const lastEmailed = lastEmailedRow?.emailed_at ? new Date(lastEmailedRow.emailed_at).getTime() : null;
-    const shouldEmail = lastEmailed === null || Date.now() - lastEmailed > 10 * 60 * 1000;
+    const shouldEmail = lastEmailed === null || Date.now() - lastEmailed > 60 * 1000;
 
     if (shouldEmail) {
       const { data: unemaledRows } = await adminClient
         .from("system_alerts")
-        .select("id, created_at, category, action, resource, summary, error_detail, user_id, user_name")
+        .select("id, created_at, category, action, resource, summary, error_detail, user_id, user_name, user_email")
         .is("emailed_at", null)
         .order("created_at", { ascending: false });
 
@@ -192,8 +192,8 @@ export async function recordAlert(adminClient, { category, action, resource, sum
             ? new Date(row.created_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
             : "";
           const user = row.user_name
-            ? `${row.user_name}${row.user_id ? ` (${row.user_id})` : ""}`
-            : row.user_id || "";
+            ? `${row.user_name}${row.user_email ? ` (${row.user_email})` : ""}`
+            : row.user_email || "";
           const meta = [ts, user].filter(Boolean).join(" · ");
           return `<strong>${label}</strong> — ${row.summary ? row.summary + ": " : ""}${row.error_detail}${meta ? `<br><span style="color:#888;font-size:12px">${meta}</span>` : ""}`;
         });
