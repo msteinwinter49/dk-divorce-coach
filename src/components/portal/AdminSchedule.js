@@ -2685,7 +2685,9 @@ export default function AdminSchedule({ setPage }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
         <input type="checkbox" id="evtAllDay" checked={eventAllDay} onChange={e => setEventAllDay(e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.teal }} />
         <label htmlFor="evtAllDay" style={{ fontSize: 14, color: C.text, cursor: "pointer" }}>All day for</label>
-        <input style={{ ...S.input, width: 64, margin: 0 }} type="number" min={1} value={eventAllDayDays} onChange={e => setEventAllDayDays(Math.max(1, parseInt(e.target.value) || 1))} disabled={!eventAllDay} />
+        <button onClick={() => setEventAllDayDays(d => Math.max(1, d - 1))} disabled={!eventAllDay} style={{ width: 32, height: 32, border: `1px solid ${C.border}`, borderRadius: 6, background: C.surface, cursor: eventAllDay ? "pointer" : "not-allowed", fontSize: 18, lineHeight: 1, opacity: eventAllDay ? 1 : 0.4 }}>−</button>
+        <span style={{ minWidth: 24, textAlign: "center", fontSize: 16, fontWeight: 500, color: eventAllDay ? C.text : C.muted }}>{eventAllDayDays}</span>
+        <button onClick={() => setEventAllDayDays(d => d + 1)} disabled={!eventAllDay} style={{ width: 32, height: 32, border: `1px solid ${C.border}`, borderRadius: 6, background: C.surface, cursor: eventAllDay ? "pointer" : "not-allowed", fontSize: 18, lineHeight: 1, opacity: eventAllDay ? 1 : 0.4 }}>+</button>
         <span style={{ fontSize: 14, color: C.text }}>days</span>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -2733,7 +2735,9 @@ export default function AdminSchedule({ setPage }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
         <input type="checkbox" id="evtAllDayEdit" checked={eventAllDay} onChange={e => setEventAllDay(e.target.checked)} style={{ width: 16, height: 16, cursor: "pointer", accentColor: C.teal }} />
         <label htmlFor="evtAllDayEdit" style={{ fontSize: 14, color: C.text, cursor: "pointer" }}>All day for</label>
-        <input style={{ ...S.input, width: 64, margin: 0 }} type="number" min={1} value={eventAllDayDays} onChange={e => setEventAllDayDays(Math.max(1, parseInt(e.target.value) || 1))} disabled={!eventAllDay} />
+        <button onClick={() => setEventAllDayDays(d => Math.max(1, d - 1))} disabled={!eventAllDay} style={{ width: 32, height: 32, border: `1px solid ${C.border}`, borderRadius: 6, background: C.surface, cursor: eventAllDay ? "pointer" : "not-allowed", fontSize: 18, lineHeight: 1, opacity: eventAllDay ? 1 : 0.4 }}>−</button>
+        <span style={{ minWidth: 24, textAlign: "center", fontSize: 16, fontWeight: 500, color: eventAllDay ? C.text : C.muted }}>{eventAllDayDays}</span>
+        <button onClick={() => setEventAllDayDays(d => d + 1)} disabled={!eventAllDay} style={{ width: 32, height: 32, border: `1px solid ${C.border}`, borderRadius: 6, background: C.surface, cursor: eventAllDay ? "pointer" : "not-allowed", fontSize: 18, lineHeight: 1, opacity: eventAllDay ? 1 : 0.4 }}>+</button>
         <span style={{ fontSize: 14, color: C.text }}>days</span>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
