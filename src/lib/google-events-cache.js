@@ -76,30 +76,31 @@ async function refreshCache(supabase, token) {
 
   const events = await listEvents(token, cacheStart, cacheEnd, onNewToken);
 
-  // Upsert all events into cache
+  // Only update the cache when Google returned events. An empty result most
+  // likely means a transient per-calendar fetch failure (each calendar's error
+  // is swallowed in listEvents and returns []). If we cleared the cache on an
+  // empty result we'd serve "all times available" until the next successful
+  // refresh — exactly the wrong behaviour for SP appointment blocking.
   if (events.length > 0) {
     const rows = events.map(eventToRow);
     await supabase
       .from("google_events_cache")
       .upsert(rows, { onConflict: "google_event_id" });
+
+    // Delete stale rows: anything not touched by this upsert is gone from Google.
+    const cutoff = new Date(Date.now() - 60 * 1000).toISOString(); // 60s grace
+    await supabase
+      .from("google_events_cache")
+      .delete()
+      .lt("fetched_at", cutoff);
+
+    // Mark cache as fresh only on a successful non-empty refresh.
+    await supabase.from("settings").upsert({
+      key: "gcal_cache_fetched_at",
+      value: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
   }
-
-  // Delete stale rows outside the new window (cancelled events etc.)
-  // Use fetched_at: anything not updated in this pass is stale.
-  // We do a simple delete of rows with fetched_at before this refresh started.
-  // (Rows just upserted all have fetched_at = now)
-  const cutoff = new Date(Date.now() - 60 * 1000).toISOString(); // 60s grace
-  await supabase
-    .from("google_events_cache")
-    .delete()
-    .lt("fetched_at", cutoff);
-
-  // Update the last-fetched timestamp in settings
-  await supabase.from("settings").upsert({
-    key: "gcal_cache_fetched_at",
-    value: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  });
 
   return events;
 }
