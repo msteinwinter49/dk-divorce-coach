@@ -30,6 +30,7 @@ export default function Admin({ setPage }) {
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState({});
   const [marking, setMarking] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(true);
   const { setServerError } = useError();
 
   useEffect(() => {
@@ -91,6 +92,15 @@ export default function Admin({ setPage }) {
             )}
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <label style={{ display:"flex", alignItems:"center", gap:5, fontSize:13, color:C.muted, cursor:"pointer", userSelect:"none" }}>
+              <input
+                type="checkbox"
+                checked={unreadOnly}
+                onChange={e => setUnreadOnly(e.target.checked)}
+                style={{ cursor:"pointer" }}
+              />
+              Unread only
+            </label>
             {unread > 0 && (
               <button
                 onClick={markAllRead}
@@ -111,11 +121,11 @@ export default function Admin({ setPage }) {
 
         {alertsLoading ? (
           <p style={{ fontSize:13, color:C.muted, marginBottom:0 }}>Loading...</p>
-        ) : alerts.length === 0 ? (
-          <p style={{ fontSize:13, color:C.muted, marginBottom:0 }}>No alerts.</p>
+        ) : alerts.filter(a => !unreadOnly || !a.acknowledged).length === 0 ? (
+          <p style={{ fontSize:13, color:C.muted, marginBottom:0 }}>{unreadOnly ? "No unread alerts." : "No alerts."}</p>
         ) : (
           <div style={{ maxHeight:360, overflowY:"auto" }}>
-            {alerts.map(alert => (
+            {alerts.filter(a => !unreadOnly || !a.acknowledged).map(alert => (
               <div
                 key={alert.id}
                 style={{
