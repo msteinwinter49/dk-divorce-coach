@@ -117,7 +117,9 @@ async function sendEmailAlert(rows) {
 // Never throws — all errors are caught internally.
 export async function recordAlert(adminClient, { category, action, resource, summary, error: errorInput, push = true }) {
   const errorMsg = errorInput?.message || String(errorInput ?? "Unknown error");
-  const title = [action, resource].filter(Boolean).join(" ") || category;
+  const httpMatch = errorMsg.match(/^HTTP (\d{3})$/);
+  const base = action ? `${action}${httpMatch ? ` ${httpMatch[1]}` : ""}` : category;
+  const title = `DK Divorce Coach — ${base}`;
   const ntfyBody = [summary, errorMsg].filter(Boolean).join(" — ");
 
   // DB-down path: adminClient is null
