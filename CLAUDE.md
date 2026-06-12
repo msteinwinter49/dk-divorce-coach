@@ -46,6 +46,32 @@ This is a **Next.js 16 App Router** project (JavaScript, no TypeScript) for a di
 
 **RLS note:** The admin read policy on `profiles` was dropped due to infinite recursion. Admin access to all profiles is handled via server-side API routes using the service_role key instead.
 
+## Error Handling — Required Pattern
+
+**Every code change must include comprehensive error detection and handling.** Silent failures are the highest-risk defect category in this codebase — they return 200 to the client, bypass all alerting, and cause invisible data corruption or degraded availability.
+
+### Server-side rules (API routes and lib/)
+
+1. **All API route handlers** must be wrapped in `withErrorCatch(handler, { action, resource })` from `@/lib/alert`. This handles uncaught throws → 500 + DB alert.
+2. **Every internal `catch` block** that swallows an error must call `await recordAlert(supabase, { category, action, resource, error })`. No bare `console.error` without a matching `recordAlert`.
+3. **Transient Google API calls** — wrap with `retryWithBackoff(() => fn())` from `@/lib/alert`. Alert fires automatically when all retries are exhausted.
+4. **Supabase reads that could fail** — use `retryableRead(fn, adminClient, alertContext)`. Returns `{ data: null }` on exhaustion and records alert automatically.
+5. **Supabase mutation results** (`.update()`, `.insert()`, `.delete()`, `.remove()`) must have their `{ error }` destructured and checked. These do **not** throw — `withErrorCatch` will not catch a silent `error` in the response object.
+6. **Intentionally-silent exceptions** (truly non-fatal, can't self-alert): `alert.js` internal catches, `stripe.customers.del` in group delete (non-fatal cleanup), `system_alerts` pruning. All others need `recordAlert`.
+
+### Client-side rules (components/)
+
+7. **Primary data fetches** must use `retryFetch` from `@/lib/fetchUtils`. On exhaustion it fires `POST /api/system-alerts` automatically.
+8. **Supplementary fire-and-forget calls** (balance refreshes, secondary UI updates after a primary action) may use `.catch(() => {})` only when the failure is truly non-fatal and the user has already received confirmation of the primary action.
+
+### Checklist for every PR
+
+- [ ] New API routes wrapped in `withErrorCatch`
+- [ ] All `catch` blocks call `recordAlert` (or are explicitly justified as intentionally silent)
+- [ ] Supabase mutation `{ error }` responses checked
+- [ ] Google API calls use `retryWithBackoff`
+- [ ] Client fetches use `retryFetch`
+
 ## Key Conventions
 
 - Path alias: `@/*` maps to `./src/*`

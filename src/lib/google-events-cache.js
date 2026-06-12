@@ -68,11 +68,12 @@ async function refreshCache(supabase, token) {
 
   const { listEvents } = await import("./google-calendar.js");
   const onNewToken = async (newToken) => {
-    await supabase.from("settings").upsert({
+    const { error } = await supabase.from("settings").upsert({
       key: "google_refresh_token",
       value: newToken,
       updated_at: new Date().toISOString(),
     });
+    if (error) await recordAlert(supabase, { category: "gcal_sync", action: "TOKEN_ROTATE", resource: "google_refresh_token", error: error.message });
   };
 
   const events = await listEvents(token, cacheStart, cacheEnd, onNewToken);

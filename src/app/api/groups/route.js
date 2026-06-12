@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { withErrorCatch } from "@/lib/alert";
+import { withErrorCatch, recordAlert } from "@/lib/alert";
 
 function adminSupabase() {
   return createClient(
@@ -122,10 +122,12 @@ export const DELETE = withErrorCatch(async (request) => {
 
     const { data: files } = await admin.storage.from("documents").list(client_id);
     if (files?.length) {
-      await admin.storage.from("documents").remove(files.map(f => `${client_id}/${f.name}`));
+      const { error: storageErr } = await admin.storage.from("documents").remove(files.map(f => `${client_id}/${f.name}`));
+      if (storageErr) await recordAlert(admin, { category: "storage", action: "DELETE /api/groups", resource: "documents", summary: `client ${client_id}`, error: storageErr.message });
     }
 
-    await admin.from("messages").delete().or(`sender_id.eq.${client_id},conversation_id.eq.${client_id}`);
+    const { error: msgErr } = await admin.from("messages").delete().or(`sender_id.eq.${client_id},conversation_id.eq.${client_id}`);
+    if (msgErr) await recordAlert(admin, { category: "db", action: "DELETE /api/groups", resource: "messages", summary: `client ${client_id}`, error: msgErr.message });
 
     if (profile?.stripe_customer_id) {
       try { await stripe.customers.del(profile.stripe_customer_id); } catch { /* non-fatal */ }

@@ -52,7 +52,7 @@ export const POST = withErrorCatch(async (request) => {
     return NextResponse.json({ error: storageErr.message }, { status: 500 });
   }
 
-  await Promise.all([
+  const [{ error: pathErr }, { error: shareErr }] = await Promise.all([
     adminClient.from("documents").update({ storage_path: storagePath }).eq("id", doc.id),
     adminClient.from("document_shares").insert({
       document_id: doc.id,
@@ -61,6 +61,8 @@ export const POST = withErrorCatch(async (request) => {
       client_upload: true,
     }),
   ]);
+  if (pathErr) await recordAlert(adminClient, { category: "db", action: "POST /api/documents/client-upload", resource: "documents", summary: `doc ${doc.id}`, error: pathErr.message });
+  if (shareErr) await recordAlert(adminClient, { category: "db", action: "POST /api/documents/client-upload", resource: "document_shares", summary: `doc ${doc.id}`, error: shareErr.message });
 
   try {
     const [{ data: profile }, { data: share }] = await Promise.all([
