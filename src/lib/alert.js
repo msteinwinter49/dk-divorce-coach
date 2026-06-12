@@ -115,7 +115,7 @@ async function sendEmailAlert(rows) {
 // Records a system alert to the DB and pushes notifications.
 // Pass push: false to skip ntfy/email (DB insert only).
 // Never throws — all errors are caught internally.
-export async function recordAlert(adminClient, { category, action, resource, summary, error: errorInput, push = true }) {
+export async function recordAlert(adminClient, { category, action, resource, summary, error: errorInput, push = true, userId, userName }) {
   const errorMsg = errorInput?.message || String(errorInput ?? "Unknown error");
   const httpMatch = errorMsg.match(/^HTTP (\d{3})$/);
   const base = action ? `${action}${httpMatch ? ` ${httpMatch[1]}` : ""}` : category;
@@ -141,7 +141,7 @@ export async function recordAlert(adminClient, { category, action, resource, sum
   try {
     const { data: inserted, error: insertError } = await adminClient
       .from("system_alerts")
-      .insert({ category, action, resource, summary, error_detail: errorMsg })
+      .insert({ category, action, resource, summary, error_detail: errorMsg, user_id: userId || null, user_name: userName || null })
       .select("id")
       .single();
     if (insertError) throw insertError;
@@ -181,14 +181,21 @@ export async function recordAlert(adminClient, { category, action, resource, sum
     if (shouldEmail) {
       const { data: unemaledRows } = await adminClient
         .from("system_alerts")
-        .select("id, category, action, resource, summary, error_detail")
+        .select("id, created_at, category, action, resource, summary, error_detail, user_id, user_name")
         .is("emailed_at", null)
         .order("created_at", { ascending: false });
 
       if (unemaledRows && unemaledRows.length > 0) {
         const emailRows = unemaledRows.map(row => {
           const label = [row.category, row.action, row.resource].filter(Boolean).join("/");
-          return `<strong>${label}</strong> — ${row.summary ? row.summary + ": " : ""}${row.error_detail}`;
+          const ts = row.created_at
+            ? new Date(row.created_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+            : "";
+          const user = row.user_name
+            ? `${row.user_name}${row.user_id ? ` (${row.user_id})` : ""}`
+            : row.user_id || "";
+          const meta = [ts, user].filter(Boolean).join(" · ");
+          return `<strong>${label}</strong> — ${row.summary ? row.summary + ": " : ""}${row.error_detail}${meta ? `<br><span style="color:#888;font-size:12px">${meta}</span>` : ""}`;
         });
         await sendEmailAlert(emailRows);
         const ids = unemaledRows.map(r => r.id);
