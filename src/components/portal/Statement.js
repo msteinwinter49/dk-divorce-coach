@@ -20,13 +20,13 @@ function fmtDollars(cents) {
 }
 
 function downloadCSV(rows, groupName) {
-  const header = ["Date", "Description", "Clients", "Minutes", "Amount", "Balance (min)"];
+  const header = ["Date", "Description", "Clients", "Amount", "Minutes", "Balance (min)"];
   const lines = rows.map(r => [
     `"${fmtDate(r.date)}"`,
     `"${r.description.replace(/"/g, '""')}"`,
     r.names?.length ? `"${r.names.join(", ")}"` : "",
-    r.delta_minutes || 0,
     r.amount_cents != null ? (Math.abs(r.amount_cents) / 100).toFixed(2) : "",
+    r.delta_minutes || 0,
     r.balance_minutes,
   ].join(","));
   const csv = [header.join(","), ...lines].join("\n");
@@ -46,8 +46,8 @@ function buildPrintHtml(rows, groupName, start, end, balanceForward) {
   const headerRow = `<tr>
     <th style="${thL}">Date</th>
     <th style="${thL}">Description</th>
-    <th style="${thR}">Minutes</th>
     <th style="${thR}">Amount</th>
+    <th style="${thR}">Minutes</th>
     <th style="${thR}">Balance</th>
   </tr>`;
 
@@ -65,8 +65,8 @@ function buildPrintHtml(rows, groupName, start, end, balanceForward) {
     return `<tr>
       <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDate(r.date)}</td>
       <td style="padding:8px 7px;font-size:13px;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.description}${nameStr}</td>
-      <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1);color:${minColor}">${fmtMins(r.delta_minutes)}</td>
       <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1)">${fmtDollars(r.amount_cents)}</td>
+      <td style="padding:8px 7px;font-size:13px;text-align:right;border-bottom:0.5px solid rgba(0,0,0,0.1);color:${minColor}">${fmtMins(r.delta_minutes)}</td>
       <td style="padding:8px 7px;font-size:13px;text-align:right;font-weight:500;border-bottom:0.5px solid rgba(0,0,0,0.1)">${r.balance_minutes} min</td>
     </tr>`;
   }).join("");
@@ -191,8 +191,8 @@ export default function Statement({ groupId }) {
                   <tr>
                     <th style={thStyle}>Date</th>
                     <th style={thStyle}>Description</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Minutes</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Minutes</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Balance</th>
                   </tr>
                 </thead>
@@ -224,10 +224,10 @@ export default function Statement({ groupId }) {
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{r.names.join(", ")}</div>
                       )}
                     </td>
+                    <td style={tdNum}>{fmtDollars(r.amount_cents)}</td>
                     <td style={{ ...tdNum, color: r.delta_minutes > 0 ? C.teal : r.delta_minutes < 0 ? "#c0392b" : C.muted }}>
                       {fmtMins(r.delta_minutes)}
                     </td>
-                    <td style={tdNum}>{fmtDollars(r.amount_cents)}</td>
                     <td style={{ ...tdNum, fontWeight: 500 }}>{r.balance_minutes} min</td>
                   </tr>
                 ))}

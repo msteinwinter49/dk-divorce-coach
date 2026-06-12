@@ -37,6 +37,10 @@ function describeRow(row, bookingMap, purchaseMap) {
       return row.note ? `Charge: ${row.note}` : "Manual charge";
     case "admin_refund":
       return row.note ? `Refund: ${row.note}` : "Manual refund";
+    case "decline":
+      return bookingMap[row.source_id]
+        ? `Declined request for ${bookingMap[row.source_id].label}`
+        : "Declined request";
     case "expiration":
       return "Minutes expired";
     default:
@@ -52,7 +56,7 @@ function fmtName(profile) {
 }
 
 const ADMIN_TYPES = new Set(["admin_adjust", "admin_charge", "admin_refund"]);
-const SESSION_TYPES = new Set(["request", "cancel", "edit_delta"]);
+const SESSION_TYPES = new Set(["request", "cancel", "edit_delta", "decline"]);
 
 function rowNames(row, bookingMap, purchaseMap, profileMap, isMultiMember) {
   if (ADMIN_TYPES.has(row.source_type)) return ["Admin"];
