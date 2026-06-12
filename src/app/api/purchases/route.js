@@ -209,6 +209,7 @@ export const POST = withErrorCatch(async (request) => {
     );
   } catch (e) {
     console.error("Purchase email failed", purchase.id, e);
+    await recordAlert(admin, { category: "email", action: "POST /api/purchases", resource: "purchase-confirmation", summary: `purchase ${purchase.id}`, error: e?.message || String(e) });
   }
 
   return NextResponse.json({ purchase, balance_after: balanceAfter });

@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { retryWithBackoff } from "./alert.js";
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
@@ -87,7 +88,7 @@ export async function listEvents(refreshToken, timeMin, timeMax, onNewToken) {
   // 3. Fetch events from every calendar in parallel
   const results = await Promise.all(calendars.map(async (cal) => {
     try {
-      const { data } = await withTimeout(
+      const { data } = await retryWithBackoff(() => withTimeout(
         calendar.events.list({
           calendarId: cal.id,
           timeMin: wideMin.toISOString(),
@@ -96,7 +97,7 @@ export async function listEvents(refreshToken, timeMin, timeMax, onNewToken) {
           orderBy: "startTime",
         }),
         `listEvents/${cal.id}`
-      );
+      ));
       const isSP = (cal.summary || "").toLowerCase().includes("simplepractice");
       return (data.items || []).map(ev => ({
         ...ev,

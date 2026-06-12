@@ -8,7 +8,7 @@
 // old-but-future requests stay active. Surfacing them is handled by the
 // admin-portal "unaddressed requests" banner, not by auto-expiry.
 
-import { recordAlert } from "@/lib/alert";
+import { recordAlert, retryWithBackoff } from "@/lib/alert";
 
 // Throttle opportunistic calls. No point sweeping more than once per minute.
 const MIN_SWEEP_INTERVAL_MS = 60 * 1000;
@@ -71,7 +71,7 @@ export async function expireStaleRequests(supabase) {
         const { deleteEvent } = await import("@/lib/google-calendar");
         await Promise.all(toDelete.map(async (c) => {
           try {
-            await deleteEvent(token, c.google_calendar_event_id);
+            await retryWithBackoff(() => deleteEvent(token, c.google_calendar_event_id));
             await supabase
               .from("bookings")
               .update({ google_calendar_event_id: null })
@@ -83,6 +83,7 @@ export async function expireStaleRequests(supabase) {
         }));
       } catch (e) {
         console.error("[sweep] google-calendar import failed:", e?.message || e);
+        await recordAlert(supabase, { category: "gcal_sync", action: "DELETE", resource: "booking-sweep-gcal", error: e?.message || String(e) });
       }
     }
   }
@@ -100,6 +101,7 @@ export async function maybeExpireStaleRequests(supabase) {
     return await expireStaleRequests(supabase);
   } catch (e) {
     console.error("[sweep] opportunistic expire failed:", e?.message || e);
+    await recordAlert(supabase, { category: "server_error", action: "SWEEP", resource: "bookings-sweep", error: e?.message || String(e) });
     return { expired: 0, error: true };
   }
 }

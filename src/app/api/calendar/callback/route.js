@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getTokensFromCode } from "@/lib/google-calendar";
-import { withErrorCatch } from "@/lib/alert";
+import { withErrorCatch, recordAlert } from "@/lib/alert";
 
 export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
@@ -48,6 +48,11 @@ export const GET = withErrorCatch(async (request) => {
     return NextResponse.redirect(new URL("/?google_connected=true", request.url));
   } catch (e) {
     console.error("Google OAuth error:", e);
+    const alertClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    await recordAlert(alertClient, { category: "gcal_sync", action: "GET /api/calendar/callback", resource: "oauth-callback", error: e?.message || String(e) });
     return NextResponse.redirect(new URL("/?error=google_auth_failed", request.url));
   }
 }, { action: "GET /api/calendar/callback", resource: "calendar-callback" });

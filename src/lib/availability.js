@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { recordAlert } from "./alert.js";
 
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/New_York";
 
@@ -9,26 +10,60 @@ function getSupabase() {
   );
 }
 
+// Return the nth occurrence of a given weekday (0=Sun) in a UTC month.
+// Used to compute US DST transition dates. Returned as a UTC Date at 2:00 AM
+// local time (≈ 7:00 UTC, conservative enough for a day-boundary check).
+function nthWeekdayOfMonth(year, month, weekday, n) {
+  const first = new Date(Date.UTC(year, month, 1));
+  const diff = (weekday - first.getUTCDay() + 7) % 7;
+  return new Date(Date.UTC(year, month, 1 + diff + (n - 1) * 7, 7));
+}
+
+// True if `date` falls within US Eastern Daylight Time:
+// second Sunday in March → first Sunday in November (clocks spring forward at 2 AM).
+function isEDT(date) {
+  const y = date.getUTCFullYear();
+  const start = nthWeekdayOfMonth(y, 2, 0, 2);  // March, 2nd Sunday
+  const end   = nthWeekdayOfMonth(y, 10, 0, 1); // November, 1st Sunday
+  return date >= start && date < end;
+}
+
 // Break a Date object into { date, hour, minute } as observed in a specific
 // IANA time zone. Needed because Vercel servers run in UTC — new Date(iso).getHours()
 // would give us UTC hours, not Diana's business-local hours.
+//
+// Vercel's Node.js build ships with small-icu, which omits IANA timezone data
+// and causes Intl.DateTimeFormat to throw "Invalid time zone specified" for
+// named zones like "America/New_York". We fall back to a manual ET offset
+// (UTC-4 EDT / UTC-5 EST) so availability blocking still works in production.
 function partsInTimezone(date, tz) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(date);
-  const p = {};
-  for (const part of parts) p[part.type] = part.value;
-  return {
-    date: `${p.year}-${p.month}-${p.day}`,
-    hour: parseInt(p.hour, 10) % 24, // Intl may emit "24" for midnight
-    minute: parseInt(p.minute, 10),
-  };
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+    const p = {};
+    for (const part of parts) p[part.type] = part.value;
+    return {
+      date: `${p.year}-${p.month}-${p.day}`,
+      hour: parseInt(p.hour, 10) % 24, // Intl may emit "24" for midnight
+      minute: parseInt(p.minute, 10),
+    };
+  } catch {
+    // Fallback: manual Eastern Time offset (UTC-4 EDT, UTC-5 EST).
+    const offsetMs = (isEDT(date) ? -4 : -5) * 60 * 60 * 1000;
+    const local = new Date(date.getTime() + offsetMs);
+    return {
+      date: `${local.getUTCFullYear()}-${String(local.getUTCMonth() + 1).padStart(2, "0")}-${String(local.getUTCDate()).padStart(2, "0")}`,
+      hour: local.getUTCHours(),
+      minute: local.getUTCMinutes(),
+    };
+  }
 }
 
 // Fetch local events (Diana's personal blocks) from the events table as busy
@@ -77,6 +112,7 @@ async function getLocalEventsBusyByDate(supabase, startDate, endDate) {
     return busy;
   } catch (e) {
     console.error("[availability] local events fetch failed:", e?.message || e);
+    await recordAlert(supabase, { category: "db", action: "GET /api/availability", resource: "local-events-busy", error: e?.message || String(e) });
     return {};
   }
 }
@@ -140,6 +176,7 @@ async function getGoogleBusyByDate(supabase, startDate, endDate) {
     return busy;
   } catch (e) {
     console.error("[availability] Google busy fetch failed, falling back to DB-only:", e?.message || e);
+    await recordAlert(supabase, { category: "gcal_sync", action: "GET /api/availability", resource: "google-busy", error: e?.message || String(e) });
     return {};
   }
 }

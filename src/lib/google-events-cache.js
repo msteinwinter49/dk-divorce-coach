@@ -1,5 +1,6 @@
 // Google Calendar event cache — serves events from the DB when fresh,
 // fetches from Google and updates the cache when stale.
+import { retryWithBackoff, recordAlert } from "./alert.js";
 //
 // TTL: CACHE_TTL_MS (5 min). On stale read, we update the cache synchronously
 // (same request) so the next caller gets fast data. The slow path only triggers
@@ -132,7 +133,7 @@ export async function getGoogleEvents(supabase, startDate, endDate) {
 
     if (!isFresh) {
       // Synchronous refresh — slow path, updates cache for next callers
-      const events = await refreshCache(supabase, token);
+      const events = await retryWithBackoff(() => refreshCache(supabase, token));
       // Filter to requested range from the fresh list
       return filterToRange(events, startDate, endDate);
     }
@@ -147,6 +148,7 @@ export async function getGoogleEvents(supabase, startDate, endDate) {
     return filterToRange(allEvents, startDate, endDate);
   } catch (e) {
     console.error("[gcal-cache] getGoogleEvents failed, falling back to empty:", e?.message || e);
+    await recordAlert(supabase, { category: "gcal_sync", action: "getGoogleEvents", resource: "gcal-cache", error: e?.message || String(e) });
     return [];
   }
 }

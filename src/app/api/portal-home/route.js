@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { maybeExpireStaleRequests } from "@/lib/bookings-sweep";
-import { withErrorCatch } from "@/lib/alert";
+import { withErrorCatch, retryableRead } from "@/lib/alert";
 
 export const GET = withErrorCatch(async (request) => {
   const cookieStore = await cookies();
@@ -70,23 +70,22 @@ export const GET = withErrorCatch(async (request) => {
   let card = null;
   const stripeCustomerId = profileResult.data?.stripe_customer_id;
   if (stripeCustomerId) {
-    try {
-      const methods = await stripe.paymentMethods.list({
-        customer: stripeCustomerId,
-        type: "card",
-        limit: 1,
-      });
-      const pm = methods.data[0];
-      if (pm) {
-        card = {
-          brand: pm.card.brand,
-          last4: pm.card.last4,
-          exp_month: pm.card.exp_month,
-          exp_year: pm.card.exp_year,
-        };
-      }
-    } catch (e) {
-      console.error("[portal-home] Stripe card fetch failed:", e?.message || e);
+    const { data: methods } = await retryableRead(
+      async () => {
+        const result = await stripe.paymentMethods.list({ customer: stripeCustomerId, type: "card", limit: 1 });
+        return { data: result };
+      },
+      adminClient,
+      { category: "payment", action: "GET /api/portal-home", resource: "stripe-card" }
+    );
+    const pm = methods?.data[0];
+    if (pm) {
+      card = {
+        brand: pm.card.brand,
+        last4: pm.card.last4,
+        exp_month: pm.card.exp_month,
+        exp_year: pm.card.exp_year,
+      };
     }
   }
 
