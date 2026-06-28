@@ -22,6 +22,16 @@ function detectTz() {
   catch { return "America/New_York"; }
 }
 
+function computeAgeFromDob(dobStr) {
+  if (!dobStr) return "";
+  const [y, m, d] = dobStr.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const today = new Date();
+  let age = today.getFullYear() - y;
+  if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age--;
+  return (age > 0 && age < 111) ? String(age) : "";
+}
+
 function formatPhone(value) {
   const digits = value.replace(/\D/g, "").slice(0, 10);
   if (digits.length === 0) return "";
@@ -51,6 +61,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [backupPhone, setBackupPhone] = useState("");
+  const [dob, setDob] = useState("");
   const [age, setAge] = useState("");
   const [addressLine1, setAddressLine1] = useState("");
   const [addressLine2, setAddressLine2] = useState("");
@@ -61,7 +72,11 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
   const [bgOccupation, setBgOccupation] = useState("");
   const [bgEducation, setBgEducation] = useState("");
   const [bgRelationship, setBgRelationship] = useState("");
+  const [bgRelationshipStatus, setBgRelationshipStatus] = useState("");
+  const [bgRelationshipEnding, setBgRelationshipEnding] = useState("");
+  const [bgSafety, setBgSafety] = useState("");
   const [bgTherapist, setBgTherapist] = useState("");
+  const [bgChildren, setBgChildren] = useState("");
   const [bgLiving, setBgLiving] = useState("");
   const [bgBrings, setBgBrings] = useState("");
   const [bgGoals, setBgGoals] = useState("");
@@ -85,6 +100,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
   const backupPhoneRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmPasswordRef = useRef(null);
+  const dobRef = useRef(null);
   const ageRef = useRef(null);
   const addressLine1Ref = useRef(null);
   const addressZipRef = useRef(null);
@@ -101,7 +117,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
       if (d.lastName)         setLastName(d.lastName);
       if (d.phone)            setPhone(d.phone);
       if (d.backupPhone)      setBackupPhone(d.backupPhone);
-      if (d.age)              setAge(d.age);
+      if (d.dob)              { setDob(d.dob); setAge(computeAgeFromDob(d.dob)); }
       if (d.addressLine1)     setAddressLine1(d.addressLine1);
       if (d.addressLine2)     setAddressLine2(d.addressLine2);
       if (d.addressZip)       setAddressZip(d.addressZip);
@@ -109,8 +125,12 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
       if (d.addressState)     setAddressState(d.addressState);
       if (d.bgOccupation)     setBgOccupation(d.bgOccupation);
       if (d.bgEducation)      setBgEducation(d.bgEducation);
-      if (d.bgRelationship)   setBgRelationship(d.bgRelationship);
+      if (d.bgRelationship)         setBgRelationship(d.bgRelationship);
+      if (d.bgRelationshipStatus)   setBgRelationshipStatus(d.bgRelationshipStatus);
+      if (d.bgRelationshipEnding)   setBgRelationshipEnding(d.bgRelationshipEnding);
+      if (d.bgSafety)               setBgSafety(d.bgSafety);
       if (d.bgTherapist)      setBgTherapist(d.bgTherapist);
+      if (d.bgChildren)      setBgChildren(d.bgChildren);
       if (d.bgLiving)         setBgLiving(d.bgLiving);
       if (d.bgBrings)         setBgBrings(d.bgBrings);
       if (d.bgGoals)          setBgGoals(d.bgGoals);
@@ -130,15 +150,15 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     draftTimerRef.current = setTimeout(() => {
       try {
         localStorage.setItem(`intake_draft_${user.id}`, JSON.stringify({
-          firstName, lastName, age, phone, backupPhone,
+          firstName, lastName, dob, phone, backupPhone,
           addressLine1, addressLine2, addressZip, addressCity, addressState,
-          bgOccupation, bgEducation, bgRelationship, bgTherapist, bgLiving, bgBrings, bgGoals, bgOther,
+          bgOccupation, bgEducation, bgRelationship, bgRelationshipStatus, bgRelationshipEnding, bgSafety, bgTherapist, bgChildren, bgLiving, bgBrings, bgGoals, bgOther,
           preferredEmail, notificationPref, reminderPref, timezone, disclaimerAgreed,
         }));
       } catch {}
     }, 800);
-  }, [user?.id, preview, firstName, lastName, phone, backupPhone, addressLine1, addressLine2, addressZip, addressCity, addressState, // eslint-disable-line react-hooks/exhaustive-deps
-     bgOccupation, bgEducation, bgRelationship, bgTherapist, bgLiving, bgBrings, bgGoals, bgOther,
+  }, [user?.id, preview, firstName, lastName, dob, phone, backupPhone, addressLine1, addressLine2, addressZip, addressCity, addressState, // eslint-disable-line react-hooks/exhaustive-deps
+     bgOccupation, bgEducation, bgRelationship, bgRelationshipStatus, bgRelationshipEnding, bgSafety, bgTherapist, bgChildren, bgLiving, bgBrings, bgGoals, bgOther,
      preferredEmail, notificationPref, reminderPref, timezone, disclaimerAgreed]);
 
   const handleZipBlur = async (zip) => {
@@ -165,9 +185,8 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     if (!lastName.trim()) e.lastName = "Last name is required.";
     const emailVal = preferredEmail.trim() || user?.email || "";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) e.email = "Please enter a valid email address.";
-    const ageNum = parseInt(age, 10);
-    if (!age.trim()) e.age = "Age is required.";
-    else if (isNaN(ageNum) || ageNum <= 0 || ageNum >= 111) e.age = "Please enter a valid age.";
+    if (!dob) e.dob = "Date of birth is required.";
+    else if (!computeAgeFromDob(dob)) e.dob = "Please enter a valid date of birth.";
     if (!addressLine1.trim()) e.addressLine1 = "Address is required.";
     const zipVal = addressZip.trim();
     if (!zipVal) e.addressZip = "ZIP code is required.";
@@ -184,7 +203,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     if (Object.keys(e).length > 0) {
       setErrors(e);
       const first = e.disclaimer ? disclaimerRef : e.firstName ? firstNameRef : e.lastName ? lastNameRef :
-        e.age ? ageRef : e.addressLine1 ? addressLine1Ref : e.addressZip ? addressZipRef :
+        e.dob ? dobRef : e.addressLine1 ? addressLine1Ref : e.addressZip ? addressZipRef :
         e.email ? emailRef : e.phone ? phoneRef : e.password ? passwordRef : confirmPasswordRef;
       first.current?.focus();
       return;
@@ -202,6 +221,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
     const { error: profErr } = await supabase.from("profiles").update({
       first_name: firstName.trim(),
       last_name: lastName.trim(),
+      date_of_birth: dob || null,
       age: parseInt(age, 10),
       full_name: `${firstName.trim()} ${lastName.trim()}`,
       phone: phone.trim() || null,
@@ -214,7 +234,11 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
       bg_occupation: bgOccupation.trim() || null,
       bg_education: bgEducation.trim() || null,
       bg_relationship: bgRelationship.trim() || null,
+      bg_relationship_status: bgRelationshipStatus.trim() || null,
+      bg_relationship_ending: bgRelationshipEnding.trim() || null,
+      bg_safety: bgSafety.trim() || null,
       bg_therapist: bgTherapist.trim() || null,
+      bg_children: bgChildren.trim() || null,
       bg_living: bgLiving.trim() || null,
       bg_brings: bgBrings.trim() || null,
       bg_goals: bgGoals.trim() || null,
@@ -363,17 +387,37 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
             {errors.lastName && <p style={ERR}>{errors.lastName}</p>}
           </div>
         </div>
-        <label style={S.label}>Age <span style={{ color: "#c0392b" }}>*</span></label>
-        <input
-          ref={ageRef}
-          style={{ ...S.input, width: 100, borderColor: errors.age ? "#c0392b" : undefined }}
-          placeholder="e.g. 42"
-          type="text"
-          inputMode="numeric"
-          value={age}
-          onChange={e => { setAge(e.target.value); setErrors(v => ({ ...v, age: null })); }}
-        />
-        {errors.age && <p style={ERR}>{errors.age}</p>}
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div>
+            <label style={S.label}>Date of birth <span style={{ color: "#c0392b" }}>*</span></label>
+            <input
+              ref={dobRef}
+              type="date"
+              style={{ ...S.input, width: 180, marginBottom: 0, borderColor: errors.dob ? "#c0392b" : undefined }}
+              value={dob}
+              max={new Date().toLocaleDateString("en-CA")}
+              onChange={e => {
+                const newDob = e.target.value;
+                setDob(newDob);
+                setAge(computeAgeFromDob(newDob));
+                setErrors(v => ({ ...v, dob: null }));
+              }}
+            />
+          </div>
+          <div>
+            <label style={S.label}>Age</label>
+            <input
+              ref={ageRef}
+              style={{ ...S.input, width: 80, marginBottom: 0, background: "#f9f9f9", color: C.muted }}
+              type="text"
+              readOnly
+              value={age}
+              placeholder="—"
+            />
+          </div>
+        </div>
+        {errors.dob && <p style={{ ...ERR, marginTop: 6 }}>{errors.dob}</p>}
+        <div style={{ marginBottom: "0.75rem" }} />
         <label style={S.label}>Mailing address <span style={{ color: "#c0392b" }}>*</span></label>
         <input
           ref={addressLine1Ref}
@@ -472,7 +516,7 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
       {/* Background */}
       <div style={S.card}>
         <h3 style={S.h3}>Background</h3>
-        <p style={{ ...S.p, fontSize: 13, marginBottom: 16 }}>Help me get to know a bit about you.</p>
+        <p style={{ ...S.p, fontSize: 13, marginBottom: 16 }}>Help me get to know a bit about you. Skip any question that is not applicable.</p>
 
         <label style={S.label}>What is your current occupation?</label>
         <textarea style={TA} value={bgOccupation} onChange={e => setBgOccupation(e.target.value)} />
@@ -480,16 +524,28 @@ export default function ClientIntake({ onComplete, preview = false, onClosePrevi
         <label style={S.label}>What is your highest level of education?</label>
         <textarea style={TA} value={bgEducation} onChange={e => setBgEducation(e.target.value)} />
 
-        <label style={S.label}>If you are in a relationship, please describe its nature.</label>
-        <textarea style={TA} value={bgRelationship} onChange={e => setBgRelationship(e.target.value)} />
-
         <label style={S.label}>Are you currently seeing an individual therapist?</label>
         <textarea style={TA} value={bgTherapist} onChange={e => setBgTherapist(e.target.value)} />
+
+        <label style={S.label}>If you have children, please list their names, dates of birth, ages, and grades in school.</label>
+        <textarea style={TA} value={bgChildren} onChange={e => setBgChildren(e.target.value)} />
 
         <label style={S.label}>Describe your current living situation: alone or with what others?</label>
         <textarea style={TA} value={bgLiving} onChange={e => setBgLiving(e.target.value)} />
 
-        <label style={S.label}>What brings you to coaching now?</label>
+        <label style={S.label}>If you are in a relationship, please list your partner&apos;s name, their date of birth/age, and how long you&apos;ve been together.</label>
+        <textarea style={TA} value={bgRelationship} onChange={e => setBgRelationship(e.target.value)} />
+
+        <label style={S.label}>Describe the nature and current status of your partner relationship.</label>
+        <textarea style={TA} value={bgRelationshipStatus} onChange={e => setBgRelationshipStatus(e.target.value)} />
+
+        <label style={S.label}>If the relationship is ending, are you or the other party the initiator? Are you still together or have you separated?</label>
+        <textarea style={TA} value={bgRelationshipEnding} onChange={e => setBgRelationshipEnding(e.target.value)} />
+
+        <label style={S.label}>Are you in fear for your, or others&apos; in your household, safety or wellbeing?</label>
+        <textarea style={TA} value={bgSafety} onChange={e => setBgSafety(e.target.value)} />
+
+        <label style={S.label}>What is the next step for you, both short-term and long-term? What brings you to coaching now?</label>
         <textarea style={TA} value={bgBrings} onChange={e => setBgBrings(e.target.value)} />
 
         <label style={S.label}>What are your goals for coaching?</label>
