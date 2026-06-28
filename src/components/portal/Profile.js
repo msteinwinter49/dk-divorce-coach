@@ -8,6 +8,16 @@ import { useSmsEnabled } from "@/lib/hooks";
 import { retryFetch } from "@/lib/fetchUtils";
 import { PaymentMethodSection } from "@/components/portal/PaymentMethodSection";
 
+function computeAgeFromDob(dobStr) {
+  if (!dobStr) return "";
+  const [y, m, d] = dobStr.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const today = new Date();
+  let age = today.getFullYear() - y;
+  if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age--;
+  return (age > 0 && age < 111) ? String(age) : "";
+}
+
 const TA = {
   width: "100%", padding: "10px 12px", fontSize: 14,
   border: "0.5px solid #d0d0d0", borderRadius: 6, outline: "none",
@@ -39,11 +49,18 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
+  const [dob, setDob] = useState("");
+  const [age, setAge] = useState("");
+
   const [bgOccupation, setBgOccupation] = useState("");
   const [bgEducation, setBgEducation] = useState("");
-  const [bgRelationship, setBgRelationship] = useState("");
   const [bgTherapist, setBgTherapist] = useState("");
+  const [bgChildren, setBgChildren] = useState("");
   const [bgLiving, setBgLiving] = useState("");
+  const [bgRelationship, setBgRelationship] = useState("");
+  const [bgRelationshipStatus, setBgRelationshipStatus] = useState("");
+  const [bgRelationshipEnding, setBgRelationshipEnding] = useState("");
+  const [bgSafety, setBgSafety] = useState("");
   const [bgBrings, setBgBrings] = useState("");
   const [bgGoals, setBgGoals] = useState("");
   const [bgOther, setBgOther] = useState("");
@@ -123,11 +140,18 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
     setAdminReminderChannel(src.admin_reminder_channel || "both");
     setAdminReminderMinutes(src.admin_reminder_minutes ? String(src.admin_reminder_minutes) : "30");
     setTimezone(src.timezone || detectTz());
+    const srcDob = src.date_of_birth || "";
+    setDob(srcDob);
+    setAge(srcDob ? computeAgeFromDob(srcDob) : (src.age != null ? String(src.age) : ""));
     setBgOccupation(src.bg_occupation || "");
     setBgEducation(src.bg_education || "");
-    setBgRelationship(src.bg_relationship || "");
     setBgTherapist(src.bg_therapist || "");
+    setBgChildren(src.bg_children || "");
     setBgLiving(src.bg_living || "");
+    setBgRelationship(src.bg_relationship || "");
+    setBgRelationshipStatus(src.bg_relationship_status || "");
+    setBgRelationshipEnding(src.bg_relationship_ending || "");
+    setBgSafety(src.bg_safety || "");
     setBgBrings(src.bg_brings || "");
     setBgGoals(src.bg_goals || "");
     setBgOther(src.bg_other || "");
@@ -171,6 +195,8 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
   const profilePayload = () => ({
     first_name: firstName.trim(),
     last_name: lastName.trim(),
+    date_of_birth: dob || null,
+    age: age !== "" ? parseInt(age) || null : null,
     phone: phone.trim() || null,
     backup_phone: backupPhone.trim() || null,
     address_line1: addressLine1.trim() || null,
@@ -251,27 +277,38 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
     const bgPayload = {
       bg_occupation: bgOccupation.trim() || null,
       bg_education: bgEducation.trim() || null,
-      bg_relationship: bgRelationship.trim() || null,
       bg_therapist: bgTherapist.trim() || null,
+      bg_children: bgChildren.trim() || null,
       bg_living: bgLiving.trim() || null,
+      bg_relationship: bgRelationship.trim() || null,
+      bg_relationship_status: bgRelationshipStatus.trim() || null,
+      bg_relationship_ending: bgRelationshipEnding.trim() || null,
+      bg_safety: bgSafety.trim() || null,
       bg_brings: bgBrings.trim() || null,
       bg_goals: bgGoals.trim() || null,
       bg_other: bgOther.trim() || null,
     };
     try {
-      const res = await retryFetch("/api/clients", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: viewAsClient.id, ...bgPayload }),
-      });
-      setBgSaving(false);
-      if (!res.ok) {
-        if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
-        setBgError("Could not save. Please try again.");
-        return;
+      if (viewAsClient) {
+        const res = await retryFetch("/api/clients", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: viewAsClient.id, ...bgPayload }),
+        });
+        setBgSaving(false);
+        if (!res.ok) {
+          if (res.status >= 500) { setServerError(SERVER_ERROR); return; }
+          setBgError("Could not save. Please try again.");
+          return;
+        }
+        Object.assign(viewAsClient, bgPayload);
+      } else {
+        const supabase = createClient();
+        const { error: err } = await supabase.from("profiles").update(bgPayload).eq("id", user.id);
+        setBgSaving(false);
+        if (err) { setBgError("Could not save. Please try again."); return; }
       }
       setBgSuccess(true);
-      Object.assign(viewAsClient, bgPayload);
     } catch {
       setBgSaving(false);
       setServerError(SERVER_ERROR);
@@ -312,6 +349,82 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
           ? "Please fill in your details to get started."
           : "Update your information below."}
       </p>
+
+      {/* Change password — only show after profile is set up, not in admin view mode */}
+      {!viewAsClient && !isFirstLogin && (
+        <div style={{ ...S.card, marginBottom: "1rem" }}>
+          <h3 style={{ ...S.h3, fontWeight: 700 }}>Change Password</h3>
+          <label style={S.label}>New password</label>
+          <div style={{ position: "relative", marginBottom: "0.75rem" }}>
+            <input
+              type={showPw ? "text" : "password"}
+              style={{ ...S.input, marginBottom: 0, paddingRight: 40 }}
+              placeholder="Minimum 8 characters"
+              value={pwNew}
+              onChange={e => { setPwNew(e.target.value); setPwError(null); setPwSuccess(false); }}
+            />
+            <button onClick={() => setShowPw(v => !v)} style={{
+              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 4,
+            }}>
+              {showPw ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              )}
+            </button>
+          </div>
+          <label style={S.label}>Confirm new password</label>
+          <input
+            type={showPw ? "text" : "password"}
+            style={S.input}
+            placeholder="Re-enter your new password"
+            value={pwConfirm}
+            onChange={e => { setPwConfirm(e.target.value); setPwError(null); setPwSuccess(false); }}
+          />
+          {pwError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{pwError}</p>}
+          {pwSuccess && <p style={{ fontSize: 13, color: C.teal, marginBottom: 12 }}>Password updated.</p>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btn} disabled={pwSaving} onClick={async () => {
+            if (!pwNew) { setPwError("Enter a new password."); return; }
+            if (pwNew.length < 8) { setPwError("Password must be at least 8 characters."); return; }
+            if (pwNew !== pwConfirm) { setPwError("Passwords do not match."); return; }
+            setPwSaving(true);
+            setPwError(null);
+            const supabase = createClient();
+            const { error: err } = await supabase.auth.updateUser({ password: pwNew });
+            setPwSaving(false);
+            if (err) { setPwError(err.message || "Could not update password."); }
+            else { setPwSuccess(true); setPwNew(""); setPwConfirm(""); }
+          }}>
+              {pwSaving ? "Updating…" : "Update password"}
+            </button>
+            <button style={S.btnSmOut} disabled={pwSaving} onClick={() => { setPwNew(""); setPwConfirm(""); setPwError(null); setPwSuccess(false); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Payment method — only show for clients after initial profile setup, not in admin view */}
+      {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (
+        <div ref={paymentRef} style={{ ...S.card, marginBottom: "1rem" }}>
+          <h3 style={{ ...S.h3, fontWeight: 700 }}>Payment Method</h3>
+          <p style={{ ...S.p, fontSize: 13 }}>
+            {cardOnFile === true
+              ? "You have a card on file. You can update it below."
+              : cardOnFile === false
+              ? "Add a card on file to book coaching sessions."
+              : " "}
+          </p>
+          <PaymentMethodSection hasCard={!!profile?.stripe_customer_id} onSaved={refreshProfile} />
+        </div>
+      )}
       <div style={S.card}>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <div>
@@ -321,6 +434,28 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
           <div>
             <label style={S.label}>Last name</label>
             <input style={S.input} placeholder="Smith" value={lastName} onChange={e => setLastName(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+          <div>
+            <label style={S.label}>Date of birth</label>
+            <input
+              type="date"
+              style={{ ...S.input, width: 180, marginBottom: 0 }}
+              value={dob}
+              max={new Date().toLocaleDateString("en-CA")}
+              onChange={e => { setDob(e.target.value); setAge(computeAgeFromDob(e.target.value)); }}
+            />
+          </div>
+          <div>
+            <label style={S.label}>Age</label>
+            <input
+              type="text"
+              style={{ ...S.input, width: 80, marginBottom: 0, background: "#f9f9f9", color: C.muted }}
+              readOnly
+              placeholder="—"
+              value={age}
+            />
           </div>
         </div>
         <label style={S.label}>Mailing address</label>
@@ -424,11 +559,11 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
         </div>
       </div>
 
-      {/* Background — admin view only */}
-      {viewAsClient && (
+      {/* Background — shown to clients and admin view-as-client */}
+      {(viewAsClient || profile?.role === "client") && (
         <div style={{ ...S.card, marginTop: "1rem" }}>
           <h3 style={{ ...S.h3, fontWeight: 700 }}>Background</h3>
-          <p style={{ ...S.p, fontSize: 13, marginBottom: 16 }}>Help me get to know a bit about you.</p>
+          <p style={{ ...S.p, fontSize: 13, marginBottom: 16 }}>Help me get to know a bit about you. Skip any question that is not applicable.</p>
 
           <label style={S.label}>What is your current occupation?</label>
           <textarea style={TA} value={bgOccupation} onChange={e => setBgOccupation(e.target.value)} />
@@ -436,16 +571,28 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
           <label style={S.label}>What is your highest level of education?</label>
           <textarea style={TA} value={bgEducation} onChange={e => setBgEducation(e.target.value)} />
 
-          <label style={S.label}>If you are in a relationship, please describe its nature.</label>
-          <textarea style={TA} value={bgRelationship} onChange={e => setBgRelationship(e.target.value)} />
-
           <label style={S.label}>Are you currently seeing an individual therapist?</label>
           <textarea style={TA} value={bgTherapist} onChange={e => setBgTherapist(e.target.value)} />
+
+          <label style={S.label}>If you have children, please list their names, dates of birth, ages, and grades in school.</label>
+          <textarea style={TA} value={bgChildren} onChange={e => setBgChildren(e.target.value)} />
 
           <label style={S.label}>Describe your current living situation: alone or with what others?</label>
           <textarea style={TA} value={bgLiving} onChange={e => setBgLiving(e.target.value)} />
 
-          <label style={S.label}>What brings you to coaching now?</label>
+          <label style={S.label}>If you are in a relationship, please list your partner&apos;s name, their date of birth/age, and how long you&apos;ve been together.</label>
+          <textarea style={TA} value={bgRelationship} onChange={e => setBgRelationship(e.target.value)} />
+
+          <label style={S.label}>Describe the nature and current status of your partner relationship.</label>
+          <textarea style={TA} value={bgRelationshipStatus} onChange={e => setBgRelationshipStatus(e.target.value)} />
+
+          <label style={S.label}>If the relationship is ending, are you or the other party the initiator? Are you still together or have you separated?</label>
+          <textarea style={TA} value={bgRelationshipEnding} onChange={e => setBgRelationshipEnding(e.target.value)} />
+
+          <label style={S.label}>Are you in fear for your, or others&apos; in your household, safety or wellbeing?</label>
+          <textarea style={TA} value={bgSafety} onChange={e => setBgSafety(e.target.value)} />
+
+          <label style={S.label}>What is the next step for you, both short-term and long-term? What brings you to coaching now?</label>
           <textarea style={TA} value={bgBrings} onChange={e => setBgBrings(e.target.value)} />
 
           <label style={S.label}>What are your goals for coaching?</label>
@@ -457,84 +604,8 @@ export default function Profile({ onSaved, viewAsClient, scrollTo, onScrolled })
           {bgError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{bgError}</p>}
           {bgSuccess && <p style={{ fontSize: 13, color: C.teal, marginBottom: 12 }}>Saved.</p>}
           <button style={S.btn} onClick={handleBgSave} disabled={bgSaving}>
-            {bgSaving ? "Saving…" : "Save background"}
+            {bgSaving ? "Saving..." : "Save background"}
           </button>
-        </div>
-      )}
-
-      {/* Change password — only show after profile is set up, not in admin view mode */}
-      {!viewAsClient && !isFirstLogin && (
-        <div style={{ ...S.card, marginTop: "1rem" }}>
-          <h3 style={{ ...S.h3, fontWeight: 700 }}>Change Password</h3>
-          <label style={S.label}>New password</label>
-          <div style={{ position: "relative", marginBottom: "0.75rem" }}>
-            <input
-              type={showPw ? "text" : "password"}
-              style={{ ...S.input, marginBottom: 0, paddingRight: 40 }}
-              placeholder="Minimum 8 characters"
-              value={pwNew}
-              onChange={e => { setPwNew(e.target.value); setPwError(null); setPwSuccess(false); }}
-            />
-            <button onClick={() => setShowPw(v => !v)} style={{
-              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-              background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 4,
-            }}>
-              {showPw ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                  <line x1="1" y1="1" x2="23" y2="23"/>
-                </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-              )}
-            </button>
-          </div>
-          <label style={S.label}>Confirm new password</label>
-          <input
-            type={showPw ? "text" : "password"}
-            style={S.input}
-            placeholder="Re-enter your new password"
-            value={pwConfirm}
-            onChange={e => { setPwConfirm(e.target.value); setPwError(null); setPwSuccess(false); }}
-          />
-          {pwError && <p style={{ fontSize: 13, color: "#c0392b", marginBottom: 12 }}>{pwError}</p>}
-          {pwSuccess && <p style={{ fontSize: 13, color: C.teal, marginBottom: 12 }}>Password updated.</p>}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button style={S.btn} disabled={pwSaving} onClick={async () => {
-            if (!pwNew) { setPwError("Enter a new password."); return; }
-            if (pwNew.length < 8) { setPwError("Password must be at least 8 characters."); return; }
-            if (pwNew !== pwConfirm) { setPwError("Passwords do not match."); return; }
-            setPwSaving(true);
-            setPwError(null);
-            const supabase = createClient();
-            const { error: err } = await supabase.auth.updateUser({ password: pwNew });
-            setPwSaving(false);
-            if (err) { setPwError(err.message || "Could not update password."); }
-            else { setPwSuccess(true); setPwNew(""); setPwConfirm(""); }
-          }}>
-              {pwSaving ? "Updating…" : "Update password"}
-            </button>
-            <button style={S.btnSmOut} disabled={pwSaving} onClick={() => { setPwNew(""); setPwConfirm(""); setPwError(null); setPwSuccess(false); }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* Payment method — only show for clients after initial profile setup, not in admin view */}
-      {!viewAsClient && !isFirstLogin && profile?.role !== "admin" && (
-        <div ref={paymentRef} style={{ ...S.card, marginTop: "1rem" }}>
-          <h3 style={{ ...S.h3, fontWeight: 700 }}>Payment Method</h3>
-          <p style={{ ...S.p, fontSize: 13 }}>
-            {cardOnFile === true
-              ? "You have a card on file. You can update it below."
-              : cardOnFile === false
-              ? "Add a card on file to book coaching sessions."
-              : " "}
-          </p>
-          <PaymentMethodSection hasCard={!!profile?.stripe_customer_id} onSaved={refreshProfile} />
         </div>
       )}
     </div>

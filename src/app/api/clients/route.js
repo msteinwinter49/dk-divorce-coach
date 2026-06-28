@@ -45,7 +45,7 @@ export const GET = withErrorCatch(async () => {
   ] = await Promise.all([
     adminClient
       .from("profiles")
-      .select("id, first_name, last_name, full_name, phone, backup_phone, address_line1, address_line2, address_zip, address_city, address_state, preferred_email, notification_preference, reminder_preference, timezone, age, role, created_at, bg_occupation, bg_education, bg_relationship, bg_therapist, bg_living, bg_brings, bg_goals, bg_other, stripe_customer_id, is_archived")
+      .select("id, first_name, last_name, full_name, phone, backup_phone, address_line1, address_line2, address_zip, address_city, address_state, preferred_email, notification_preference, reminder_preference, timezone, date_of_birth, age, role, created_at, bg_occupation, bg_education, bg_therapist, bg_children, bg_living, bg_relationship, bg_relationship_status, bg_relationship_ending, bg_safety, bg_brings, bg_goals, bg_other, stripe_customer_id, is_archived")
       .order("created_at", { ascending: false }),
     adminClient
       .from("group_members")
@@ -100,9 +100,10 @@ export const PATCH = withErrorCatch(async (request) => {
   const {
     id, first_name, last_name, phone, backup_phone,
     address_line1, address_line2, address_zip, address_city, address_state,
-    preferred_email, notification_preference, reminder_preference, timezone, age,
-    bg_occupation, bg_education, bg_relationship, bg_therapist,
-    bg_living, bg_brings, bg_goals, bg_other, is_archived,
+    preferred_email, notification_preference, reminder_preference, timezone, date_of_birth, age,
+    bg_occupation, bg_education, bg_therapist, bg_children, bg_living,
+    bg_relationship, bg_relationship_status, bg_relationship_ending, bg_safety,
+    bg_brings, bg_goals, bg_other, is_archived,
   } = await request.json();
   if (!id) return NextResponse.json({ error: "Client id is required" }, { status: 400 });
 
@@ -128,12 +129,17 @@ export const PATCH = withErrorCatch(async (request) => {
   if (notification_preference !== undefined) updates.notification_preference = notification_preference;
   if (reminder_preference !== undefined) updates.reminder_preference = reminder_preference;
   if (timezone !== undefined) updates.timezone = timezone;
+  if (date_of_birth !== undefined) updates.date_of_birth = date_of_birth || null;
   if (age !== undefined) updates.age = age !== "" && age != null ? parseInt(age) || null : null;
   if (bg_occupation !== undefined) updates.bg_occupation = bg_occupation?.trim() || null;
   if (bg_education !== undefined) updates.bg_education = bg_education?.trim() || null;
-  if (bg_relationship !== undefined) updates.bg_relationship = bg_relationship?.trim() || null;
   if (bg_therapist !== undefined) updates.bg_therapist = bg_therapist?.trim() || null;
+  if (bg_children !== undefined) updates.bg_children = bg_children?.trim() || null;
   if (bg_living !== undefined) updates.bg_living = bg_living?.trim() || null;
+  if (bg_relationship !== undefined) updates.bg_relationship = bg_relationship?.trim() || null;
+  if (bg_relationship_status !== undefined) updates.bg_relationship_status = bg_relationship_status?.trim() || null;
+  if (bg_relationship_ending !== undefined) updates.bg_relationship_ending = bg_relationship_ending?.trim() || null;
+  if (bg_safety !== undefined) updates.bg_safety = bg_safety?.trim() || null;
   if (bg_brings !== undefined) updates.bg_brings = bg_brings?.trim() || null;
   if (bg_goals !== undefined) updates.bg_goals = bg_goals?.trim() || null;
   if (bg_other !== undefined) updates.bg_other = bg_other?.trim() || null;

@@ -6,6 +6,16 @@ import { retryFetch } from "@/lib/fetchUtils";
 import { useIsMobile } from "@/lib/hooks";
 import AdminPurchasePackage from "./AdminPurchasePackage";
 
+function computeAgeFromDob(dobStr) {
+  if (!dobStr) return "";
+  const [y, m, d] = dobStr.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const today = new Date();
+  let age = today.getFullYear() - y;
+  if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age--;
+  return (age > 0 && age < 111) ? String(age) : "";
+}
+
 function formatPhoneInput(value) {
   const digits = (value || "").replace(/\D/g, "").slice(0, 10);
   if (digits.length === 0) return "";
@@ -41,6 +51,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
   const [editLast, setEditLast] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editContactEmail, setEditContactEmail] = useState("");
+  const [editDob, setEditDob] = useState("");
   const [editAge, setEditAge] = useState("");
   const [editTimezone, setEditTimezone] = useState("America/New_York");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -108,7 +119,8 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setEditAddressCity(c.address_city || "");
     setEditAddressState(c.address_state || "");
     setEditContactEmail(c.preferred_email || c.email || "");
-    setEditAge(c.age != null ? String(c.age) : "");
+    setEditDob(c.date_of_birth || "");
+    setEditAge(c.date_of_birth ? String(computeAgeFromDob(c.date_of_birth)) : (c.age != null ? String(c.age) : ""));
     setEditTimezone(c.timezone || "America/New_York");
     setEditHourlyRate(c.group_hourly_rate != null ? String(c.group_hourly_rate) : "");
     setEditGroupId(c.group_id || "");
@@ -162,6 +174,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
     setEditAddressZip("");
     setEditAddressCity("");
     setEditAddressState("");
+    setEditDob("");
     setEditAge("");
     setEditHourlyRate("");
     setHourlyRateResult(null);
@@ -189,7 +202,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
       editAddressCity !== (detail.address_city || "") ||
       editAddressState !== (detail.address_state || "") ||
       editContactEmail !== (detail.preferred_email || detail.email || "") ||
-      editAge !== (detail.age != null ? String(detail.age) : "") ||
+      editDob !== (detail.date_of_birth || "") ||
       editTimezone !== (detail.timezone || "America/New_York");
     if (dirty) { setConfirmClose(true); } else { closeDetail(); }
   };
@@ -410,6 +423,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
       address_city: editAddressCity || null,
       address_state: editAddressState || null,
       preferred_email: editContactEmail,
+      date_of_birth: editDob || null,
       age: editAge !== "" ? parseInt(editAge) || null : null,
       timezone: editTimezone,
     };
@@ -845,7 +859,7 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
                 onClick={() => setProfileOpen(o => !o)}
                 style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%" }}
               >
-                <h3 style={{ ...S.h3, fontSize: 21, margin: 0, lineHeight: 1 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "").replace(/\D/g,"") || editBackupPhone.replace(/\D/g,"") !== (d.backup_phone || "").replace(/\D/g,"") || editAddressLine1 !== (d.address_line1 || "") || editAddressLine2 !== (d.address_line2 || "") || editAddressZip !== (d.address_zip || "") || editAddressCity !== (d.address_city || "") || editAddressState !== (d.address_state || "") || editContactEmail !== (d.preferred_email || d.email || "") || editAge !== (d.age != null ? String(d.age) : "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
+                <h3 style={{ ...S.h3, fontSize: 21, margin: 0, lineHeight: 1 }}>Edit Profile{(() => { const d = detail; const dirty = editFirst !== (d.first_name || "") || editLast !== (d.last_name || "") || editPhone.replace(/\D/g,"") !== (d.phone || "").replace(/\D/g,"") || editBackupPhone.replace(/\D/g,"") !== (d.backup_phone || "").replace(/\D/g,"") || editAddressLine1 !== (d.address_line1 || "") || editAddressLine2 !== (d.address_line2 || "") || editAddressZip !== (d.address_zip || "") || editAddressCity !== (d.address_city || "") || editAddressState !== (d.address_state || "") || editContactEmail !== (d.preferred_email || d.email || "") || editDob !== (d.date_of_birth || "") || editTimezone !== (d.timezone || "America/New_York"); return dirty ? <span style={{ ...S.h3, fontSize: 21, color: "#c0392b", marginLeft: 6 }}>(pending)</span> : null; })()}</h3>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, transform: profileOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
                   <path d="M6 9l6 6 6-6" stroke={C.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
@@ -915,15 +929,26 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
                   )}
                 </div>
                 <div>
+                  <label style={{ ...S.label, fontSize: 16 }}>Date of birth</label>
+                  <input
+                    type="date"
+                    style={{ ...S.input, marginBottom: 0 }}
+                    value={editDob}
+                    max={new Date().toLocaleDateString("en-CA")}
+                    onChange={e => {
+                      setEditDob(e.target.value);
+                      setEditAge(computeAgeFromDob(e.target.value));
+                    }}
+                  />
+                </div>
+                <div>
                   <label style={{ ...S.label, fontSize: 16 }}>Age</label>
                   <input
-                    style={{ ...S.input, marginBottom: 0 }}
-                    type="number"
-                    min="0"
-                    max="120"
+                    style={{ ...S.input, marginBottom: 0, background: "#f9f9f9", color: C.muted }}
+                    type="text"
+                    readOnly
                     placeholder="—"
                     value={editAge}
-                    onChange={e => setEditAge(e.target.value)}
                   />
                 </div>
                 <div style={{ gridColumn: "1 / -1" }}>
@@ -965,10 +990,14 @@ export default function Clients({ setPage, onViewAsClient, onOpenGroup, onViewSt
                 const BG_FIELDS = [
                   ["What is your current occupation?", detail.bg_occupation],
                   ["What is your highest level of education?", detail.bg_education],
-                  ["If you are in a relationship, please describe its nature.", detail.bg_relationship],
                   ["Are you currently seeing an individual therapist?", detail.bg_therapist],
+                  ["If you have children, please list their names, dates of birth, ages, and grades in school.", detail.bg_children],
                   ["Describe your current living situation: alone or with what others?", detail.bg_living],
-                  ["What brings you to coaching now?", detail.bg_brings],
+                  ["If you are in a relationship, please list your partner's name, their date of birth/age, and how long you've been together.", detail.bg_relationship],
+                  ["Describe the nature and current status of your partner relationship.", detail.bg_relationship_status],
+                  ["If the relationship is ending, are you or the other party the initiator? Are you still together or have you separated?", detail.bg_relationship_ending],
+                  ["Are you in fear for your, or others' in your household, safety or wellbeing?", detail.bg_safety],
+                  ["What is the next step for you, both short-term and long-term? What brings you to coaching now?", detail.bg_brings],
                   ["What are your goals for coaching?", detail.bg_goals],
                   ["What else would you like me to know?", detail.bg_other],
                 ];
