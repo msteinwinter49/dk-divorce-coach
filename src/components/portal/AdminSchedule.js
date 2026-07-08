@@ -3188,7 +3188,7 @@ export default function AdminSchedule({ setPage }) {
       {renderConflictBanner()}
       {googleDisconnected && (
         <div style={{ background: "#fff3cd", border: "1px solid #ffc107", borderRadius: 6, padding: "10px 14px", marginBottom: 12, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <span>⚠ Google Calendar disconnected — SimplePractice sessions won't appear.</span>
+          <span>⚠ Google Calendar disconnected — SimplePractice sessions won&apos;t appear.</span>
           {setPage && (
             <button
               style={{ background: "none", border: "none", cursor: "pointer", color: C.teal, fontWeight: 600, fontSize: 13, padding: 0, textDecoration: "underline" }}
