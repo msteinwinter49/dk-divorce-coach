@@ -269,6 +269,28 @@ function detectAllOverlaps(bookings, googleEvents) {
   return clusterOverlapsByDate(buildChips(bookings, googleEvents));
 }
 
+// Classic interval-scheduling column assignment: chips sorted by start time
+// claim the lowest-numbered free column, reusing columns as they free up.
+// Returns colIndexByKey (chip.key -> column) and colCount (columns used).
+function assignColumns(sortedChips) {
+  const columnEnds = []; // columnEnds[i] = end time of the chip currently in column i
+  const colIndexByKey = new Map();
+  for (const chip of sortedChips) {
+    let col = -1;
+    for (let i = 0; i < columnEnds.length; i++) {
+      if (chip.startMin >= columnEnds[i]) { col = i; break; }
+    }
+    if (col === -1) {
+      col = columnEnds.length;
+      columnEnds.push(chip.endMin);
+    } else {
+      columnEnds[col] = chip.endMin;
+    }
+    colIndexByKey.set(chip.key, col);
+  }
+  return { colIndexByKey, colCount: columnEnds.length };
+}
+
 export default function AdminSchedule({ setPage }) {
   const mobile = useIsMobile();
   const { setServerError } = useError();
@@ -302,6 +324,17 @@ export default function AdminSchedule({ setPage }) {
   const [showAdminCloseWarning, setShowAdminCloseWarning] = useState(false);
   const [modalPos, setModalPos] = useState({ x: 0, y: 0 });
   const [modalDragState, setModalDragState] = useState(null);
+  // Set to "book" | "event" when a create-flow submit detects an overlap with
+  // an existing chip — shows a one-time "continue anyway / abort" prompt
+  // instead of silently creating the conflict (the conflict banner alone
+  // isn't enough warning at the moment of creation).
+  const [conflictConfirm, setConflictConfirm] = useState(null);
+
+  // Click-on-chip disambiguation: clicking an editable (app-created) chip is
+  // ambiguous once overlapping creation is allowed — it could mean "edit this"
+  // or "create a new one here". Non-editable chips (synced from SimplePractice
+  // or personal Google events) skip the prompt since editing isn't possible.
+  const [chipChoice, setChipChoice] = useState(null); // { x, y, date, startMin, endMin, editAction }
 
   // Drag-to-move state (existing bookings + events)
   const dragRef = useRef(null);
@@ -522,22 +555,7 @@ export default function AdminSchedule({ setPage }) {
     const map = new Map();
     for (const group of overlapGroups) {
       const sorted = [...group.chips].sort((a, b) => a.startMin - b.startMin);
-      const columnEnds = []; // columnEnds[i] = end time of the chip currently in column i
-      const colIndexByKey = new Map();
-      for (const chip of sorted) {
-        let col = -1;
-        for (let i = 0; i < columnEnds.length; i++) {
-          if (chip.startMin >= columnEnds[i]) { col = i; break; }
-        }
-        if (col === -1) {
-          col = columnEnds.length;
-          columnEnds.push(chip.endMin);
-        } else {
-          columnEnds[col] = chip.endMin;
-        }
-        colIndexByKey.set(chip.key, col);
-      }
-      const colCount = columnEnds.length;
+      const { colIndexByKey, colCount } = assignColumns(sorted);
       for (const chip of sorted) {
         const col = colIndexByKey.get(chip.key);
         map.set(chip.key, {
@@ -547,6 +565,42 @@ export default function AdminSchedule({ setPage }) {
       }
     }
     return map;
+  }, [overlapGroups]);
+
+  // Derived: week-view conflict layout. Same column assignment as day view,
+  // but capped at 4 visible columns — a 5th+ concurrent chip would render as
+  // an unreadable sliver in the narrow week grid. Chips assigned column >= 4
+  // are hidden (weekHiddenKeys) and rolled into a single red "+n" badge
+  // anchored at the top of the cluster (weekOverflowByDate, keyed by date).
+  const WEEK_MAX_COLS = 4;
+  const { weekLayoutByKey, weekHiddenKeys, weekOverflowByDate } = useMemo(() => {
+    const map = new Map();
+    const hidden = new Set();
+    const overflowByDate = {};
+    for (const group of overlapGroups) {
+      const sorted = [...group.chips].sort((a, b) => a.startMin - b.startMin);
+      const { colIndexByKey, colCount } = assignColumns(sorted);
+      const effectiveCols = Math.min(colCount, WEEK_MAX_COLS);
+      let overflowCount = 0;
+      let minStartMin = Infinity;
+      for (const chip of sorted) {
+        const col = colIndexByKey.get(chip.key);
+        if (col < effectiveCols) {
+          map.set(chip.key, {
+            leftPct: (col / effectiveCols) * 100,
+            widthPct: 100 / effectiveCols,
+          });
+        } else {
+          hidden.add(chip.key);
+          overflowCount++;
+        }
+        if (chip.startMin < minStartMin) minStartMin = chip.startMin;
+      }
+      if (overflowCount > 0) {
+        (overflowByDate[group.date] ||= []).push({ startMin: minStartMin, count: overflowCount });
+      }
+    }
+    return { weekLayoutByKey: map, weekHiddenKeys: hidden, weekOverflowByDate: overflowByDate };
   }, [overlapGroups]);
 
   // Drag-to-move the conflict modal: when conflictDragState is set, window-level
@@ -732,12 +786,14 @@ export default function AdminSchedule({ setPage }) {
     setBookGroup("");
     setBookType("");
     setModalError(null);
+    setConflictConfirm(null);
     setModal({ mode: "book" });
   };
 
   const openEventModal = () => {
     setEventTitle("");
     setModalError(null);
+    setConflictConfirm(null);
     setModal({ mode: "event" });
   };
 
@@ -788,6 +844,7 @@ export default function AdminSchedule({ setPage }) {
     setModalDragState(null);
     setEventAllDay(false);
     setEventAllDayDays(1);
+    setConflictConfirm(null);
   };
 
   // --- Action handlers ---
@@ -818,6 +875,15 @@ export default function AdminSchedule({ setPage }) {
   const handleBookSession = async (force = false) => {
     if (!bookType || !bookDate || !bookTime) { setModalError("All fields are required."); return; }
     if (bookClientIds.length === 0) { setModalError("Select at least one client."); return; }
+    if (!force) {
+      const selType = sessionTypes.find(t => t.id === bookType);
+      const [h, m] = bookTime.split(":").map(Number);
+      if (selType && wouldOverlap(bookDate, h * 60 + m, selType.duration)) {
+        setConflictConfirm("book");
+        return;
+      }
+    }
+    setConflictConfirm(null);
     setModalSaving(true);
     setModalError(null);
 
@@ -905,11 +971,21 @@ export default function AdminSchedule({ setPage }) {
     }
   };
 
-  const handleCreateEvent = async () => {
+  const handleCreateEvent = async (force = false) => {
     if (!eventTitle.trim() || !bookDate || (!eventAllDay && (!bookTime || !eventEndTime))) {
       setModalError("All fields are required.");
       return;
     }
+    if (!force && !eventAllDay) {
+      const [h, m] = bookTime.split(":").map(Number);
+      const [eh, em] = eventEndTime.split(":").map(Number);
+      const durationMin = (eh * 60 + em) - (h * 60 + m);
+      if (durationMin > 0 && wouldOverlap(bookDate, h * 60 + m, durationMin)) {
+        setConflictConfirm("event");
+        return;
+      }
+    }
+    setConflictConfirm(null);
     setModalSaving(true);
     setModalError(null);
     try {
@@ -1022,78 +1098,33 @@ export default function AdminSchedule({ setPage }) {
     return hour * 60 + fractionInRow * 60;
   };
 
-  // All chip intervals [startMin, endMin) on the given date.
-  const chipIntervalsOnDate = (date) => {
-    const ivs = [];
-    for (const b of bookings) {
-      const bDate = b.date || dateStr(new Date(b.start_time));
-      if (bDate !== date) continue;
-      const s = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
-      const eMin = new Date(b.end_time).getHours() * 60 + new Date(b.end_time).getMinutes();
-      ivs.push([s, eMin]);
-    }
-    for (const ev of googleEvents) {
-      if (!ev.start?.dateTime) continue;
-      const sp = partsInBusinessTz(new Date(ev.start.dateTime));
-      if (sp.date !== date) continue;
-      const s = sp.hour * 60 + sp.minute;
-      let eMin = s + 60;
-      if (ev.end?.dateTime) {
-        const ep = partsInBusinessTz(new Date(ev.end.dateTime));
-        eMin = ep.hour * 60 + ep.minute;
-      }
-      ivs.push([s, eMin]);
-    }
-    ivs.sort((a, b) => a[0] - b[0]);
-    return ivs;
-  };
-
-  // Free range around the given raw minute. Returns null if the minute falls
-  // inside an existing chip; otherwise the enclosing white/green span.
-  const getFreeRangeAt = (date, rawMinute) => {
-    const ivs = chipIntervalsOnDate(date);
-    for (const [s, e] of ivs) {
-      if (rawMinute >= s && rawMinute < e) return null;
-    }
-    let start = 0;
-    let end = 24 * 60;
-    for (const [s, e] of ivs) {
-      if (e <= rawMinute) start = Math.max(start, e);
-      if (s > rawMinute) { end = Math.min(end, s); break; }
-    }
-    return { start, end };
-  };
+  // Admin scheduling intentionally allows overlapping bookings/events — the
+  // conflict banner plus a one-time "continue anyway?" confirm at submit time
+  // (see conflictConfirm) are the guardrails, not a hard click-time block. So
+  // click-drag selection is only clamped to the visible hour range, not to
+  // gaps between existing chips.
+  const dayBoundsMin = () => ({ start: HOURS[0] * 60, end: (HOURS[HOURS.length - 1] + 1) * 60 });
 
   const handleCellMouseDown = (e, date, hour) => {
     if (e.target !== e.currentTarget && e.target.closest("[draggable]")) return;
     const rawMin = rawMinFromCellEvent(e, hour);
-    const free = getFreeRangeAt(date, rawMin);
-    if (!free) return;
-    let anchorMin, endMin;
-    const freeLen = free.end - free.start;
-    if (freeLen <= increment * 2) {
-      // Gap too small to snap inside — consume the whole free range so the user
-      // can't miss a fragment above or below the click.
-      anchorMin = free.start;
-      endMin = free.end;
-    } else {
-      anchorMin = Math.max(free.start, hour * 60);
-      endMin = Math.min(free.end, anchorMin + increment);
-    }
-    selectRef.current = { date, anchorMin, freeStart: free.start, freeEnd: free.end };
+    const { start: dayStart, end: dayEnd } = dayBoundsMin();
+    const anchorMin = Math.max(dayStart, Math.floor(rawMin / increment) * increment);
+    const endMin = Math.min(dayEnd, anchorMin + increment);
+    selectRef.current = { date, anchorMin, dayStart, dayEnd };
     setSelection({ date, startMin: anchorMin, endMin, x: e.clientX, y: e.clientY });
   };
 
   const handleCellMouseMove = (e, date, hour) => {
     if (!selectRef.current || selectRef.current.date !== date) return;
-    const { anchorMin: anchor, freeStart, freeEnd } = selectRef.current;
+    const { anchorMin: anchor, dayStart, dayEnd } = selectRef.current;
     const curMin = minFromCellEvent(e, hour);
     let startMin = Math.min(anchor, curMin);
     let endMin = Math.max(anchor, curMin) + increment;
-    // Clamp the selection to the free range so it can't cross into another chip.
-    startMin = Math.max(startMin, freeStart);
-    endMin = Math.min(endMin, freeEnd);
-    if (endMin <= startMin) endMin = Math.min(freeEnd, startMin + 1);
+    // Clamp the selection to the visible hour range (overlap is otherwise allowed).
+    startMin = Math.max(startMin, dayStart);
+    endMin = Math.min(endMin, dayEnd);
+    if (endMin <= startMin) endMin = Math.min(dayEnd, startMin + 1);
     setSelection({ date, startMin, endMin, x: e.clientX, y: e.clientY });
   };
 
@@ -1389,7 +1420,7 @@ export default function AdminSchedule({ setPage }) {
       const startMin = new Date(b.start_time).getHours() * 60 + new Date(b.start_time).getMinutes();
       const endMin = new Date(b.end_time).getHours() * 60 + new Date(b.end_time).getMinutes();
       items.push({
-        kind: "booking", data: b,
+        kind: "booking", data: b, key: `booking:${b.id}`,
         top: ((startMin - firstHour * 60) / 60) * rowH,
         height: ((endMin - startMin) / 60) * rowH,
         layout: conflictLayoutByKey.get(`booking:${b.id}`),
@@ -1406,7 +1437,7 @@ export default function AdminSchedule({ setPage }) {
         endMin = ep.hour * 60 + ep.minute;
       }
       items.push({
-        kind: "event", data: ev,
+        kind: "event", data: ev, key: ev.id ? `event:${ev.id}` : undefined,
         top: ((startMin - firstHour * 60) / 60) * rowH,
         height: Math.max(((endMin - startMin) / 60) * rowH, rowH * 0.5),
         layout: ev.id ? conflictLayoutByKey.get(`event:${ev.id}`) : undefined,
@@ -1462,6 +1493,22 @@ export default function AdminSchedule({ setPage }) {
 
   // --- Render helpers ---
 
+  // Clicking a chip is ambiguous once overlapping creation is allowed: it
+  // could mean "edit this" or "create a new one here". editAction is only
+  // passed for chips the admin can actually edit (bookings, local events) —
+  // non-editable chips (SimplePractice/personal Google events) skip straight
+  // to the create flow since there's nothing to disambiguate.
+  const handleChipClick = (e, date, startMin, editAction) => {
+    e.stopPropagation();
+    setHover(null);
+    const endMin = Math.min(startMin + increment, dayBoundsMin().end);
+    if (editAction) {
+      setChipChoice({ x: e.clientX, y: e.clientY, date, startMin, endMin, editAction });
+    } else {
+      openChooseModal(date, startMin, endMin);
+    }
+  };
+
   const renderOverlayBooking = (b, top, height, compact, layout) => {
     const isRequested = b.status === "requested";
     const chipH = Math.max(height, compact ? 20 : 28);
@@ -1482,10 +1529,9 @@ export default function AdminSchedule({ setPage }) {
         onMouseMove={(e) => setHover(h => h && h.kind === "booking" && h.data.id === b.id ? { ...h, x: e.clientX, y: e.clientY } : h)}
         onMouseLeave={() => setHover(null)}
         onClick={(e) => {
-          e.stopPropagation();
-          setHover(null);
-          if (isRequested) openAcceptModal(b);
-          else openEditModal(b);
+          const [h, m] = (b.time_slot || "00:00").split(":").map(Number);
+          const bDate = b.date || dateStr(new Date(b.start_time));
+          handleChipClick(e, bDate, h * 60 + m, () => (isRequested ? openAcceptModal(b) : openEditModal(b)));
         }}
         style={{
           position: "absolute", top, ...horizontal, zIndex: 4,
@@ -1504,7 +1550,7 @@ export default function AdminSchedule({ setPage }) {
         }}
       >
         {compact ? (
-          <span style={{ color: isRequested ? SRC.requested : SRC.coaching, fontWeight: 500, whiteSpace: "nowrap" }}>
+          <span style={{ color: isRequested ? SRC.requested : SRC.coaching, fontWeight: 500, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.2 }}>
             {bookingDisplayName(b, true)} {b.session_duration}m
           </span>
         ) : (
@@ -1541,7 +1587,12 @@ export default function AdminSchedule({ setPage }) {
         onMouseEnter={(e) => setHover({ kind: "event", data: event, x: e.clientX, y: e.clientY })}
         onMouseMove={(e) => setHover(h => h && h.kind === "event" && h.data.id === event.id ? { ...h, x: e.clientX, y: e.clientY } : h)}
         onMouseLeave={() => setHover(null)}
-        onClick={isLocal ? (e) => { e.stopPropagation(); setHover(null); openEditEventModal(event); } : undefined}
+        onClick={(e) => {
+          const sp = event.start?.dateTime ? partsInBusinessTz(new Date(event.start.dateTime)) : null;
+          const date = sp ? sp.date : dateStr(currentDate);
+          const startMin = sp ? sp.hour * 60 + sp.minute : 0;
+          handleChipClick(e, date, startMin, isLocal ? () => openEditEventModal(event) : null);
+        }}
         style={{
           position: "absolute", top, ...horizontal, zIndex: 4,
           height: chipH,
@@ -1552,13 +1603,13 @@ export default function AdminSchedule({ setPage }) {
           animation: flashing ? "chipFlash 1.1s ease-out 2" : undefined,
           opacity: dragOver && dragOver.itemId === event.id ? 0.3 : 1,
           pointerEvents: dragOver ? "none" : "auto",
-          cursor: isLocal ? "pointer" : "default",
+          cursor: "pointer",
           overflow: "hidden",
           boxSizing: "border-box",
         }}
       >
         {compact ? (
-          <span style={{ color, whiteSpace: "nowrap" }}>{event.summary || "Busy"}</span>
+          <span style={{ color, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.2 }}>{event.summary || "Busy"}</span>
         ) : (
           <>
             <div style={{ fontWeight: 500, color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{event.summary || "Busy"}</div>
@@ -1737,11 +1788,28 @@ export default function AdminSchedule({ setPage }) {
                         boxSizing: "border-box",
                       }} />
                     ))}
-                    {overlayItems.map(item =>
-                      item.kind === "booking"
-                        ? renderOverlayBooking(item.data, item.top, item.height, true)
-                        : renderOverlayEvent(item.data, item.top, item.height, true)
-                    )}
+                    {overlayItems
+                      .filter(item => !(item.key && weekHiddenKeys.has(item.key)))
+                      .map(item => {
+                        const layout = item.key ? weekLayoutByKey.get(item.key) : undefined;
+                        return item.kind === "booking"
+                          ? renderOverlayBooking(item.data, item.top, item.height, true, layout)
+                          : renderOverlayEvent(item.data, item.top, item.height, true, layout);
+                      })}
+                    {(weekOverflowByDate[date] || []).map((o, idx) => (
+                      <div key={`overflow-${idx}`} style={{
+                        position: "absolute",
+                        top: ((o.startMin - HOURS[0] * 60) / 60) * WEEK_ROW_H + 2,
+                        right: 2, zIndex: 6,
+                        background: SRC.requested, color: "#fff",
+                        border: "1.5px solid #fff", boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+                        borderRadius: 999, padding: "1px 5px",
+                        fontSize: 10, fontWeight: 700, lineHeight: 1.4,
+                        pointerEvents: "none",
+                      }}>
+                        +{o.count}
+                      </div>
+                    ))}
                     {renderBookingPreview(date, WEEK_ROW_H)}
                     {renderSelectionOverlay(date, WEEK_ROW_H)}
                     {dragOver?.date === date && renderDragGhost(WEEK_ROW_H)}
@@ -2571,7 +2639,7 @@ export default function AdminSchedule({ setPage }) {
         )}
 
         <label style={S.label}>Session type</label>
-        <select style={{ ...S.input, cursor: "pointer" }} value={bookType} onChange={e => setBookType(e.target.value)}>
+        <select style={{ ...S.input, cursor: "pointer" }} value={bookType} onChange={e => { setBookType(e.target.value); setConflictConfirm(null); }}>
           <option value="">Select a session type...</option>
           {sessionTypes.map(t => (
             <option key={t.id} value={t.id}>{t.label} ({t.duration}min)</option>
@@ -2619,11 +2687,11 @@ export default function AdminSchedule({ setPage }) {
         <div style={{ display: "flex", gap: "1rem" }}>
           <div style={{ flex: 1 }}>
             <label style={S.label}>Date</label>
-            <input style={S.input} type="date" value={bookDate} onChange={e => setBookDate(e.target.value)} />
+            <input style={S.input} type="date" value={bookDate} onChange={e => { setBookDate(e.target.value); setConflictConfirm(null); }} />
           </div>
           <div style={{ flex: 1 }}>
             <label style={S.label}>Time</label>
-            <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
+            <input style={S.input} type="time" value={bookTime} onChange={e => { setBookTime(e.target.value); setConflictConfirm(null); }} />
           </div>
         </div>
 
@@ -2639,11 +2707,25 @@ export default function AdminSchedule({ setPage }) {
           );
         })()}
 
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <button style={S.btn} onClick={handleBookSession} disabled={modalSaving}>
-            {modalSaving ? (<><Spinner />Booking...</>) : "Book Session"}
-          </button>
-        </div>
+        {conflictConfirm === "book" ? (
+          <div style={{ background: "#fdecea", border: `1px solid ${SRC.requested}`, borderRadius: 8, padding: "10px 14px", marginTop: 8 }}>
+            <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500, color: SRC.requested }}>
+              ⚠ This creates a scheduling conflict with an existing booking or event.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={S.btn} onClick={() => handleBookSession(true)} disabled={modalSaving}>
+                {modalSaving ? (<><Spinner />Booking...</>) : "Continue Anyway"}
+              </button>
+              <button style={S.btnSmOut} onClick={() => setConflictConfirm(null)} disabled={modalSaving}>Abort</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button style={S.btn} onClick={handleBookSession} disabled={modalSaving}>
+              {modalSaving ? (<><Spinner />Booking...</>) : "Book Session"}
+            </button>
+          </div>
+        )}
       </>
     );
   };
@@ -2662,22 +2744,22 @@ export default function AdminSchedule({ setPage }) {
           </div>
         </div>
       )}
-      <label style={S.label}>Title</label>
-      <input style={S.input} placeholder="e.g. Lunch, Meeting, Personal" value={eventTitle} onChange={e => setEventTitle(e.target.value)} />
+      <label style={S.label}>Title (required)</label>
+      <input style={S.input} value={eventTitle} onChange={e => setEventTitle(e.target.value)} autoFocus />
       <div style={{ display: "flex", gap: "1rem" }}>
         <div style={{ flex: 1 }}>
           <label style={S.label}>Date</label>
-          <input style={S.input} type="date" value={bookDate} onChange={e => setBookDate(e.target.value)} />
+          <input style={S.input} type="date" value={bookDate} onChange={e => { setBookDate(e.target.value); setConflictConfirm(null); }} />
         </div>
         {!eventAllDay && (
           <>
             <div style={{ flex: 1 }}>
               <label style={S.label}>Start</label>
-              <input style={S.input} type="time" value={bookTime} onChange={e => setBookTime(e.target.value)} />
+              <input style={S.input} type="time" value={bookTime} onChange={e => { setBookTime(e.target.value); setConflictConfirm(null); }} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={S.label}>End</label>
-              <input style={S.input} type="time" value={eventEndTime} onChange={e => setEventEndTime(e.target.value)} />
+              <input style={S.input} type="time" value={eventEndTime} onChange={e => { setEventEndTime(e.target.value); setConflictConfirm(null); }} />
             </div>
           </>
         )}
@@ -2690,11 +2772,25 @@ export default function AdminSchedule({ setPage }) {
         <button onClick={() => setEventAllDayDays(d => d + 1)} disabled={!eventAllDay} style={{ width: 32, height: 32, border: `1px solid ${C.border}`, borderRadius: 6, background: C.surface, cursor: eventAllDay ? "pointer" : "not-allowed", fontSize: 18, lineHeight: 1, opacity: eventAllDay ? 1 : 0.4 }}>+</button>
         <span style={{ fontSize: 14, color: C.text }}>days</span>
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button style={S.btn} onClick={handleCreateEvent} disabled={modalSaving}>
-          {modalSaving ? (<><Spinner />Creating...</>) : "Create Event"}
-        </button>
-      </div>
+      {conflictConfirm === "event" ? (
+        <div style={{ background: "#fdecea", border: `1px solid ${SRC.requested}`, borderRadius: 8, padding: "10px 14px", marginTop: 8 }}>
+          <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 500, color: SRC.requested }}>
+            ⚠ This creates a scheduling conflict with an existing booking or event.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btn} onClick={() => handleCreateEvent(true)} disabled={modalSaving}>
+              {modalSaving ? (<><Spinner />Creating...</>) : "Continue Anyway"}
+            </button>
+            <button style={S.btnSmOut} onClick={() => setConflictConfirm(null)} disabled={modalSaving}>Abort</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button style={S.btn} onClick={() => handleCreateEvent()} disabled={modalSaving}>
+            {modalSaving ? (<><Spinner />Creating...</>) : "Create Event"}
+          </button>
+        </div>
+      )}
     </>
   );
 
@@ -2813,9 +2909,39 @@ export default function AdminSchedule({ setPage }) {
     );
   };
 
+  // --- Chip-click disambiguation popup ---
+  const renderChipChoice = () => {
+    if (!chipChoice) return null;
+    const { x, y, date, startMin, endMin, editAction } = chipChoice;
+    return (
+      <>
+        <div style={{ position: "fixed", inset: 0, zIndex: 100 }} onClick={() => setChipChoice(null)} />
+        <div style={{
+          position: "fixed", left: x + 8, top: y + 8, zIndex: 101,
+          background: "#fff", border: `1px solid ${C.gridLine}`, borderRadius: 8,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.18)", padding: 8, minWidth: 190,
+        }}>
+          <p style={{ margin: "2px 6px 8px", fontSize: 12, color: C.muted, fontWeight: 500 }}>What would you like to do?</p>
+          <button
+            style={{ ...S.btnSmOut, display: "block", width: "100%", marginBottom: 6, textAlign: "left" }}
+            onClick={() => { editAction(); setChipChoice(null); }}
+          >
+            Edit this item
+          </button>
+          <button
+            style={{ ...S.btnSmOut, display: "block", width: "100%", textAlign: "left" }}
+            onClick={() => { openChooseModal(date, startMin, endMin); setChipChoice(null); }}
+          >
+            Add new item
+          </button>
+        </div>
+      </>
+    );
+  };
+
   // --- Hover tooltip ---
   const renderHoverTooltip = () => {
-    if (!hover || dragOver || modal || pendingMove) return null;
+    if (!hover || dragOver || modal || pendingMove || chipChoice) return null;
     const { kind, data, x, y } = hover;
     let content;
     if (kind === "booking") {
@@ -3169,6 +3295,7 @@ export default function AdminSchedule({ setPage }) {
       {renderHoverTooltip()}
       {renderDragTooltip()}
       {renderSelectionTooltip()}
+      {renderChipChoice()}
     </div>
   );
 }
