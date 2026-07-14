@@ -2581,7 +2581,7 @@ export default function AdminSchedule({ setPage }) {
         {confirmCancel ? (
           <div style={{ marginTop: 8, padding: "12px 14px", background: "#fdecea", borderRadius: 8 }}>
             <p style={{ fontSize: 13, color: SRC.requested, marginBottom: 8 }}>
-              Are you sure you want to cancel this session? The client will be notified and their balance refunded.
+              Are you sure you want to cancel this session? The client will be notified and their minutes added back to their group balance.
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button

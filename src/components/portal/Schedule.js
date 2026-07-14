@@ -1938,7 +1938,7 @@ export default function Schedule({ setPage, setProfileFocus, viewAsClient, setBo
               <p style={S.p}>
                 Are you sure you want to cancel {isAdminViewing ? `${viewAsClient.first_name}'s` : "your"} {cancelTarget.status === "booked" ? "session" : "session request"} for{" "}
                 <strong>{formatTime(cancelTarget.start_time)}</strong> on{" "}
-                <strong>{cancelTarget.date}</strong>?
+                <strong>{cancelTarget.date}</strong>? {isAdminViewing ? "Their" : "Your"} minutes will be added back to {isAdminViewing ? "their" : "your"} group balance.
               </p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={{ ...S.btn, background: "#c0392b" }} onClick={handleCancel} disabled={confirming}>
